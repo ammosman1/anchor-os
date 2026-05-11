@@ -86,7 +86,8 @@ export function DebtScreen() {
 
   React.useEffect(() => {
     if (debtAccounts.length > 0 && !aiText) fetchAI();
-  }, [debtAccounts.length]);
+  // eslint-disable-next-line
+  }, []);
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto' }}>
@@ -341,7 +342,7 @@ export function DecisionsScreen() {
   const [selected,  setSelected]  = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [saving,    setSaving]    = useState(false);
-  const { addDecision, updateDecision } = require('../../lib/db');
+  const { addDecision } = require('../../lib/db');
   const emptyD = { title: '', options: '', decision: '', reasoning: '', emotionalState: 'neutral', confidence: 65, revisitDate: '', outcome: '' };
   const [form, setForm] = useState(emptyD);
 

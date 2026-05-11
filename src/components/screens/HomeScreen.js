@@ -5,11 +5,8 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { getAIFocusRecommendation } from '../../lib/ai';
-import { updateTask, addTask, saveProfile } from '../../lib/db';
-import {
-  Card, AICard, SectionLabel, MomentumBar, Tag, Button,
-  EmptyState, statusColors, priorityColors,
-} from '../ui';
+import { updateTask, addTask } from '../../lib/db';
+import { Card, AICard, SectionLabel, MomentumBar, Tag, Button, EmptyState, priorityColors } from '../ui';
 
 function getGreeting() {
   const h = new Date().getHours();

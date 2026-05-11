@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
-import { Button, Input } from '../ui';
+import { Button } from '../ui';
 
 const steps = [
   {
@@ -81,7 +81,6 @@ export default function OnboardingScreen() {
     if (e.key === 'Enter' && canAdvance) handleNext();
   };
 
-  const progress = ((step) / steps.length) * 100;
 
   return (
     <div style={{

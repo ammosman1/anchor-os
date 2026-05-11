@@ -4,7 +4,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { processBrainDump } from '../../lib/ai';
 import { saveBrainDump, addTask } from '../../lib/db';
-import { Card, Button, SectionLabel, Tag, AICard, EmptyState } from '../ui';
+import { Card, Button, SectionLabel, Tag, AICard } from '../ui';
 
 export default function BrainDumpScreen() {
   const { user } = useAuth();

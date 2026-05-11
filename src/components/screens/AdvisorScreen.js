@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { callAI } from '../../lib/ai';
 import { saveAdvisorChat, getAdvisorChat } from '../../lib/db';
-import { Card, Button, Spinner } from '../ui';
+import { Spinner } from '../ui';
 
 const SESSION_KEY = new Date().toDateString().replace(/ /g, '-');
 
@@ -22,7 +22,7 @@ const SUGGESTED_PROMPTS = [
 
 export default function AdvisorScreen() {
   const { user, profile } = useAuth();
-  const { projects, tasks, debtAccounts, totalDebt } = useData();
+  const { projects, tasks, totalDebt } = useData();
   const [messages,  setMessages]  = useState([]);
   const [input,     setInput]     = useState('');
   const [loading,   setLoading]   = useState(false);
