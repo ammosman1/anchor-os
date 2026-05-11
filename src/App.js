@@ -13,6 +13,7 @@ import ProjectsScreen   from './components/screens/ProjectsScreen';
 import BrainDumpScreen  from './components/screens/BrainDumpScreen';
 import AdvisorScreen    from './components/screens/AdvisorScreen';
 import { DebtScreen, ReviewScreen, DecisionsScreen, IdeasScreen, LifeScreen } from './components/screens/OtherScreens';
+import TasksScreen from './components/screens/TasksScreen';
 
 // Inject global styles once
 const styleEl = document.createElement('style');
@@ -38,6 +39,7 @@ function AppRoutes() {
       <AppLayout>
         <Routes>
           <Route path="/"           element={<HomeScreen />}      />
+          <Route path="/tasks"      element={<TasksScreen />} />
           <Route path="/projects"   element={<ProjectsScreen />}  />
           <Route path="/brain-dump" element={<BrainDumpScreen />} />
           <Route path="/advisor"    element={<AdvisorScreen />}   />
