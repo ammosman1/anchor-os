@@ -165,7 +165,9 @@ function BottomNav() {
       background: 'rgba(9,11,15,0.97)',
       borderTop: `1px solid ${tokens.border}`,
       display: 'flex',
-      padding: '6px 0 env(safe-area-inset-bottom, 8px)',
+      // Safe area for iPhone home indicator
+      paddingBottom: 'env(safe-area-inset-bottom, 12px)',
+      paddingTop: '6px',
       backdropFilter: 'blur(20px)',
       zIndex: 100,
     }}>
@@ -179,7 +181,7 @@ function BottomNav() {
               flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
               background: 'transparent', border: 'none',
               color: active ? tokens.accent : tokens.textMuted,
-              cursor: 'pointer', padding: '6px 0',
+              cursor: 'pointer', padding: '4px 0',
               transition: 'color 0.15s',
             }}
           >
@@ -208,10 +210,13 @@ export default function AppLayout({ children }) {
 
       <main style={{
         flex: 1,
-        padding: isMobile ? '24px 16px 90px' : '36px 40px',
+        // Safe area padding for iPhone notch at top
+        paddingTop: isMobile ? 'max(24px, env(safe-area-inset-top, 24px))' : '36px',
+        paddingLeft: isMobile ? '16px' : '40px',
+        paddingRight: isMobile ? '16px' : '40px',
+        paddingBottom: isMobile ? 'calc(90px + env(safe-area-inset-bottom, 0px))' : '40px',
         overflowY: 'auto',
         minHeight: '100vh',
-        maxWidth: isMobile ? '100%' : 'calc(100vw - ' + (collapsed ? '60px' : '220px') + ')',
       }}>
         {children}
       </main>
