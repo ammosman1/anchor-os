@@ -3,8 +3,8 @@
 
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
-  getDoc, onSnapshot, query, orderBy,
-  serverTimestamp, limit,
+  getDoc, onSnapshot, query, orderBy, limit,
+  serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -19,6 +19,33 @@ export const getProfile = async (uid) => {
 
 export const subscribeProfile = (uid, cb) =>
   onSnapshot(doc(db, 'users', uid), snap => cb(snap.exists() ? snap.data() : null));
+
+// ─── AI Cache ─────────────────────────────────────────────────────────────────
+// Stores AI responses with timestamps — only regenerate if stale (>24h)
+export const saveAICache = (uid, key, text) =>
+  setDoc(doc(db, 'users', uid, 'aiCache', key), {
+    text,
+    cachedAt: serverTimestamp(),
+    cachedAtMs: Date.now(),
+  });
+
+export const getAICache = async (uid, key, maxAgeHours = 24) => {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid, 'aiCache', key));
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    const ageMs = Date.now() - (data.cachedAtMs || 0);
+    const maxMs = maxAgeHours * 60 * 60 * 1000;
+    if (ageMs > maxMs) return null; // stale
+    return data.text;
+  } catch {
+    return null;
+  }
+};
+
+export const clearAICache = async (uid, key) => {
+  try { await deleteDoc(doc(db, 'users', uid, 'aiCache', key)); } catch {}
+};
 
 // ─── Projects ─────────────────────────────────────────────────────────────────
 export const addProject = (uid, data) =>
@@ -44,13 +71,20 @@ export const subscribeProjects = (uid, cb) =>
   );
 
 // ─── Tasks ────────────────────────────────────────────────────────────────────
-export const addTask = (uid, data) =>
-  addDoc(collection(db, 'users', uid, 'tasks'), {
-    ...data,
+export const addTask = async (uid, data) => {
+  // If projectId not set but project name is, try to find the project
+  let finalData = { ...data };
+  if (!finalData.projectId && finalData.project && finalData.project !== 'Inbox') {
+    // projectId will be set by caller if known, otherwise stays null
+  }
+  const ref = await addDoc(collection(db, 'users', uid, 'tasks'), {
+    ...finalData,
     done: false,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+  return ref;
+};
 
 export const updateTask = (uid, taskId, data) =>
   updateDoc(doc(db, 'users', uid, 'tasks', taskId), {
@@ -76,7 +110,7 @@ export const saveBrainDump = (uid, data) =>
 
 export const subscribeBrainDumps = (uid, cb) =>
   onSnapshot(
-    query(collection(db, 'users', uid, 'brainDumps'), orderBy('createdAt', 'desc'), limit(20)),
+    query(collection(db, 'users', uid, 'brainDumps'), orderBy('createdAt', 'desc'), limit(30)),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
 
@@ -154,6 +188,12 @@ export const getAdvisorChat = async (uid, sessionId) => {
   const snap = await getDoc(doc(db, 'users', uid, 'advisorChats', sessionId));
   return snap.exists() ? snap.data() : null;
 };
+
+export const subscribeAdvisorChats = (uid, cb) =>
+  onSnapshot(
+    query(collection(db, 'users', uid, 'advisorChats'), orderBy('updatedAt', 'desc'), limit(30)),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  );
 
 // ─── Weekly Reviews ───────────────────────────────────────────────────────────
 export const saveWeeklyReview = (uid, weekKey, data) =>

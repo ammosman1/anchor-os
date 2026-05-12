@@ -45,7 +45,7 @@ export function DataProvider({ children }) {
   // Derived data
   const activeProjects  = projects.filter(p => p.status === 'active');
   const stalledProjects = projects.filter(p => p.status === 'stalled');
-  const todayTasks      = tasks.filter(t => !t.done && t.priority !== 'later');
+  const todayTasks      = tasks.filter(t => !t.done && (t.priority === 'critical' || t.priority === 'high' || t.source === 'brain-dump' || !t.projectId));
   const totalDebt       = debtAccounts.reduce((s, a) => s + (a.balance || 0), 0);
 
   return (

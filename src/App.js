@@ -14,12 +14,16 @@ import BrainDumpScreen  from './components/screens/BrainDumpScreen';
 import AdvisorScreen    from './components/screens/AdvisorScreen';
 import ReviewScreen     from './components/screens/ReviewScreen';
 import TasksScreen      from './components/screens/TasksScreen';
-import { DecisionsScreen, IdeasScreen, DebtScreen, LifeScreen } from './components/screens/OtherScreens';
+import LifeScreen       from './components/screens/LifeScreen';
+import { DecisionsScreen, IdeasScreen, DebtScreen } from './components/screens/OtherScreens';
 
 // Inject global styles once
-const styleEl = document.createElement('style');
-styleEl.textContent = globalStyles;
-document.head.appendChild(styleEl);
+if (!document.getElementById('anchor-global-styles')) {
+  const styleEl = document.createElement('style');
+  styleEl.id = 'anchor-global-styles';
+  styleEl.textContent = globalStyles;
+  document.head.appendChild(styleEl);
+}
 
 function AppRoutes() {
   const { user, loading, isOnboarded } = useAuth();

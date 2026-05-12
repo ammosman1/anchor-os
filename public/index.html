@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#0C0E12" />
     <meta name="description" content="Anchor — Personal Operating System" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -11,6 +11,11 @@
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/icon-192.png" />
     <title>Anchor</title>
+    <style>
+      * { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+      html { overflow-x: hidden; }
+      body { overflow-x: hidden; max-width: 100vw; }
+    </style>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run Anchor.</noscript>
