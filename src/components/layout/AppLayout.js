@@ -140,7 +140,7 @@ function BottomNav() {
         </div>
       )}
 
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'rgba(9,11,15,0.97)', borderTop: `1px solid ${tokens.border}`, display: 'flex', paddingBottom: 'env(safe-area-inset-bottom, 10px)', paddingTop: '6px', backdropFilter: 'blur(20px)', zIndex: 100 }}>
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'rgba(9,11,15,0.97)', borderTop: `1px solid ${tokens.border}`, display: 'flex', paddingBottom: 'env(safe-area-inset-bottom, 0px)', paddingTop: '6px', backdropFilter: 'blur(20px)', zIndex: 100 }}>
         {bottomNavItems.map(item => {
           const active = isActive(item.path);
           return (
@@ -173,7 +173,7 @@ export default function AppLayout({ children }) {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: tokens.bg }}>
       {!isMobile && <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />}
-      <main style={{ flex: 1, paddingTop: isMobile ? 'max(24px, env(safe-area-inset-top, 24px))' : '32px', paddingLeft: isMobile ? '16px' : '36px', paddingRight: isMobile ? '16px' : '36px', paddingBottom: isMobile ? 'calc(90px + env(safe-area-inset-bottom, 0px))' : '40px', overflowY: 'auto', minHeight: '100vh' }}>
+      <main style={{ flex: 1, paddingTop: isMobile ? 'max(24px, env(safe-area-inset-top, 24px))' : '32px', paddingLeft: isMobile ? '16px' : '36px', paddingRight: isMobile ? '16px' : '36px', paddingBottom: isMobile ? 'calc(75px + env(safe-area-inset-bottom, 0px))' : '40px', overflowY: 'auto', minHeight: '100vh' }}>
         {children}
       </main>
       {isMobile && <BottomNav />}
