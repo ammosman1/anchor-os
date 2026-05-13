@@ -140,7 +140,7 @@ function BottomNav() {
         </div>
       )}
 
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'rgba(9,11,15,0.97)', borderTop: `1px solid ${tokens.border}`, display: 'flex', paddingBottom: 'env(safe-area-inset-bottom, 0px)', paddingTop: '6px', backdropFilter: 'blur(20px)', zIndex: 100 }}>
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'rgba(9,11,15,0.97)', borderTop: `1px solid ${tokens.border}`, display: 'flex', paddingBottom: '0px', paddingTop: '6px', backdropFilter: 'blur(20px)', zIndex: 100 }}>
         {bottomNavItems.map(item => {
           const active = isActive(item.path);
           return (
