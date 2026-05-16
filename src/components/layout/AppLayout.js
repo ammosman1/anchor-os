@@ -8,15 +8,16 @@ const navItems = [
   { path: '/',           icon: '⌂',  label: 'Today'      },
   { path: '/tasks',      icon: '✓',  label: 'Tasks'      },
   { path: '/projects',   icon: '◈',  label: 'Projects'   },
-  { path: '/brain-dump', icon: '◎',  label: 'Brain Dump' },
+  { path: '/calendar',   icon: '◫',  label: 'Calendar'   },
   { path: '/advisor',    icon: '✦',  label: 'Advisor'    },
+  { path: '/brain-dump', icon: '◎',  label: 'Brain Dump' },
   { path: '/goals',      icon: '◆',  label: 'Goals'      },
   { path: '/review',     icon: '◷',  label: 'Review'     },
   { path: '/decisions',  icon: '⊡',  label: 'Decisions'  },
   { path: '/ideas',      icon: '◇',  label: 'Ideas'      },
   { path: '/debt',       icon: '◉',  label: 'Finance'    },
   { path: '/life',       icon: '▦',  label: 'Life OS'    },
-  { path: '/profile',   icon: '⚙',  label: 'Settings'   },
+  { path: '/profile',    icon: '⚙',  label: 'Settings'   },
 ];
 
 const bottomNavItems = navItems.slice(0, 5);

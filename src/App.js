@@ -17,7 +17,8 @@ import TasksScreen      from './components/screens/TasksScreen';
 import LifeScreen       from './components/screens/LifeScreen';
 import GoalsScreen      from './components/screens/GoalsScreen';
 import { DecisionsScreen, IdeasScreen, DebtScreen } from './components/screens/OtherScreens';
-import ProfileScreen from './components/screens/ProfileScreen';
+import ProfileScreen   from './components/screens/ProfileScreen';
+import CalendarScreen  from './components/screens/CalendarScreen';
 
 // Inject global styles once
 if (!document.getElementById('anchor-global-styles')) {
@@ -63,6 +64,7 @@ function AppRoutes() {
           <Route path="/debt"       element={<DebtScreen />}      />
           <Route path="/life"       element={<LifeScreen />}      />
           <Route path="/goals"      element={<GoalsScreen />}     />
+          <Route path="/calendar"   element={<CalendarScreen />}  />
           <Route path="/profile"    element={<ProfileScreen />}   />
           <Route path="*"           element={<Navigate to="/" />} />
         </Routes>
