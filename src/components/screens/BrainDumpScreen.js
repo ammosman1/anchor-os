@@ -1,5 +1,5 @@
 // src/components/screens/BrainDumpScreen.js
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -71,35 +71,32 @@ function recalculateTimes(orderedBlocks, todaySlots, tomorrowSlots) {
 // ─── Schedule block row ───────────────────────────────────────────────────────
 
 function ScheduleBlock({
-  block, index, totalBlocks,
+  block, index, isFirst, isLast,
   isEditing, editForm, onEditStart, onEditSave, onEditCancel, onEditChange,
-  onDelete,
-  isDragTarget,
-  onDragStart, onDragOver, onDragEnd, onDrop,
+  onDelete, onMoveUp, onMoveDown,
 }) {
   const fc = focusStyles[block.focusType] || focusStyles.medium;
   const unscheduled = !block.start;
 
   return (
     <div
-      draggable={!isEditing && !unscheduled}
-      onDragStart={() => onDragStart(index)}
-      onDragOver={(e) => { e.preventDefault(); onDragOver(index); }}
-      onDragEnd={onDragEnd}
-      onDrop={(e) => { e.preventDefault(); onDrop(index); }}
       style={{
         display: 'flex', alignItems: 'flex-start', gap: '10px',
         padding: '12px 14px', marginBottom: '6px',
-        background: isDragTarget ? tokens.accentDim : unscheduled ? tokens.bgGlass : tokens.bgCard,
-        border: `1px solid ${isDragTarget ? 'rgba(200,169,110,0.3)' : unscheduled ? 'rgba(255,255,255,0.04)' : tokens.border}`,
+        background: unscheduled ? tokens.bgGlass : tokens.bgCard,
+        border: `1px solid ${unscheduled ? 'rgba(255,255,255,0.04)' : tokens.border}`,
         borderRadius: tokens.radiusMd,
         opacity: unscheduled ? 0.45 : 1,
-        cursor: isEditing || unscheduled ? 'default' : 'grab',
         transition: 'background 0.12s, border-color 0.12s',
       }}
     >
-      {/* Drag handle */}
-      <div style={{ color: tokens.textMuted, fontSize: '15px', paddingTop: '3px', userSelect: 'none', flexShrink: 0, opacity: unscheduled ? 0.3 : 0.6 }}>⠿</div>
+      {/* Up / Down move buttons */}
+      {!unscheduled && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flexShrink: 0, paddingTop: '2px' }}>
+          <button onClick={onMoveUp} disabled={isFirst} style={{ background: 'none', border: 'none', cursor: isFirst ? 'default' : 'pointer', color: isFirst ? tokens.textMuted : tokens.textSecondary, fontSize: '13px', padding: '1px 3px', opacity: isFirst ? 0.3 : 0.7, lineHeight: 1 }}>↑</button>
+          <button onClick={onMoveDown} disabled={isLast} style={{ background: 'none', border: 'none', cursor: isLast ? 'default' : 'pointer', color: isLast ? tokens.textMuted : tokens.textSecondary, fontSize: '13px', padding: '1px 3px', opacity: isLast ? 0.3 : 0.7, lineHeight: 1 }}>↓</button>
+        </div>
+      )}
 
       {isEditing ? (
         /* ── Inline edit mode ── */
@@ -253,7 +250,7 @@ function HistoryTab({ brainDumps }) {
 
 export default function BrainDumpScreen() {
   const { user }   = useAuth();
-  const { projects, tasks, brainDumps, weeklyReviews, calendarIntegration } = useData();
+  const { projects, tasks, brainDumps, weeklyReviews, calendarIntegration, userProfile } = useData();
 
   // View: 'input' | 'taskReview' | 'results' | 'schedule' | 'confirmed'
   const [view,        setView]        = useState('input');
@@ -286,8 +283,6 @@ export default function BrainDumpScreen() {
   // Schedule block interaction
   const [editingBlockIndex, setEditingBlockIndex] = useState(null);
   const [editForm,          setEditForm]          = useState({ title: '', durationMinutes: 30 });
-  const [dragOver,          setDragOver]          = useState(null);
-  const dragItem = useRef(null);
 
   const recognitionRef = useRef(null);
 
@@ -436,8 +431,9 @@ BRAIN DUMP:\n${text}` }],
       const { events = [] } = await getEvents(token, windowStart.toISOString(), windowEnd.toISOString());
 
       // Clip today's slots to current time (round up to next 15 min)
-      const rawTodaySlots = getFreeSlots(events, todayDate);
-      const tomorrowSlots = getFreeSlots(events, tomorrowDate);
+      const workHours     = userProfile?.workHours || null;
+      const rawTodaySlots = getFreeSlots(events, todayDate, workHours);
+      const tomorrowSlots = getFreeSlots(events, tomorrowDate, workHours);
       const roundedNow    = new Date(Math.ceil(Date.now() / (15 * 60000)) * (15 * 60000));
 
       const todaySlots = rawTodaySlots.map(slot => {
@@ -523,19 +519,12 @@ BRAIN DUMP:\n${text}` }],
 
   // ─── Schedule block interaction ────────────────────────────────────────────
 
-  const handleDragStart = (index) => { dragItem.current = index; };
-  const handleDragOver  = (index) => { setDragOver(index); };
-  const handleDragEnd   = () => { setDragOver(null); dragItem.current = null; };
-
-  const handleDrop = (targetIndex) => {
-    const from = dragItem.current;
-    if (from === null || from === targetIndex) { setDragOver(null); return; }
+  const handleMoveBlock = (index, direction) => {
+    const target = direction === 'up' ? index - 1 : index + 1;
+    if (target < 0 || target >= scheduleBlocks.length) return;
     const newBlocks = [...scheduleBlocks];
-    const [moved] = newBlocks.splice(from, 1);
-    newBlocks.splice(targetIndex, 0, moved);
+    [newBlocks[index], newBlocks[target]] = [newBlocks[target], newBlocks[index]];
     setScheduleBlocks(recalculateTimes(newBlocks, rawSlots.today, rawSlots.tomorrow));
-    dragItem.current = null;
-    setDragOver(null);
   };
 
   const handleEditStart = (index, block) => {
@@ -610,7 +599,7 @@ BRAIN DUMP:\n${text}` }],
     setCreatedTaskRefs([]); setCreated({ projects: [], tasks: [] });
     setScheduleBlocks([]); setRawSlots({ today: [], tomorrow: [] }); setScheduleError('');
     setConfirming(false); setConfirmedCount(0); setScheduleDates({ today: '', tomorrow: '' });
-    setEditingBlockIndex(null); setDragOver(null);
+    setEditingBlockIndex(null);
     setView('input');
   };
 
@@ -764,15 +753,15 @@ BRAIN DUMP:\n${text}` }],
                     </div>
                   )}
                   <ScheduleBlock
-                    block={block} index={i} totalBlocks={scheduleBlocks.length}
+                    block={block} index={i}
+                    isFirst={i === 0} isLast={i === scheduleBlocks.filter(b => b.start).length - 1}
                     isEditing={editingBlockIndex === i}
                     editForm={editForm}
                     onEditStart={handleEditStart} onEditSave={handleEditSave}
                     onEditCancel={handleEditCancel} onEditChange={handleEditChange}
                     onDelete={handleDeleteBlock}
-                    isDragTarget={dragOver === i}
-                    onDragStart={handleDragStart} onDragOver={handleDragOver}
-                    onDragEnd={handleDragEnd} onDrop={handleDrop}
+                    onMoveUp={() => handleMoveBlock(i, 'up')}
+                    onMoveDown={() => handleMoveBlock(i, 'down')}
                   />
                 </React.Fragment>
               );
@@ -789,15 +778,14 @@ BRAIN DUMP:\n${text}` }],
                 if (block.start) return null;
                 return (
                   <ScheduleBlock
-                    key={i} block={block} index={i} totalBlocks={scheduleBlocks.length}
+                    key={i} block={block} index={i}
+                    isFirst={false} isLast={false}
                     isEditing={editingBlockIndex === i}
                     editForm={editForm}
                     onEditStart={handleEditStart} onEditSave={handleEditSave}
                     onEditCancel={handleEditCancel} onEditChange={handleEditChange}
                     onDelete={handleDeleteBlock}
-                    isDragTarget={dragOver === i}
-                    onDragStart={handleDragStart} onDragOver={handleDragOver}
-                    onDragEnd={handleDragEnd} onDrop={handleDrop}
+                    onMoveUp={() => {}} onMoveDown={() => {}}
                   />
                 );
               })}
@@ -849,7 +837,10 @@ BRAIN DUMP:\n${text}` }],
                         <span style={{ color: isUrgent ? tokens.amber : tokens.accent, flexShrink: 0 }}>{isUrgent ? '⚑' : '→'}</span>
                         <span style={{ fontSize: '13px', color: tokens.textPrimary }}>{item}</span>
                       </div>
-                      {tasksSent.includes(item) || createdTaskRefs.some(t => t.title === item)
+                      {tasksSent.includes(item) || createdTaskRefs.some(t => {
+                          const a = t.title.toLowerCase(), b = item.toLowerCase();
+                          return a === b || b.includes(a) || a.includes(b);
+                        })
                         ? <span style={{ fontSize: '10px', color: tokens.green, flexShrink: 0 }}>✓</span>
                         : <button onClick={() => sendTaskToInbox(item)} style={{ fontSize: '10px', color: tokens.accent, background: tokens.accentDim, border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', flexShrink: 0, fontFamily: fonts.body }}>+ Task</button>
                       }

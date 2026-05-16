@@ -104,11 +104,22 @@ export async function deleteEvent(accessToken, eventId) {
 
 // ─── Free slot detection ──────────────────────────────────────────────────────
 
-// Given a list of events for a day, returns free time slots >= 30 min between 7am–9pm
-export function getFreeSlots(events, date) {
-  const day = new Date(date);
-  const dayStart = new Date(day.setHours(7, 0, 0, 0));
-  const dayEnd   = new Date(new Date(date).setHours(21, 0, 0, 0));
+// Given a list of events for a day, returns free time slots >= 30 min within work hours.
+// workHours shape: { monday: { enabled, start: 'HH:MM', end: 'HH:MM' }, ... }
+export function getFreeSlots(events, date, workHours = null) {
+  const DAY_NAMES = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  const dayName   = DAY_NAMES[new Date(date).getDay()];
+
+  let startH = 7, startM = 0, endH = 21, endM = 0;
+  if (workHours?.[dayName]) {
+    const cfg = workHours[dayName];
+    if (!cfg.enabled) return [];
+    [startH, startM] = cfg.start.split(':').map(Number);
+    [endH,   endM  ] = cfg.end.split(':').map(Number);
+  }
+
+  const dayStart = new Date(new Date(date).setHours(startH, startM, 0, 0));
+  const dayEnd   = new Date(new Date(date).setHours(endH,   endM,   0, 0));
 
   const busy = events
     .filter(e => e.start?.dateTime) // skip all-day events

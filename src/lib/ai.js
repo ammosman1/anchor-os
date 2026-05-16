@@ -3,6 +3,9 @@
 // In production: calls go to /api/chat (Vercel serverless function)
 // In development: calls go directly to Anthropic (requires REACT_APP_ANTHROPIC_KEY in .env)
 
+let _userPersona = '';
+export function setUserPersona(text) { _userPersona = text || ''; }
+
 const ANDREW_CONTEXT = `
 You are Anchor — Andrew Mosman's personal AI operating system and strategic advisor.
 
@@ -38,7 +41,8 @@ ANCHOR'S TONE:
 `;
 
 export async function callAI({ messages, systemExtra = '', maxTokens = 500 }) {
-  const system = ANDREW_CONTEXT + (systemExtra ? '\n\n' + systemExtra : '');
+  const personaAddition = _userPersona ? `\n\nUSER PERSONA NOTES (Andrew added these — factor them into all responses):\n${_userPersona}` : '';
+  const system = ANDREW_CONTEXT + personaAddition + (systemExtra ? '\n\n' + systemExtra : '');
 
   // Try Vercel serverless function first (production), fall back to direct call
   try {

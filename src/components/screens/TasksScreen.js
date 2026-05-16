@@ -16,7 +16,7 @@ const PRIORITIES = [
 
 const FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'done'];
 
-const emptyForm = { title: '', priority: 'high', projectId: '', notes: '' };
+const emptyForm = { title: '', priority: 'high', projectId: '', notes: '', estimatedMinutes: '' };
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -89,10 +89,11 @@ export default function TasksScreen() {
 
   const openEdit = (task) => {
     setForm({
-      title:     task.title     || '',
-      priority:  task.priority  || 'high',
-      projectId: task.projectId || '',
-      notes:     task.notes     || '',
+      title:            task.title            || '',
+      priority:         task.priority         || 'high',
+      projectId:        task.projectId        || '',
+      notes:            task.notes            || '',
+      estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : '',
     });
     setEditing(task.id);
     setShowModal(true);
@@ -105,11 +106,12 @@ export default function TasksScreen() {
     // Resolve project name from projectId
     const linkedProject = projects.find(p => p.id === form.projectId);
     const taskData = {
-      title:     form.title.trim(),
-      priority:  form.priority,
-      projectId: form.projectId || null,
-      project:   linkedProject ? linkedProject.title : 'Inbox',
-      notes:     form.notes,
+      title:            form.title.trim(),
+      priority:         form.priority,
+      projectId:        form.projectId || null,
+      project:          linkedProject ? linkedProject.title : 'Inbox',
+      notes:            form.notes,
+      estimatedMinutes: parseInt(form.estimatedMinutes) || null,
     };
 
     if (editing) {
@@ -214,6 +216,11 @@ export default function TasksScreen() {
                     <span style={{ fontSize: '11px', color: tokens.textMuted }}>{projectName(task)}</span>
                     {source && <span style={{ fontSize: '10px', color: source.color, fontWeight: 600 }}>· {source.label}</span>}
                     <span style={{ fontSize: '10px', color: tokens.textMuted }}>· {timeAgo(task.createdAt)}</span>
+                    {task.estimatedMinutes && (
+                      <span style={{ fontSize: '10px', color: tokens.textMuted, background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: '4px' }}>
+                        {task.estimatedMinutes >= 60 ? `${Math.floor(task.estimatedMinutes/60)}h${task.estimatedMinutes%60 ? ` ${task.estimatedMinutes%60}m` : ''}` : `${task.estimatedMinutes}m`}
+                      </span>
+                    )}
                   </div>
                   {task.notes && <div style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '4px' }}>{task.notes}</div>}
                 </div>
@@ -241,6 +248,7 @@ export default function TasksScreen() {
             <Select label="Project" value={form.projectId} onChange={v => setForm(f => ({ ...f, projectId: v }))} options={projectOptions} />
           </div>
           <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Any context..." multiline rows={2} />
+          <Input label="Estimated Time (minutes)" value={form.estimatedMinutes} onChange={v => setForm(f => ({ ...f, estimatedMinutes: v }))} placeholder="e.g. 30, 60, 90" type="number" />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
             <Button onClick={() => setShowModal(false)} variant="ghost">Cancel</Button>
             <Button onClick={handleSave} loading={saving} disabled={!form.title.trim()}>{editing ? 'Save' : 'Add Task'}</Button>
