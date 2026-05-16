@@ -5,6 +5,7 @@ import {
   subscribeProjects, subscribeTasks, subscribeDebtAccounts,
   subscribeIdeas, subscribeDecisions, subscribeBrainDumps,
   subscribeWeeklyReviews, subscribeGoals, subscribeCalendarIntegration,
+  subscribePlaidItems,
 } from '../lib/db';
 
 const DataContext = createContext(null);
@@ -20,13 +21,14 @@ export function DataProvider({ children }) {
   const [weeklyReviews, setWeeklyReviews] = useState([]);
   const [goals,               setGoals]               = useState([]);
   const [calendarIntegration, setCalendarIntegration] = useState(null);
+  const [plaidItems,          setPlaidItems]          = useState([]);
   const [loaded,              setLoaded]              = useState(false);
 
   useEffect(() => {
     if (!user) {
       setProjects([]); setTasks([]); setDebtAccounts([]);
       setIdeas([]); setDecisions([]); setBrainDumps([]);
-      setWeeklyReviews([]); setGoals([]); setCalendarIntegration(null); setLoaded(false);
+      setWeeklyReviews([]); setGoals([]); setCalendarIntegration(null); setPlaidItems([]); setLoaded(false);
       return;
     }
 
@@ -40,6 +42,7 @@ export function DataProvider({ children }) {
       subscribeWeeklyReviews(user.uid, setWeeklyReviews),
       subscribeGoals(user.uid,               setGoals),
       subscribeCalendarIntegration(user.uid, setCalendarIntegration),
+      subscribePlaidItems(user.uid,          setPlaidItems),
     ];
 
     setLoaded(true);
@@ -55,7 +58,7 @@ export function DataProvider({ children }) {
 
   return (
     <DataContext.Provider value={{
-      projects, tasks, debtAccounts, ideas, decisions, brainDumps, weeklyReviews, goals, calendarIntegration,
+      projects, tasks, debtAccounts, ideas, decisions, brainDumps, weeklyReviews, goals, calendarIntegration, plaidItems,
       activeProjects, stalledProjects, todayTasks, totalDebt, activeGoals,
       loaded,
     }}>

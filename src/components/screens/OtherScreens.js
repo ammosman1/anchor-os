@@ -1,10 +1,11 @@
-// src/components/screens/DebtScreen.js
-import React, { useState } from 'react';
+// src/components/screens/OtherScreens.js
+import React, { useState, useEffect } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { getDebtAdvice } from '../../lib/ai';
-import { addDebtAccount, updateDebtAccount, deleteDebtAccount } from '../../lib/db';
+import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem } from '../../lib/db';
+import { openPlaidLink, fetchAccounts, fetchTransactions, calcCashFlow, formatTxAmount, formatTxDate } from '../../lib/plaid';
 import { Card, Button, Input, Select, SectionLabel, MomentumBar, Modal, AICard, EmptyState } from '../ui';
 
 const DEBT_TYPES = [
@@ -30,16 +31,79 @@ const typeColors = {
 };
 
 export function DebtScreen() {
-  const { user } = useAuth();
-  const { debtAccounts, totalDebt } = useData();
-  const [showModal,  setShowModal]  = useState(false);
-  const [form,       setForm]       = useState(emptyForm);
-  const [editing,    setEditing]    = useState(null);
-  const [saving,     setSaving]     = useState(false);
-  const [aiText,     setAiText]     = useState('');
-  const [aiLoading,  setAiLoading]  = useState(false);
+  const { user }                          = useAuth();
+  const { debtAccounts, totalDebt, plaidItems } = useData();
+  const [showModal,     setShowModal]     = useState(false);
+  const [form,          setForm]          = useState(emptyForm);
+  const [editing,       setEditing]       = useState(null);
+  const [saving,        setSaving]        = useState(false);
+  const [aiText,        setAiText]        = useState('');
+  const [aiLoading,     setAiLoading]     = useState(false);
+  const [plaidAccounts, setPlaidAccounts] = useState([]);
+  const [transactions,  setTransactions]  = useState([]);
+  const [loadingPlaid,  setLoadingPlaid]  = useState(false);
+  const [connecting,    setConnecting]    = useState(false);
+  const [showAllTx,     setShowAllTx]     = useState(false);
 
-  const sorted = [...debtAccounts].sort((a, b) => (b.interestRate || 0) - (a.interestRate || 0));
+  // Load balances + transactions whenever connected items change
+  useEffect(() => {
+    if (!plaidItems.length) {
+      setPlaidAccounts([]);
+      setTransactions([]);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setLoadingPlaid(true);
+      try {
+        const allAccounts = [];
+        const allTx       = [];
+        await Promise.all(plaidItems.map(async item => {
+          const [aRes, tRes] = await Promise.all([
+            fetch('/api/plaid/accounts',     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accessToken: item.accessToken }) }),
+            fetch('/api/plaid/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accessToken: item.accessToken, days: 30 }) }),
+          ]);
+          const aData = await aRes.json();
+          const tData = await tRes.json();
+          if (aData.accounts)    allAccounts.push(...aData.accounts.map(a => ({ ...a, institutionName: item.institutionName })));
+          if (tData.transactions) allTx.push(...tData.transactions);
+        }));
+        if (!cancelled) {
+          setPlaidAccounts(allAccounts);
+          setTransactions(allTx.sort((a, b) => new Date(b.date) - new Date(a.date)));
+        }
+      } catch (err) {
+        console.error('Plaid load error:', err);
+      } finally {
+        if (!cancelled) setLoadingPlaid(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [plaidItems.map(i => i.id).join(',')]); // eslint-disable-line
+
+  const cashFlow = calcCashFlow(transactions);
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    try {
+      await openPlaidLink(user.uid, async (data) => {
+        await savePlaidItem(user.uid, data.itemId, {
+          accessToken:     data.accessToken,
+          itemId:          data.itemId,
+          institutionId:   data.institutionId,
+          institutionName: data.institutionName,
+          accounts:        data.accounts,
+        });
+      });
+    } catch (err) {
+      console.error('Plaid connect error:', err);
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const sorted         = [...debtAccounts].sort((a, b) => (b.interestRate || 0) - (a.interestRate || 0));
   const highestBalance = Math.max(...debtAccounts.map(a => a.balance || 0), 1);
 
   const fetchAI = async () => {
@@ -50,7 +114,7 @@ export function DebtScreen() {
     setAiLoading(false);
   };
 
-  const openNew = () => { setForm(emptyForm); setEditing(null); setShowModal(true); };
+  const openNew  = () => { setForm(emptyForm); setEditing(null); setShowModal(true); };
   const openEdit = (a) => {
     setForm({ name: a.name || '', balance: String(a.balance || ''), interestRate: String(a.interestRate || ''), type: a.type || 'personal', minimumPayment: String(a.minimumPayment || ''), notes: a.notes || '' });
     setEditing(a.id);
@@ -60,19 +124,9 @@ export function DebtScreen() {
   const handleSave = async () => {
     if (!form.name.trim() || !form.balance) return;
     setSaving(true);
-    const data = {
-      name: form.name.trim(),
-      balance: parseFloat(form.balance) || 0,
-      interestRate: parseFloat(form.interestRate) || 0,
-      type: form.type,
-      minimumPayment: parseFloat(form.minimumPayment) || 0,
-      notes: form.notes,
-    };
-    if (editing) {
-      await updateDebtAccount(user.uid, editing, data);
-    } else {
-      await addDebtAccount(user.uid, data);
-    }
+    const data = { name: form.name.trim(), balance: parseFloat(form.balance) || 0, interestRate: parseFloat(form.interestRate) || 0, type: form.type, minimumPayment: parseFloat(form.minimumPayment) || 0, notes: form.notes };
+    if (editing) { await updateDebtAccount(user.uid, editing, data); }
+    else         { await addDebtAccount(user.uid, data); }
     setSaving(false);
     setShowModal(false);
     setAiText('');
@@ -84,37 +138,156 @@ export function DebtScreen() {
     setAiText('');
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (debtAccounts.length > 0 && !aiText) fetchAI();
-  // eslint-disable-next-line
-  }, []);
+  }, []); // eslint-disable-line
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto' }}>
+      {/* Header */}
       <div className="fade-up" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px' }}>
         <div>
-          <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Finance Tracker</div>
-          <h1 style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>Debt Payoff OS</h1>
-          <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '6px' }}>
-            Track, prioritize, and eliminate systematically.
-          </p>
+          <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Finance</div>
+          <h1 style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>Finance OS</h1>
+          <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '6px' }}>Real accounts. Real numbers. No guessing.</p>
         </div>
-        <Button onClick={openNew}>+ Add Account</Button>
+        <Button onClick={openNew} variant="ghost">+ Manual Account</Button>
       </div>
 
-      {/* Total */}
-      {debtAccounts.length > 0 && (
+      {/* ── Plaid: no accounts connected yet ── */}
+      {plaidItems.length === 0 && (
         <div className="fade-up stagger-1" style={{ marginBottom: '16px' }}>
+          <div style={{ background: 'linear-gradient(135deg, rgba(91,143,212,0.08), rgba(91,143,212,0.03))', border: `1px dashed rgba(91,143,212,0.3)`, borderRadius: tokens.radiusLg, padding: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '4px' }}>Connect your bank accounts</div>
+                <div style={{ fontSize: '12px', color: tokens.textMuted }}>See live balances, transactions, and monthly surplus — all in one place.</div>
+              </div>
+              <Button loading={connecting} onClick={handleConnect}>Connect Bank</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Plaid: connected accounts ── */}
+      {plaidItems.length > 0 && (
+        <div className="fade-up stagger-1" style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <SectionLabel style={{ marginBottom: 0 }}>Connected Accounts</SectionLabel>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              {loadingPlaid && <span style={{ fontSize: '11px', color: tokens.textMuted }}>Refreshing...</span>}
+              <Button size="sm" loading={connecting} onClick={handleConnect}>+ Add Bank</Button>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {plaidItems.map(item => {
+              const itemAccounts = plaidAccounts.filter(a => a.institutionName === item.institutionName);
+              return (
+                <Card key={item.id} style={{ padding: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: itemAccounts.length ? '12px' : 0 }}>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <div style={{ width: 34, height: 34, borderRadius: '8px', background: tokens.bgInput, border: `1px solid ${tokens.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>🏦</div>
+                      <div>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{item.institutionName}</div>
+                        <div style={{ fontSize: '11px', color: tokens.green, marginTop: '1px' }}>● Connected</div>
+                      </div>
+                    </div>
+                    <button onClick={() => deletePlaidItem(user.uid, item.id)} style={{ background: 'none', border: 'none', color: tokens.red, fontSize: '11px', cursor: 'pointer', opacity: 0.55, fontFamily: fonts.body, padding: '2px 6px' }}>Disconnect</button>
+                  </div>
+                  {itemAccounts.map(account => (
+                    <div key={account.account_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderTop: `1px solid ${tokens.border}` }}>
+                      <div>
+                        <div style={{ fontSize: '13px', color: tokens.textPrimary }}>{account.name}</div>
+                        <div style={{ fontSize: '10px', color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '2px' }}>{account.subtype}</div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontFamily: fonts.display, fontSize: '17px', fontWeight: 700, color: account.type === 'credit' ? tokens.red : tokens.green }}>
+                          ${(account.balances.current || 0).toLocaleString()}
+                        </div>
+                        {account.balances.available != null && account.balances.available !== account.balances.current && (
+                          <div style={{ fontSize: '10px', color: tokens.textMuted }}>${account.balances.available.toLocaleString()} avail.</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Monthly Cash Flow ── */}
+      {transactions.length > 0 && (
+        <div className="fade-up stagger-2" style={{ marginBottom: '16px' }}>
+          <Card>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <SectionLabel style={{ marginBottom: 0 }}>Monthly Cash Flow</SectionLabel>
+              <span style={{ fontSize: '10px', color: tokens.textMuted }}>Last 30 days</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', textAlign: 'center' }}>
+              {[
+                { label: 'Income',   val: cashFlow.income,   color: tokens.green, prefix: '+$' },
+                { label: 'Spending', val: cashFlow.spending,  color: tokens.red,   prefix: '-$' },
+                { label: 'Surplus',  val: Math.abs(cashFlow.surplus), color: cashFlow.surplus >= 0 ? tokens.accent : tokens.red, prefix: cashFlow.surplus >= 0 ? '+$' : '-$' },
+              ].map(item => (
+                <div key={item.label}>
+                  <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{item.label}</div>
+                  <div style={{ fontFamily: fonts.display, fontSize: '22px', fontWeight: 700, color: item.color }}>
+                    {item.prefix}{item.val.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Recent Transactions ── */}
+      {transactions.length > 0 && (
+        <div className="fade-up stagger-3" style={{ marginBottom: '16px' }}>
+          <Card>
+            <SectionLabel>Recent Transactions</SectionLabel>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {transactions.slice(0, showAllTx ? undefined : 12).map(tx => (
+                <div key={tx.transaction_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${tokens.border}` }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '13px', color: tokens.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {tx.merchant_name || tx.name}
+                    </div>
+                    <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '2px' }}>
+                      {formatTxDate(tx.date)} · {(tx.personal_finance_category?.primary || tx.category?.[0] || 'Uncategorized').replace(/_/g, ' ')}
+                    </div>
+                  </div>
+                  <div style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 600, color: tx.amount < 0 ? tokens.green : tokens.textPrimary, flexShrink: 0, marginLeft: '16px' }}>
+                    {formatTxAmount(tx.amount)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {transactions.length > 12 && (
+              <button onClick={() => setShowAllTx(t => !t)} style={{ marginTop: '12px', fontSize: '12px', color: tokens.accent, background: 'none', border: 'none', cursor: 'pointer', fontFamily: fonts.body }}>
+                {showAllTx ? 'Show less' : `Show all ${transactions.length} transactions`}
+              </button>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {/* ── Manual Debt Accounts ── */}
+      <div className="fade-up stagger-4" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+        <SectionLabel style={{ marginBottom: 0 }}>Debt Accounts</SectionLabel>
+        <Button onClick={openNew} size="sm">+ Add Account</Button>
+      </div>
+
+      {debtAccounts.length > 0 && (
+        <div className="fade-up stagger-4" style={{ marginBottom: '16px' }}>
           <Card accent>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <SectionLabel>Total Debt Load</SectionLabel>
-                <div style={{ fontFamily: fonts.display, fontSize: '38px', fontWeight: 700, color: tokens.red, lineHeight: 1 }}>
-                  ${totalDebt.toLocaleString()}
-                </div>
-                <div style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '4px' }}>
-                  {debtAccounts.length} account{debtAccounts.length > 1 ? 's' : ''}
-                </div>
+                <div style={{ fontFamily: fonts.display, fontSize: '38px', fontWeight: 700, color: tokens.red, lineHeight: 1 }}>${totalDebt.toLocaleString()}</div>
+                <div style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '4px' }}>{debtAccounts.length} account{debtAccounts.length !== 1 ? 's' : ''}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: '12px', color: tokens.textMuted, marginBottom: '4px' }}>Monthly Minimums</div>
@@ -127,25 +300,18 @@ export function DebtScreen() {
         </div>
       )}
 
-      {/* AI Advice */}
       {debtAccounts.length > 0 && (
-        <div className="fade-up stagger-2" style={{ marginBottom: '16px' }}>
+        <div className="fade-up stagger-5" style={{ marginBottom: '16px' }}>
           <AICard text={aiText} loading={aiLoading} onRefresh={fetchAI} label="PAYOFF STRATEGY" />
         </div>
       )}
 
-      {/* Accounts */}
-      <div className="fade-up stagger-3" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div className="fade-up stagger-5" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {debtAccounts.length === 0 ? (
-          <EmptyState
-            icon="◉"
-            title="No debt accounts tracked"
-            subtitle="Add your accounts to get an AI-optimized payoff strategy."
-            action={<Button onClick={openNew}>+ Add First Account</Button>}
-          />
+          <EmptyState icon="◉" title="No debt accounts tracked" subtitle="Add your accounts to get an AI-optimized payoff strategy." action={<Button onClick={openNew}>+ Add First Account</Button>} />
         ) : (
           sorted.map((account, i) => {
-            const tc = typeColors[account.type] || typeColors.other;
+            const tc  = typeColors[account.type] || typeColors.other;
             const pct = Math.max(0, Math.min(100, ((account.balance || 0) / highestBalance) * 100));
             return (
               <Card key={account.id}>
@@ -154,18 +320,12 @@ export function DebtScreen() {
                     {i === 0 && <span style={{ fontSize: '11px', color: tokens.accent, fontWeight: 700 }}>PRIORITY 1</span>}
                     <div>
                       <div style={{ fontWeight: 600, fontSize: '14px', color: tokens.textPrimary }}>{account.name}</div>
-                      <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>
-                        {account.interestRate || 0}% APR · Min ${(account.minimumPayment || 0).toLocaleString()}/mo
-                      </div>
+                      <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>{account.interestRate || 0}% APR · Min ${(account.minimumPayment || 0).toLocaleString()}/mo</div>
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span style={{ fontFamily: fonts.display, fontSize: '20px', fontWeight: 700, color: tokens.red }}>
-                      ${(account.balance || 0).toLocaleString()}
-                    </span>
-                    <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: tc.bg, color: tc.text, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                      {account.type}
-                    </span>
+                    <span style={{ fontFamily: fonts.display, fontSize: '20px', fontWeight: 700, color: tokens.red }}>${(account.balance || 0).toLocaleString()}</span>
+                    <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: tc.bg, color: tc.text, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{account.type}</span>
                   </div>
                 </div>
                 <MomentumBar value={pct} color={tokens.red} height={4} />
@@ -173,9 +333,7 @@ export function DebtScreen() {
                   <Button onClick={() => openEdit(account)} variant="ghost" size="sm">Edit</Button>
                   <Button onClick={() => handleDelete(account.id)} variant="danger" size="sm">Remove</Button>
                 </div>
-                {account.notes && (
-                  <div style={{ marginTop: '8px', fontSize: '12px', color: tokens.textMuted }}>{account.notes}</div>
-                )}
+                {account.notes && <div style={{ marginTop: '8px', fontSize: '12px', color: tokens.textMuted }}>{account.notes}</div>}
               </Card>
             );
           })
@@ -196,9 +354,7 @@ export function DebtScreen() {
           <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Context, payment plan details..." multiline rows={2} />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
             <Button onClick={() => setShowModal(false)} variant="ghost">Cancel</Button>
-            <Button onClick={handleSave} loading={saving} disabled={!form.name.trim() || !form.balance}>
-              {editing ? 'Save' : 'Add Account'}
-            </Button>
+            <Button onClick={handleSave} loading={saving} disabled={!form.name.trim() || !form.balance}>{editing ? 'Save' : 'Add Account'}</Button>
           </div>
         </div>
       </Modal>

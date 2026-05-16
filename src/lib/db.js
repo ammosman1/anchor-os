@@ -195,6 +195,23 @@ export const subscribeAdvisorChats = (uid, cb) =>
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
 
+// ─── Plaid Items ──────────────────────────────────────────────────────────────
+export const savePlaidItem = (uid, itemId, data) =>
+  setDoc(doc(db, 'users', uid, 'plaidItems', itemId), {
+    ...data,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+export const deletePlaidItem = (uid, itemId) =>
+  deleteDoc(doc(db, 'users', uid, 'plaidItems', itemId));
+
+export const subscribePlaidItems = (uid, cb) =>
+  onSnapshot(
+    collection(db, 'users', uid, 'plaidItems'),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  );
+
 // ─── Calendar Integration ─────────────────────────────────────────────────────
 export const saveCalendarTokens = (uid, data) =>
   setDoc(doc(db, 'users', uid, 'integrations', 'googleCalendar'), {
