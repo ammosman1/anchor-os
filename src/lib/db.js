@@ -195,6 +195,27 @@ export const subscribeAdvisorChats = (uid, cb) =>
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
 
+// ─── Calendar Integration ─────────────────────────────────────────────────────
+export const saveCalendarTokens = (uid, data) =>
+  setDoc(doc(db, 'users', uid, 'integrations', 'googleCalendar'), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+
+export const getCalendarTokens = async (uid) => {
+  const snap = await getDoc(doc(db, 'users', uid, 'integrations', 'googleCalendar'));
+  return snap.exists() ? snap.data() : null;
+};
+
+export const subscribeCalendarIntegration = (uid, cb) =>
+  onSnapshot(
+    doc(db, 'users', uid, 'integrations', 'googleCalendar'),
+    snap => cb(snap.exists() ? snap.data() : null)
+  );
+
+export const disconnectCalendar = (uid) =>
+  deleteDoc(doc(db, 'users', uid, 'integrations', 'googleCalendar'));
+
 // ─── Goals ────────────────────────────────────────────────────────────────────
 export const addGoal = (uid, data) =>
   addDoc(collection(db, 'users', uid, 'goals'), {

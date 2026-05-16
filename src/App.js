@@ -1,11 +1,11 @@
 // src/App.js
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataProvider } from './context/DataContext';
 import { globalStyles } from './lib/tokens';
-
 import AppLayout        from './components/layout/AppLayout';
+import { handleCalendarCallback } from './lib/calendar';
 import AuthScreen       from './components/screens/AuthScreen';
 import OnboardingScreen from './components/screens/OnboardingScreen';
 import HomeScreen       from './components/screens/HomeScreen';
@@ -28,6 +28,13 @@ if (!document.getElementById('anchor-global-styles')) {
 
 function AppRoutes() {
   const { user, loading, isOnboarded } = useAuth();
+
+  // Handle Google Calendar OAuth redirect — save tokens to Firestore, clear URL
+  useEffect(() => {
+    if (user && window.location.search.includes('calendarConnected=1')) {
+      handleCalendarCallback(user.uid);
+    }
+  }, [user]);
 
   if (loading) {
     return (

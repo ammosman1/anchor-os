@@ -3,14 +3,36 @@ import React, { useState, useEffect } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { getProfile } from '../../lib/db';
-import { Card, SectionLabel, MomentumBar } from '../ui';
+import { getProfile, disconnectCalendar } from '../../lib/db';
+import { initiateCalendarAuth, getValidAccessToken, getEvents, formatEventTime, formatEventDuration } from '../../lib/calendar';
+import { Card, SectionLabel, MomentumBar, Button } from '../ui';
 
 function LifeScreen() {
-  const { user }                                                          = useAuth();
-  const { projects, tasks, totalDebt, debtAccounts, weeklyReviews }      = useData();
-  const [dailyReviews, setDailyReviews]                                  = useState([]);
-  const [loadingHistory, setLoadingHistory]                              = useState(true);
+  const { user }                                                                    = useAuth();
+  const { projects, tasks, totalDebt, debtAccounts, weeklyReviews, calendarIntegration } = useData();
+  const [dailyReviews,  setDailyReviews]  = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [todayEvents,   setTodayEvents]   = useState([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+
+  // Load today's calendar events when integration is connected
+  useEffect(() => {
+    if (!calendarIntegration?.connected || !user) return;
+    const load = async () => {
+      setLoadingEvents(true);
+      try {
+        const token = await getValidAccessToken(user.uid, calendarIntegration);
+        if (!token) return;
+        const today = new Date();
+        const timeMin = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0).toISOString();
+        const timeMax = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59).toISOString();
+        const { events } = await getEvents(token, timeMin, timeMax);
+        setTodayEvents(events);
+      } catch { /* silent — calendar errors shouldn't break the page */ }
+      finally { setLoadingEvents(false); }
+    };
+    load();
+  }, [calendarIntegration?.connected, user]); // eslint-disable-line
 
   useEffect(() => {
     const load = async () => {
@@ -306,6 +328,67 @@ function LifeScreen() {
           </Card>
         </div>
       )}
+
+      {/* Integrations */}
+      <div className="fade-up stagger-6" style={{ marginTop: '14px' }}>
+        <Card>
+          <SectionLabel>Integrations</SectionLabel>
+
+          {/* Google Calendar row */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <div style={{ width: 38, height: 38, borderRadius: '10px', background: tokens.bgInput, border: `1px solid ${tokens.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '18px', flexShrink: 0 }}>📅</div>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>Google Calendar</div>
+                <div style={{ fontSize: '11px', marginTop: '2px', color: calendarIntegration?.connected ? tokens.green : tokens.textMuted }}>
+                  {calendarIntegration?.connected ? '● Connected' : '○ Not connected'}
+                </div>
+              </div>
+            </div>
+            {calendarIntegration?.connected ? (
+              <Button variant="ghost" size="sm" onClick={() => disconnectCalendar(user.uid)}>Disconnect</Button>
+            ) : (
+              <Button size="sm" onClick={() => initiateCalendarAuth(user.uid)}>Connect</Button>
+            )}
+          </div>
+
+          {/* Today's events — shown when connected */}
+          {calendarIntegration?.connected && (
+            <div style={{ marginTop: '18px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color: tokens.textMuted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '10px' }}>
+                Today's Calendar
+              </div>
+              {loadingEvents ? (
+                <div style={{ fontSize: '12px', color: tokens.textMuted }}>Loading...</div>
+              ) : todayEvents.length === 0 ? (
+                <div style={{ fontSize: '12px', color: tokens.textMuted }}>No events today — wide open.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  {todayEvents.map(event => {
+                    const isAllDay = !event.start?.dateTime;
+                    return (
+                      <div key={event.id} style={{ display: 'flex', gap: '12px', alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${tokens.border}` }}>
+                        <div style={{ width: 3, borderRadius: '99px', alignSelf: 'stretch', background: tokens.blue, flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '13px', color: tokens.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{event.summary || '(No title)'}</div>
+                          <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>
+                            {isAllDay ? 'All day' : `${formatEventTime(event.start.dateTime)} – ${formatEventTime(event.end.dateTime)}`}
+                          </div>
+                        </div>
+                        {!isAllDay && (
+                          <div style={{ fontSize: '10px', color: tokens.textMuted, flexShrink: 0 }}>
+                            {formatEventDuration(event.start.dateTime, event.end.dateTime)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }

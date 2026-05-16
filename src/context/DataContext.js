@@ -4,7 +4,7 @@ import { useAuth } from './AuthContext';
 import {
   subscribeProjects, subscribeTasks, subscribeDebtAccounts,
   subscribeIdeas, subscribeDecisions, subscribeBrainDumps,
-  subscribeWeeklyReviews, subscribeGoals,
+  subscribeWeeklyReviews, subscribeGoals, subscribeCalendarIntegration,
 } from '../lib/db';
 
 const DataContext = createContext(null);
@@ -18,14 +18,15 @@ export function DataProvider({ children }) {
   const [decisions,     setDecisions]     = useState([]);
   const [brainDumps,    setBrainDumps]    = useState([]);
   const [weeklyReviews, setWeeklyReviews] = useState([]);
-  const [goals,         setGoals]         = useState([]);
-  const [loaded,        setLoaded]        = useState(false);
+  const [goals,               setGoals]               = useState([]);
+  const [calendarIntegration, setCalendarIntegration] = useState(null);
+  const [loaded,              setLoaded]              = useState(false);
 
   useEffect(() => {
     if (!user) {
       setProjects([]); setTasks([]); setDebtAccounts([]);
       setIdeas([]); setDecisions([]); setBrainDumps([]);
-      setWeeklyReviews([]); setGoals([]); setLoaded(false);
+      setWeeklyReviews([]); setGoals([]); setCalendarIntegration(null); setLoaded(false);
       return;
     }
 
@@ -37,7 +38,8 @@ export function DataProvider({ children }) {
       subscribeDecisions(user.uid,     setDecisions),
       subscribeBrainDumps(user.uid,    setBrainDumps),
       subscribeWeeklyReviews(user.uid, setWeeklyReviews),
-      subscribeGoals(user.uid,         setGoals),
+      subscribeGoals(user.uid,               setGoals),
+      subscribeCalendarIntegration(user.uid, setCalendarIntegration),
     ];
 
     setLoaded(true);
@@ -53,7 +55,7 @@ export function DataProvider({ children }) {
 
   return (
     <DataContext.Provider value={{
-      projects, tasks, debtAccounts, ideas, decisions, brainDumps, weeklyReviews, goals,
+      projects, tasks, debtAccounts, ideas, decisions, brainDumps, weeklyReviews, goals, calendarIntegration,
       activeProjects, stalledProjects, todayTasks, totalDebt, activeGoals,
       loaded,
     }}>
