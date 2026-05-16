@@ -16,7 +16,7 @@ const STATUS_OPTIONS = [
 const statusConfig = {
   active:   { label: 'Active',   bg: 'rgba(109,191,158,0.12)', text: '#6DBF9E'                   },
   achieved: { label: 'Achieved', bg: 'rgba(200,169,110,0.12)', text: '#C8A96E'                   },
-  paused:   { label: 'Paused',   bg: 'rgba(255,255,255,0.06)', text: 'rgba(237,232,224,0.28)'    },
+  paused:   { label: 'Paused',   bg: 'rgba(28,24,20,0.07)',    text: 'rgba(28,24,20,0.40)'      },
 };
 
 const emptyForm = {
@@ -155,7 +155,7 @@ export default function GoalsScreen() {
     fontSize: '13px',
     outline: 'none',
     fontFamily: fonts.body,
-    colorScheme: 'dark',
+    colorScheme: 'light',
     width: '100%',
   };
 

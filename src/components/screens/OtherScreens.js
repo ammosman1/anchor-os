@@ -27,7 +27,7 @@ const typeColors = {
   credit:   { bg: 'rgba(200,169,110,0.12)', text: '#C8A96E' },
   auto:     { bg: 'rgba(109,191,158,0.12)', text: '#6DBF9E' },
   student:  { bg: 'rgba(200,169,110,0.12)', text: '#C8A96E' },
-  other:    { bg: 'rgba(255,255,255,0.06)', text: 'rgba(237,232,224,0.4)' },
+  other:    { bg: 'rgba(28,24,20,0.07)',    text: 'rgba(28,24,20,0.42)'  },
 };
 
 export function DebtScreen() {

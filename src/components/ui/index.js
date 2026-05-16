@@ -39,7 +39,7 @@ export function Button({
 
   const variants = {
     primary: {
-      background: disabled ? 'rgba(255,255,255,0.06)' : hovered ? tokens.accentLight : tokens.accent,
+      background: disabled ? tokens.track : hovered ? tokens.accentLight : tokens.accent,
       color: disabled ? tokens.textDisabled : '#0C0E12',
       border: 'none',
     },
@@ -161,7 +161,7 @@ export function Select({ label, value, onChange, options }) {
         }}
       >
         {options.map(o => (
-          <option key={o.value} value={o.value} style={{ background: '#1a1c22' }}>
+          <option key={o.value} value={o.value}>
             {o.label}
           </option>
         ))}
@@ -193,7 +193,7 @@ export function Tag({ label, color = tokens.accentDim, textColor = tokens.accent
 // ─── MomentumBar ──────────────────────────────────────────────────────────────
 export function MomentumBar({ value = 0, color = tokens.accent, height = 3 }) {
   return (
-    <div style={{ height, background: 'rgba(255,255,255,0.06)', borderRadius: 99, overflow: 'hidden', width: '100%' }}>
+    <div style={{ height, background: tokens.track, borderRadius: 99, overflow: 'hidden', width: '100%' }}>
       <div style={{
         height: '100%',
         width: `${Math.min(100, Math.max(0, value))}%`,
@@ -252,7 +252,7 @@ export function Modal({ open, onClose, title, children, width = 480 }) {
         onClick={e => e.stopPropagation()}
         className="fade-up"
         style={{
-          background: '#141720',
+          background: tokens.bgCard,
           border: `1px solid ${tokens.border}`,
           borderRadius: tokens.radiusXl,
           padding: '28px',
@@ -277,14 +277,14 @@ export function Modal({ open, onClose, title, children, width = 480 }) {
 export function AICard({ text, loading, onRefresh, label = 'ANCHOR' }) {
   return (
     <div style={{
-      background: 'linear-gradient(135deg, rgba(200,169,110,0.09) 0%, rgba(200,169,110,0.03) 100%)',
-      border: '1px solid rgba(200,169,110,0.18)',
+      background: 'linear-gradient(135deg, rgba(154,120,48,0.07) 0%, rgba(154,120,48,0.02) 100%)',
+      border: `1px solid rgba(154,120,48,0.18)`,
       borderRadius: tokens.radiusLg,
       padding: '18px',
       position: 'relative',
       overflow: 'hidden',
     }}>
-      <div style={{ position: 'absolute', top: 0, right: 0, width: 100, height: 100, background: 'radial-gradient(circle, rgba(200,169,110,0.07) 0%, transparent 70%)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', top: 0, right: 0, width: 100, height: 100, background: 'radial-gradient(circle, rgba(154,120,48,0.07) 0%, transparent 70%)', pointerEvents: 'none' }} />
       <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
         <div style={{ width: 30, height: 30, borderRadius: '8px', background: tokens.accentDim, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: 0 }}>✦</div>
         <div style={{ flex: 1 }}>
@@ -327,16 +327,16 @@ export function Dot({ color, size = 7 }) {
 
 // ─── StatusTag helpers ────────────────────────────────────────────────────────
 export const statusColors = {
-  active:   { bg: 'rgba(109,191,158,0.12)', text: '#6DBF9E' },
-  stalled:  { bg: 'rgba(212,122,107,0.12)', text: '#D47A6B' },
-  planning: { bg: 'rgba(91,143,212,0.12)',  text: '#5B8FD4' },
-  complete: { bg: 'rgba(155,133,201,0.12)', text: '#9B85C9' },
-  paused:   { bg: 'rgba(237,232,224,0.08)', text: 'rgba(237,232,224,0.4)' },
+  active:   { bg: 'rgba(39,122,86,0.10)',   text: '#277A56' },
+  stalled:  { bg: 'rgba(184,50,32,0.10)',   text: '#B83220' },
+  planning: { bg: 'rgba(38,96,176,0.10)',   text: '#2660B0' },
+  complete: { bg: 'rgba(96,64,168,0.10)',   text: '#6040A8' },
+  paused:   { bg: 'rgba(28,24,20,0.07)',    text: 'rgba(28,24,20,0.42)' },
 };
 
 export const priorityColors = {
-  critical: { bg: 'rgba(212,122,107,0.12)', text: '#D47A6B' },
-  high:     { bg: 'rgba(200,169,110,0.12)', text: '#C8A96E' },
-  medium:   { bg: 'rgba(91,143,212,0.12)',  text: '#5B8FD4' },
-  low:      { bg: 'rgba(237,232,224,0.06)', text: 'rgba(237,232,224,0.35)' },
+  critical: { bg: 'rgba(184,50,32,0.10)',  text: '#B83220' },
+  high:     { bg: 'rgba(154,120,48,0.10)', text: '#9A7830' },
+  medium:   { bg: 'rgba(38,96,176,0.10)',  text: '#2660B0' },
+  low:      { bg: 'rgba(28,24,20,0.07)',   text: 'rgba(28,24,20,0.42)' },
 };

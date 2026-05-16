@@ -217,7 +217,7 @@ export default function TasksScreen() {
                     {source && <span style={{ fontSize: '10px', color: source.color, fontWeight: 600 }}>· {source.label}</span>}
                     <span style={{ fontSize: '10px', color: tokens.textMuted }}>· {timeAgo(task.createdAt)}</span>
                     {task.estimatedMinutes && (
-                      <span style={{ fontSize: '10px', color: tokens.textMuted, background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: '4px' }}>
+                      <span style={{ fontSize: '10px', color: tokens.textMuted, background: tokens.track, padding: '1px 6px', borderRadius: '4px' }}>
                         {task.estimatedMinutes >= 60 ? `${Math.floor(task.estimatedMinutes/60)}h${task.estimatedMinutes%60 ? ` ${task.estimatedMinutes%60}m` : ''}` : `${task.estimatedMinutes}m`}
                       </span>
                     )}

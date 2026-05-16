@@ -4,182 +4,352 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 
-const navItems = [
-  { path: '/',           icon: '⌂',  label: 'Today'      },
-  { path: '/tasks',      icon: '✓',  label: 'Tasks'      },
-  { path: '/projects',   icon: '◈',  label: 'Projects'   },
-  { path: '/calendar',   icon: '◫',  label: 'Calendar'   },
-  { path: '/advisor',    icon: '✦',  label: 'Advisor'    },
-  { path: '/brain-dump', icon: '◎',  label: 'Brain Dump' },
-  { path: '/goals',      icon: '◆',  label: 'Goals'      },
-  { path: '/review',     icon: '◷',  label: 'Review'     },
-  { path: '/decisions',  icon: '⊡',  label: 'Decisions'  },
-  { path: '/ideas',      icon: '◇',  label: 'Ideas'      },
-  { path: '/debt',       icon: '◉',  label: 'Finance'    },
-  { path: '/life',       icon: '▦',  label: 'Life OS'    },
-  { path: '/profile',    icon: '⚙',  label: 'Settings'   },
+const NAV_GROUPS = [
+  {
+    label: 'Core',
+    items: [
+      { path: '/',         icon: '⌂', label: 'Today'    },
+      { path: '/tasks',    icon: '✓', label: 'Tasks'    },
+      { path: '/calendar', icon: '◫', label: 'Calendar' },
+      { path: '/advisor',  icon: '✦', label: 'Advisor'  },
+    ],
+  },
+  {
+    label: 'Reflect',
+    items: [
+      { path: '/review', icon: '◷', label: 'Review'  },
+      { path: '/goals',  icon: '◆', label: 'Goals'   },
+      { path: '/life',   icon: '▦', label: 'Life OS' },
+    ],
+  },
+  {
+    label: 'Capture',
+    items: [
+      { path: '/projects',   icon: '◈', label: 'Projects'   },
+      { path: '/brain-dump', icon: '◎', label: 'Brain Dump' },
+    ],
+  },
+  {
+    label: 'More',
+    items: [
+      { path: '/decisions', icon: '⊡', label: 'Decisions' },
+      { path: '/ideas',     icon: '◇', label: 'Ideas'     },
+      { path: '/debt',      icon: '◉', label: 'Finance'   },
+    ],
+  },
 ];
 
-const bottomNavItems = navItems.slice(0, 5);
-const moreNavItems   = navItems.slice(5);
+const PAGE_TITLES = {
+  '/':           'Today',
+  '/tasks':      'Tasks',
+  '/calendar':   'Calendar',
+  '/advisor':    'Advisor',
+  '/review':     'Review',
+  '/goals':      'Goals',
+  '/life':       'Life OS',
+  '/projects':   'Projects',
+  '/brain-dump': 'Brain Dump',
+  '/decisions':  'Decisions',
+  '/ideas':      'Ideas',
+  '/debt':       'Finance',
+  '/profile':    'Settings',
+};
 
-function Sidebar({ collapsed, setCollapsed }) {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { user, profile, logout } = useAuth();
-  const [showUser, setShowUser] = useState(false);
-  const isActive = (path) => path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
-
-  return (
-    <div style={{
-      width: collapsed ? 60 : 220,
-      minHeight: '100vh',
-      background: 'rgba(9,11,15,0.98)',
-      borderRight: `1px solid ${tokens.border}`,
-      display: 'flex', flexDirection: 'column',
-      transition: 'width 0.25s cubic-bezier(0.4,0,0.2,1)',
-      flexShrink: 0, zIndex: 50,
-      backdropFilter: 'blur(20px)',
-      position: 'relative',
-    }}>
-      {/* Logo row */}
-      <div style={{ padding: collapsed ? '20px 0 16px' : '20px 16px 16px', display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden', borderBottom: `1px solid ${tokens.border}` }}>
-        <div style={{
-          width: 32, height: 32, borderRadius: '9px', flexShrink: 0,
-          background: `linear-gradient(135deg, ${tokens.accent}, #9a7840)`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: '15px', boxShadow: `0 4px 16px rgba(200,169,110,0.25)`,
-          marginLeft: collapsed ? 'auto' : 0, marginRight: collapsed ? 'auto' : 0,
-        }}>⚓</div>
-        {!collapsed && (
-          <>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: fonts.display, fontSize: '15px', fontWeight: 700, color: tokens.textPrimary, lineHeight: 1 }}>Anchor</div>
-              <div style={{ fontSize: '9px', color: tokens.textMuted, letterSpacing: '0.12em', marginTop: '2px' }}>PERSONAL OS</div>
-            </div>
-            <button onClick={() => setCollapsed(true)} style={{ background: 'none', border: 'none', color: tokens.textMuted, cursor: 'pointer', fontSize: '16px', padding: '4px', lineHeight: 1 }} title="Collapse">←</button>
-          </>
-        )}
-      </div>
-
-      {/* Expand button when collapsed */}
-      {collapsed && (
-        <button onClick={() => setCollapsed(false)} style={{ margin: '10px auto 0', background: tokens.bgCard, border: `1px solid ${tokens.border}`, color: tokens.textMuted, cursor: 'pointer', fontSize: '12px', padding: '5px 8px', borderRadius: '6px', display: 'block', fontFamily: fonts.body }}>→</button>
-      )}
-
-      {/* User chip */}
-      {!collapsed && (
-        <div style={{ padding: '10px 12px 8px', borderBottom: `1px solid ${tokens.border}` }}>
-          <div onClick={() => setShowUser(!showUser)} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 10px', borderRadius: '8px', background: tokens.bgCard, cursor: 'pointer', border: `1px solid ${tokens.border}` }}>
-            <div style={{ width: 26, height: 26, borderRadius: '50%', background: user?.photoURL ? 'transparent' : `linear-gradient(135deg, ${tokens.blue}, ${tokens.purple})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, overflow: 'hidden', flexShrink: 0 }}>
-              {user?.photoURL ? <img src={user.photoURL} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : (user?.displayName?.[0] || 'A')}
-            </div>
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-              <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile?.firstName || user?.displayName?.split(' ')[0] || 'Andrew'}</div>
-              <div style={{ fontSize: '10px', color: tokens.textMuted }}>{profile?.energyToday ? `Energy: ${profile.energyToday}/10` : 'Set energy →'}</div>
-            </div>
-          </div>
-          {showUser && (
-            <div style={{ marginTop: 6, padding: '4px', background: tokens.bgCard, borderRadius: 8, border: `1px solid ${tokens.border}` }}>
-              <button onClick={logout} style={{ width: '100%', background: 'none', border: 'none', color: tokens.red, fontSize: '12px', cursor: 'pointer', padding: '6px 8px', textAlign: 'left', borderRadius: 6, fontFamily: fonts.body }}>Sign out</button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Nav items */}
-      <nav style={{ flex: 1, padding: '10px 8px', overflowY: 'auto' }}>
-        {navItems.map(item => {
-          const active = isActive(item.path);
-          return (
-            <button key={item.path} onClick={() => navigate(item.path)} title={collapsed ? item.label : ''}
-              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: collapsed ? 0 : '10px', justifyContent: collapsed ? 'center' : 'flex-start', padding: collapsed ? '10px 0' : '9px 12px', borderRadius: '8px', border: 'none', background: active ? tokens.accentDim : 'transparent', color: active ? tokens.accent : tokens.textSecondary, fontSize: '13px', fontWeight: active ? 600 : 400, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s ease', marginBottom: '2px', whiteSpace: 'nowrap', overflow: 'hidden', fontFamily: fonts.body }}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background = tokens.bgCardHover; }}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
-            >
-              <span style={{ fontSize: '15px', flexShrink: 0, opacity: active ? 1 : 0.55 }}>{item.icon}</span>
-              {!collapsed && item.label}
-            </button>
-          );
-        })}
-      </nav>
-
-      {!collapsed && (
-        <div style={{ padding: '12px 20px', borderTop: `1px solid ${tokens.border}` }}>
-          <div style={{ fontSize: '11px', color: tokens.textMuted }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function BottomNav() {
-  const navigate   = useNavigate();
-  const location   = useLocation();
-  const [showMore, setShowMore] = useState(false);
-  const isActive = (path) => path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
-
-  const handleNav = (path) => { navigate(path); setShowMore(false); };
-
-  return (
-    <>
-      {showMore && <div onClick={() => setShowMore(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)', zIndex: 98 }} />}
-
-      {showMore && (
-        <div className="fade-up" style={{ position: 'fixed', bottom: 'calc(62px + env(safe-area-inset-bottom, 0px))', left: '12px', right: '12px', background: '#141720', border: `1px solid ${tokens.border}`, borderRadius: '16px', padding: '8px', zIndex: 99, boxShadow: '0 -8px 40px rgba(0,0,0,0.5)' }}>
-          <div style={{ fontSize: '10px', color: tokens.textMuted, fontWeight: 700, letterSpacing: '0.1em', padding: '6px 12px 8px', textTransform: 'uppercase' }}>More</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px' }}>
-            {moreNavItems.map(item => {
-              const active = isActive(item.path);
-              return (
-                <button key={item.path} onClick={() => handleNav(item.path)}
-                  style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', borderRadius: '10px', background: active ? tokens.accentDim : 'transparent', border: `1px solid ${active ? 'rgba(200,169,110,0.2)' : 'transparent'}`, color: active ? tokens.accent : tokens.textSecondary, fontSize: '14px', fontWeight: active ? 600 : 400, cursor: 'pointer', textAlign: 'left', fontFamily: fonts.body }}>
-                  <span style={{ fontSize: '18px' }}>{item.icon}</span>
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'rgba(9,11,15,0.97)', borderTop: `1px solid ${tokens.border}`, display: 'flex', paddingBottom: '0px', paddingTop: '6px', backdropFilter: 'blur(20px)', zIndex: 100 }}>
-        {bottomNavItems.map(item => {
-          const active = isActive(item.path);
-          return (
-            <button key={item.path} onClick={() => { setShowMore(false); navigate(item.path); }}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', background: 'transparent', border: 'none', color: active ? tokens.accent : tokens.textMuted, cursor: 'pointer', padding: '4px 0', transition: 'color 0.15s', fontFamily: fonts.body }}>
-              <span style={{ fontSize: '17px' }}>{item.icon}</span>
-              <span style={{ fontSize: '9px', letterSpacing: '0.03em', fontWeight: active ? 600 : 400 }}>{item.label}</span>
-            </button>
-          );
-        })}
-        <button onClick={() => setShowMore(!showMore)}
-          style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', background: 'transparent', border: 'none', color: showMore ? tokens.accent : tokens.textMuted, cursor: 'pointer', padding: '4px 0', fontFamily: fonts.body }}>
-          <span style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '0.1em' }}>···</span>
-          <span style={{ fontSize: '9px', letterSpacing: '0.03em' }}>More</span>
-        </button>
-      </div>
-    </>
-  );
+function getPageTitle(pathname) {
+  if (pathname === '/') return 'Today';
+  for (const [path, title] of Object.entries(PAGE_TITLES)) {
+    if (path !== '/' && pathname.startsWith(path)) return title;
+  }
+  return 'Anchor';
 }
 
 export default function AppLayout({ children }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const [isMobile, setIsMobile]   = React.useState(window.innerWidth < 768);
-  React.useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
+  const { user, logout }              = useAuth();
+  const navigate                      = useNavigate();
+  const location                      = useLocation();
+  const [drawerOpen, setDrawerOpen]   = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+
+  const photoURL    = user?.photoURL;
+  const displayName = user?.displayName || user?.email || 'A';
+  const initial     = (displayName[0] || 'A').toUpperCase();
+  const pageTitle   = getPageTitle(location.pathname);
+
+  const isActive = (path) =>
+    path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
+
+  const handleNav = (path) => {
+    navigate(path);
+    setDrawerOpen(false);
+    setProfileOpen(false);
+  };
+
+  const navItemStyle = (active) => ({
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '10px 12px',
+    borderRadius: '8px',
+    border: 'none',
+    background: active ? tokens.accentDim : 'transparent',
+    color: active ? tokens.accent : tokens.textSecondary,
+    fontSize: '14px',
+    fontWeight: active ? 600 : 400,
+    cursor: 'pointer',
+    textAlign: 'left',
+    transition: 'background 0.12s, color 0.12s',
+    fontFamily: fonts.body,
+    marginBottom: '1px',
+  });
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: tokens.bg }}>
-      {!isMobile && <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />}
-      <main style={{ flex: 1, paddingTop: isMobile ? 'max(24px, env(safe-area-inset-top, 24px))' : '32px', paddingLeft: isMobile ? '16px' : '36px', paddingRight: isMobile ? '16px' : '36px', paddingBottom: isMobile ? 'calc(75px + env(safe-area-inset-bottom, 0px))' : '40px', overflowY: 'auto', minHeight: '100vh' }}>
+    <div style={{ minHeight: '100vh', background: tokens.bg }}>
+
+      {/* ── Top Bar ───────────────────────────────────────────────────────────── */}
+      <header style={{
+        position: 'fixed', top: 0, left: 0, right: 0,
+        height: 52,
+        background: tokens.bgNav,
+        borderBottom: `1px solid ${tokens.border}`,
+        boxShadow: tokens.shadowNav,
+        display: 'flex', alignItems: 'center',
+        padding: '0 16px', gap: '10px',
+        zIndex: 200,
+      }}>
+
+        {/* Logo */}
+        <div onClick={() => handleNav('/')}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flexShrink: 0, userSelect: 'none' }}>
+          <div style={{
+            width: 30, height: 30, borderRadius: '9px',
+            background: `linear-gradient(135deg, ${tokens.accent} 0%, #C8A050 100%)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '14px', boxShadow: `0 2px 8px rgba(154,120,48,0.25)`,
+          }}>⚓</div>
+          <span style={{ fontFamily: fonts.display, fontSize: '15px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.01em' }}>
+            Anchor
+          </span>
+        </div>
+
+        {/* Avatar */}
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <div
+            onClick={() => { setProfileOpen(o => !o); setDrawerOpen(false); }}
+            style={{
+              width: 30, height: 30, borderRadius: '50%',
+              background: photoURL ? 'transparent' : `linear-gradient(135deg, ${tokens.blue}, ${tokens.purple})`,
+              overflow: 'hidden', cursor: 'pointer',
+              border: `2px solid ${profileOpen ? tokens.accent : tokens.border}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '12px', fontWeight: 700, color: '#fff',
+              transition: 'border-color 0.15s',
+            }}
+            title="Profile & Settings"
+          >
+            {photoURL
+              ? <img src={photoURL} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : initial}
+          </div>
+        </div>
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Page title */}
+        <span style={{
+          fontSize: '13px', fontWeight: 600,
+          color: tokens.textMuted,
+          letterSpacing: '0.02em',
+          userSelect: 'none',
+        }}>
+          {pageTitle}
+        </span>
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Hamburger */}
+        <button
+          onClick={() => { setDrawerOpen(o => !o); setProfileOpen(false); }}
+          style={{
+            background: drawerOpen ? tokens.accentDim : 'transparent',
+            border: `1px solid ${drawerOpen ? tokens.borderFocus : tokens.border}`,
+            borderRadius: '8px', padding: '5px 9px',
+            cursor: 'pointer',
+            color: drawerOpen ? tokens.accent : tokens.textSecondary,
+            fontSize: '15px', lineHeight: 1,
+            transition: 'all 0.15s',
+            flexShrink: 0,
+          }}
+          title="Menu"
+          aria-label="Open navigation"
+        >
+          ☰
+        </button>
+      </header>
+
+      {/* ── Profile Dropdown ──────────────────────────────────────────────────── */}
+      {profileOpen && (
+        <>
+          <div onClick={() => setProfileOpen(false)}
+            style={{ position: 'fixed', inset: 0, zIndex: 198 }} />
+          <div className="fade-up" style={{
+            position: 'fixed', top: '58px', left: '16px',
+            width: 230,
+            background: tokens.bgCard,
+            border: `1px solid ${tokens.border}`,
+            borderRadius: '14px',
+            padding: '8px',
+            zIndex: 199,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+          }}>
+            {/* User info header */}
+            <div style={{
+              display: 'flex', gap: '10px', alignItems: 'center',
+              padding: '10px 10px 12px',
+              borderBottom: `1px solid ${tokens.border}`,
+              marginBottom: '6px',
+            }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: '50%',
+                background: photoURL ? 'transparent' : `linear-gradient(135deg, ${tokens.blue}, ${tokens.purple})`,
+                overflow: 'hidden', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', fontSize: '15px', fontWeight: 700,
+                color: '#fff', flexShrink: 0,
+              }}>
+                {photoURL
+                  ? <img src={photoURL} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : initial}
+              </div>
+              <div style={{ overflow: 'hidden' }}>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {user?.displayName || 'User'}
+                </div>
+                <div style={{ fontSize: '11px', color: tokens.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '1px' }}>
+                  {user?.email}
+                </div>
+              </div>
+            </div>
+
+            {/* Settings link */}
+            <button onClick={() => handleNav('/profile')}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 10px', borderRadius: '8px', background: 'none', border: 'none', color: tokens.textSecondary, fontSize: '13px', cursor: 'pointer', textAlign: 'left', fontFamily: fonts.body, transition: 'all 0.12s' }}
+              onMouseEnter={e => { e.currentTarget.style.background = tokens.bgCardHover; e.currentTarget.style.color = tokens.textPrimary; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = tokens.textSecondary; }}
+            >
+              <span style={{ opacity: 0.6 }}>⚙</span> Profile & Settings
+            </button>
+
+            {/* Sign out */}
+            <div style={{ borderTop: `1px solid ${tokens.border}`, marginTop: '4px', paddingTop: '4px' }}>
+              <button onClick={() => { logout(); setProfileOpen(false); }}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 10px', borderRadius: '8px', background: 'none', border: 'none', color: tokens.red, fontSize: '13px', cursor: 'pointer', textAlign: 'left', fontFamily: fonts.body, transition: 'background 0.12s' }}
+                onMouseEnter={e => e.currentTarget.style.background = tokens.redDim}
+                onMouseLeave={e => e.currentTarget.style.background = 'none'}
+              >
+                <span style={{ opacity: 0.7 }}>↪</span> Sign out
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Nav Drawer ────────────────────────────────────────────────────────── */}
+      {drawerOpen && (
+        <>
+          {/* Backdrop */}
+          <div onClick={() => setDrawerOpen(false)} style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(28,24,20,0.25)',
+            backdropFilter: 'blur(2px)',
+            zIndex: 298,
+          }} />
+
+          {/* Drawer panel */}
+          <div className="slide-in-right" style={{
+            position: 'fixed', top: 0, right: 0, bottom: 0,
+            width: Math.min(300, window.innerWidth * 0.85),
+            background: tokens.bgCard,
+            borderLeft: `1px solid ${tokens.border}`,
+            boxShadow: '-8px 0 32px rgba(0,0,0,0.10)',
+            zIndex: 299,
+            display: 'flex', flexDirection: 'column',
+            overflowY: 'auto',
+          }}>
+            {/* Drawer header */}
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '14px 16px',
+              borderBottom: `1px solid ${tokens.border}`,
+              flexShrink: 0,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: 28, height: 28, borderRadius: '8px', background: `linear-gradient(135deg, ${tokens.accent}, #C8A050)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px' }}>⚓</div>
+                <span style={{ fontFamily: fonts.display, fontSize: '15px', fontWeight: 700, color: tokens.textPrimary }}>Anchor</span>
+              </div>
+              <button onClick={() => setDrawerOpen(false)}
+                style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '18px', cursor: 'pointer', padding: '4px', lineHeight: 1, borderRadius: '6px' }}
+                onMouseEnter={e => e.currentTarget.style.background = tokens.bgCardHover}
+                onMouseLeave={e => e.currentTarget.style.background = 'none'}
+              >✕</button>
+            </div>
+
+            {/* Nav groups */}
+            <nav style={{ flex: 1, padding: '8px 10px', overflowY: 'auto' }}>
+              {NAV_GROUPS.map((group, gi) => (
+                <div key={gi} style={{ marginBottom: '6px' }}>
+                  <div style={{
+                    fontSize: '10px', fontWeight: 700, color: tokens.textMuted,
+                    letterSpacing: '0.1em', textTransform: 'uppercase',
+                    padding: '8px 10px 4px',
+                  }}>
+                    {group.label}
+                  </div>
+                  {group.items.map(item => {
+                    const active = isActive(item.path);
+                    return (
+                      <button key={item.path} onClick={() => handleNav(item.path)}
+                        style={navItemStyle(active)}
+                        onMouseEnter={e => { if (!active) { e.currentTarget.style.background = tokens.bgCardHover; e.currentTarget.style.color = tokens.textPrimary; } }}
+                        onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = tokens.textSecondary; } }}
+                      >
+                        <span style={{ fontSize: '16px', width: '20px', textAlign: 'center', flexShrink: 0, opacity: active ? 1 : 0.5 }}>
+                          {item.icon}
+                        </span>
+                        {item.label}
+                        {active && (
+                          <span style={{ marginLeft: 'auto', width: 6, height: 6, borderRadius: '50%', background: tokens.accent, flexShrink: 0 }} />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </nav>
+
+            {/* Drawer footer */}
+            <div style={{ padding: '12px 16px', borderTop: `1px solid ${tokens.border}`, flexShrink: 0 }}>
+              <div style={{ fontSize: '11px', color: tokens.textMuted }}>
+                {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Main Content ──────────────────────────────────────────────────────── */}
+      <main style={{
+        paddingTop: '76px',   // 52px topbar + 24px breathing room
+        paddingLeft: 'max(16px, env(safe-area-inset-left, 16px))',
+        paddingRight: 'max(16px, env(safe-area-inset-right, 16px))',
+        paddingBottom: 'max(40px, env(safe-area-inset-bottom, 40px))',
+        minHeight: '100vh',
+        maxWidth: '960px',
+        margin: '0 auto',
+      }}>
         {children}
       </main>
-      {isMobile && <BottomNav />}
     </div>
   );
 }

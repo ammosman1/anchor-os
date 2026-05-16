@@ -378,7 +378,7 @@ export default function CalendarScreen() {
                 >
                   {/* Half-hour dashed lines */}
                   {HOURS.map(h => (
-                    <div key={h} style={{ position: 'absolute', left: 0, right: 0, top: (h - GRID_START) * HOUR_HEIGHT + HOUR_HEIGHT / 2, borderTop: `1px dashed rgba(255,255,255,0.04)`, pointerEvents: 'none' }} />
+                    <div key={h} style={{ position: 'absolute', left: 0, right: 0, top: (h - GRID_START) * HOUR_HEIGHT + HOUR_HEIGHT / 2, borderTop: `1px dashed rgba(0,0,0,0.05)`, pointerEvents: 'none' }} />
                   ))}
 
                   {/* Current time line */}
@@ -445,7 +445,7 @@ export default function CalendarScreen() {
                 </label>
                 <input type="datetime-local" value={newEv[field]}
                   onChange={e => setNewEv(p => ({ ...p, [field]: e.target.value }))}
-                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, colorScheme: 'dark', boxSizing: 'border-box' }}
+                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, colorScheme: 'light', boxSizing: 'border-box' }}
                   onFocus={e => e.target.style.borderColor = tokens.borderFocus}
                   onBlur={e => e.target.style.borderColor = tokens.border}
                 />

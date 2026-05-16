@@ -136,7 +136,7 @@ export default function ProfileScreen() {
   const timeInputStyle = {
     flex: 1, background: tokens.bgInput, border: `1px solid ${tokens.border}`,
     borderRadius: '6px', padding: '5px 8px', color: tokens.textPrimary,
-    fontSize: '12px', outline: 'none', fontFamily: fonts.body, colorScheme: 'dark',
+    fontSize: '12px', outline: 'none', fontFamily: fonts.body, colorScheme: 'light',
   };
 
   return (

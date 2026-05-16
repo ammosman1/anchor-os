@@ -131,7 +131,7 @@ function MorningReview({ tasks, projects, totalDebt, onSave }) {
           <span style={{ fontSize: '11px', color: tokens.textMuted }}>Step {step + 1} of {steps.length}</span>
           <span style={{ fontSize: '11px', color: tokens.accent }}>{Math.round(((step + 1) / steps.length) * 100)}%</span>
         </div>
-        <div style={{ height: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 99, overflow: 'hidden' }}>
+        <div style={{ height: 2, background: tokens.track, borderRadius: 99, overflow: 'hidden' }}>
           <div style={{ height: '100%', width: `${((step + 1) / steps.length) * 100}%`, background: tokens.accent, borderRadius: 99, transition: 'width 0.4s ease' }} />
         </div>
       </div>
@@ -233,7 +233,7 @@ function EODReview({ tasks, projects, onSave }) {
           <span style={{ fontSize: '11px', color: tokens.textMuted }}>Step {step + 1} of {steps.length}</span>
           <span style={{ fontSize: '11px', color: tokens.accent }}>{Math.round(((step + 1) / steps.length) * 100)}%</span>
         </div>
-        <div style={{ height: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 99, overflow: 'hidden' }}>
+        <div style={{ height: 2, background: tokens.track, borderRadius: 99, overflow: 'hidden' }}>
           <div style={{ height: '100%', width: `${((step + 1) / steps.length) * 100}%`, background: tokens.accent, borderRadius: 99, transition: 'width 0.4s ease' }} />
         </div>
       </div>

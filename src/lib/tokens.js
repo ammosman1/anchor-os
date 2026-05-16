@@ -1,42 +1,46 @@
 // src/lib/tokens.js
-// Anchor Design System — Warm dark, premium, calm
+// Anchor Design System — Warm light, editorial, premium
 
 export const tokens = {
   // Backgrounds
-  bg:          '#0C0E12',
-  bgCard:      'rgba(255,255,255,0.035)',
-  bgCardHover: 'rgba(255,255,255,0.06)',
-  bgGlass:     'rgba(255,255,255,0.025)',
-  bgInput:     'rgba(255,255,255,0.05)',
+  bg:          '#F7F5F0',           // warm cream
+  bgCard:      '#FFFFFF',           // pure white cards
+  bgCardHover: '#F9F8F5',
+  bgGlass:     'rgba(255,255,255,0.75)',
+  bgInput:     '#F0EDE8',           // warm off-white inputs
+  bgNav:       '#FEFCF8',           // top bar, slightly warmer than bg
 
   // Borders
-  border:      'rgba(255,255,255,0.07)',
-  borderHover: 'rgba(255,255,255,0.13)',
-  borderFocus: 'rgba(200,169,110,0.4)',
+  border:      'rgba(0,0,0,0.08)',
+  borderHover: 'rgba(0,0,0,0.15)',
+  borderFocus: 'rgba(154,120,48,0.45)',
 
-  // Accent — warm gold
-  accent:      '#C8A96E',
-  accentLight: '#D4BB8A',
-  accentDim:   'rgba(200,169,110,0.12)',
-  accentGlow:  'rgba(200,169,110,0.06)',
+  // Accent — dark warm gold (readable on light bg)
+  accent:      '#9A7830',
+  accentLight: '#AE8C3C',
+  accentDim:   'rgba(154,120,48,0.10)',
+  accentGlow:  'rgba(154,120,48,0.06)',
 
-  // Status colors
-  green:       '#6DBF9E',
-  greenDim:    'rgba(109,191,158,0.12)',
-  blue:        '#5B8FD4',
-  blueDim:     'rgba(91,143,212,0.12)',
-  red:         '#D47A6B',
-  redDim:      'rgba(212,122,107,0.12)',
-  amber:       '#D4A96B',
-  amberDim:    'rgba(212,169,107,0.12)',
-  purple:      '#9B85C9',
-  purpleDim:   'rgba(155,133,201,0.12)',
+  // Status colors — darkened for light mode contrast
+  green:       '#277A56',
+  greenDim:    'rgba(39,122,86,0.10)',
+  blue:        '#2660B0',
+  blueDim:     'rgba(38,96,176,0.10)',
+  red:         '#B83220',
+  redDim:      'rgba(184,50,32,0.10)',
+  amber:       '#B07010',
+  amberDim:    'rgba(176,112,16,0.10)',
+  purple:      '#6040A8',
+  purpleDim:   'rgba(96,64,168,0.10)',
 
   // Text
-  textPrimary:   '#EDE8E0',
-  textSecondary: 'rgba(237,232,224,0.52)',
-  textMuted:     'rgba(237,232,224,0.28)',
-  textDisabled:  'rgba(237,232,224,0.18)',
+  textPrimary:   '#1C1814',
+  textSecondary: 'rgba(28,24,20,0.58)',
+  textMuted:     'rgba(28,24,20,0.38)',
+  textDisabled:  'rgba(28,24,20,0.22)',
+
+  // Track (progress bars, range input background)
+  track:       'rgba(0,0,0,0.08)',
 
   // Spacing
   radiusSm:  '6px',
@@ -44,9 +48,10 @@ export const tokens = {
   radiusLg:  '14px',
   radiusXl:  '20px',
 
-  // Shadows
-  shadowCard: '0 1px 3px rgba(0,0,0,0.4), 0 4px 16px rgba(0,0,0,0.2)',
-  shadowGlow: '0 0 24px rgba(200,169,110,0.08)',
+  // Shadows — lighter for light mode
+  shadowCard: '0 1px 3px rgba(0,0,0,0.06), 0 4px 14px rgba(0,0,0,0.07)',
+  shadowGlow: '0 0 24px rgba(154,120,48,0.08)',
+  shadowNav:  '0 1px 0 rgba(0,0,0,0.06)',
 };
 
 export const fonts = {
@@ -54,7 +59,6 @@ export const fonts = {
   body:    "'DM Sans', 'Helvetica Neue', sans-serif",
 };
 
-// Global CSS injected once at app root
 export const globalStyles = `
   @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap');
 
@@ -67,12 +71,13 @@ export const globalStyles = `
     font-family: ${fonts.body};
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    color-scheme: light;
   }
 
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 99px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+  ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.14); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.22); }
 
   input, textarea, select, button { font-family: inherit; }
 
@@ -80,7 +85,7 @@ export const globalStyles = `
     -webkit-appearance: none;
     height: 3px;
     border-radius: 99px;
-    background: rgba(255,255,255,0.08);
+    background: rgba(0,0,0,0.10);
     outline: none;
     cursor: pointer;
   }
@@ -91,8 +96,10 @@ export const globalStyles = `
     border-radius: 50%;
     background: ${tokens.accent};
     cursor: pointer;
-    box-shadow: 0 0 8px rgba(200,169,110,0.4);
+    box-shadow: 0 1px 6px rgba(154,120,48,0.35);
   }
+
+  select option { background: #fff; color: #1C1814; }
 
   @keyframes fadeUp {
     from { opacity: 0; transform: translateY(12px); }
@@ -101,6 +108,10 @@ export const globalStyles = `
   @keyframes fadeIn {
     from { opacity: 0; }
     to   { opacity: 1; }
+  }
+  @keyframes slideInRight {
+    from { transform: translateX(100%); }
+    to   { transform: translateX(0); }
   }
   @keyframes pulse {
     0%, 100% { opacity: 1; }
@@ -111,10 +122,11 @@ export const globalStyles = `
     to   { transform: rotate(360deg); }
   }
 
-  .fade-up   { animation: fadeUp 0.4s ease both; }
-  .fade-in   { animation: fadeIn 0.3s ease both; }
-  .pulsing   { animation: pulse 1.8s ease-in-out infinite; }
-  .spinning  { animation: spin 1s linear infinite; }
+  .fade-up        { animation: fadeUp 0.4s ease both; }
+  .fade-in        { animation: fadeIn 0.3s ease both; }
+  .slide-in-right { animation: slideInRight 0.22s cubic-bezier(0.4,0,0.2,1) both; }
+  .pulsing        { animation: pulse 1.8s ease-in-out infinite; }
+  .spinning       { animation: spin 1s linear infinite; }
 
   .stagger-1 { animation-delay: 0.05s; }
   .stagger-2 { animation-delay: 0.10s; }
