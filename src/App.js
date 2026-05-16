@@ -15,6 +15,7 @@ import AdvisorScreen    from './components/screens/AdvisorScreen';
 import ReviewScreen     from './components/screens/ReviewScreen';
 import TasksScreen      from './components/screens/TasksScreen';
 import LifeScreen       from './components/screens/LifeScreen';
+import GoalsScreen      from './components/screens/GoalsScreen';
 import { DecisionsScreen, IdeasScreen, DebtScreen } from './components/screens/OtherScreens';
 
 // Inject global styles once
@@ -53,6 +54,7 @@ function AppRoutes() {
           <Route path="/ideas"      element={<IdeasScreen />}     />
           <Route path="/debt"       element={<DebtScreen />}      />
           <Route path="/life"       element={<LifeScreen />}      />
+          <Route path="/goals"      element={<GoalsScreen />}     />
           <Route path="*"           element={<Navigate to="/" />} />
         </Routes>
       </AppLayout>

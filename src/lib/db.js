@@ -195,6 +195,31 @@ export const subscribeAdvisorChats = (uid, cb) =>
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
 
+// ─── Goals ────────────────────────────────────────────────────────────────────
+export const addGoal = (uid, data) =>
+  addDoc(collection(db, 'users', uid, 'goals'), {
+    ...data,
+    likelihoodScore: null,
+    likelihoodTrend: null,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+export const updateGoal = (uid, goalId, data) =>
+  updateDoc(doc(db, 'users', uid, 'goals', goalId), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+
+export const deleteGoal = (uid, goalId) =>
+  deleteDoc(doc(db, 'users', uid, 'goals', goalId));
+
+export const subscribeGoals = (uid, cb) =>
+  onSnapshot(
+    query(collection(db, 'users', uid, 'goals'), orderBy('createdAt', 'asc')),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  );
+
 // ─── Weekly Reviews ───────────────────────────────────────────────────────────
 export const saveWeeklyReview = (uid, weekKey, data) =>
   setDoc(doc(db, 'users', uid, 'weeklyReviews', weekKey), {

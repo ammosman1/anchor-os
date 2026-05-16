@@ -10,6 +10,7 @@ const navItems = [
   { path: '/projects',   icon: '◈',  label: 'Projects'   },
   { path: '/brain-dump', icon: '◎',  label: 'Brain Dump' },
   { path: '/advisor',    icon: '✦',  label: 'Advisor'    },
+  { path: '/goals',      icon: '◆',  label: 'Goals'      },
   { path: '/review',     icon: '◷',  label: 'Review'     },
   { path: '/decisions',  icon: '⊡',  label: 'Decisions'  },
   { path: '/ideas',      icon: '◇',  label: 'Ideas'      },
