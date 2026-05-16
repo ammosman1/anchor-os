@@ -190,6 +190,74 @@ Give me the optimal payoff sequence and one actionable move for this week. Max 4
   return callAI({ messages: [{ role: 'user', content }], maxTokens: 300 });
 }
 
+export async function buildSchedule({ tasks, slots, focusProfile, today, tomorrow }) {
+  const energyLevel = focusProfile?.recentEnergy ?? 70;
+  const energyNote =
+    energyLevel < 45 ? 'Low energy week — schedule light, leave breathing room between blocks.' :
+    energyLevel > 75 ? 'High energy week — can handle more complex and back-to-back blocks.' :
+    'Moderate energy — mix deep and lighter tasks, avoid over-scheduling.';
+
+  const content = `Build a realistic time-blocked schedule.
+
+TODAY: ${today}
+TOMORROW: ${tomorrow}
+
+TASKS TO SCHEDULE (in priority order — schedule earlier in the day accordingly):
+${JSON.stringify(tasks, null, 2)}
+
+FREE TIME SLOTS:
+Today: ${JSON.stringify(slots.today || [])}
+Tomorrow: ${JSON.stringify(slots.tomorrow || [])}
+
+FOCUS WINDOWS (assign tasks to matching windows):
+- Morning 8am–12pm → deep work (financial review, planning, drafting, strategic decisions)
+- Early afternoon 1pm–3pm → medium tasks (calls, research, follow-ups)
+- Late afternoon 3pm–6pm → quick tasks (emails, admin, short actions)
+
+ENERGY CONTEXT: ${energyNote}
+
+RULES:
+- Critical and high priority tasks get the best available slots
+- Never put deep work in an afternoon low-focus slot if a morning slot is free
+- Add 10-minute buffers between consecutive blocks — don't stack them back-to-back
+- Do not schedule more than 5 hours of focused work per day
+- If a task won't fit today, move it to tomorrow
+- If it won't fit either day, omit it — do not overload
+- estimatedMinutes is the actual working time needed, not elapsed calendar time
+- Respect the exact start/end boundaries of each free slot
+
+Return ONLY valid JSON — no markdown, no explanation:
+{
+  "schedule": [
+    {
+      "taskTitle": "exact task title",
+      "taskId": "firestore id or null",
+      "day": "today",
+      "start": "ISO 8601 datetime",
+      "end": "ISO 8601 datetime",
+      "durationMinutes": 60,
+      "focusType": "deep",
+      "reason": "one brief sentence"
+    }
+  ]
+}
+
+Allowed: day = "today" | "tomorrow", focusType = "deep" | "medium" | "quick"`;
+
+  const raw = await callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 1200,
+    systemExtra: 'You are a precise scheduling engine. Return only valid JSON.',
+  });
+
+  try {
+    const clean = (raw || '{"schedule":[]}').replace(/```json|```/g, '').trim();
+    return JSON.parse(clean);
+  } catch {
+    return null;
+  }
+}
+
 export async function scoreGoals({ goals, tasks, brainDumps }) {
   try {
     const res = await fetch('/api/goals/score', {

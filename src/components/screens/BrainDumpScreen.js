@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { callAI } from '../../lib/ai';
+import { callAI, buildSchedule } from '../../lib/ai';
 import { saveBrainDump, addTask, addProject, updateTask } from '../../lib/db';
 import { getValidAccessToken, getEvents, getFreeSlots, createEvent, formatEventTime } from '../../lib/calendar';
 import { Card, Button, SectionLabel, Tag, AICard } from '../ui';
@@ -493,14 +493,15 @@ BRAIN DUMP:\n${text}` }],
       const todayLabel    = todayDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
       const tomorrowLabel = tomorrowDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
-      const res = await fetch('/api/schedule/build', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ tasks: allTasks, slots: { today: todaySlots, tomorrow: tomorrowSlots }, focusProfile: { recentEnergy }, today: todayLabel, tomorrow: tomorrowLabel }),
+      const data = await buildSchedule({
+        tasks:        allTasks,
+        slots:        { today: todaySlots, tomorrow: tomorrowSlots },
+        focusProfile: { recentEnergy },
+        today:        todayLabel,
+        tomorrow:     tomorrowLabel,
       });
 
-      const data = await res.json();
-      if (data.error) { setScheduleError('Schedule build failed. Try again.'); return; }
+      if (!data) { setScheduleError('Schedule build failed. Try again.'); return; }
 
       setScheduleBlocks(data.schedule || []);
       setScheduleDates({ today: todayLabel, tomorrow: tomorrowLabel });
@@ -841,9 +842,9 @@ BRAIN DUMP:\n${text}` }],
                         <span style={{ color: isUrgent ? tokens.amber : tokens.accent, flexShrink: 0 }}>{isUrgent ? '⚑' : '→'}</span>
                         <span style={{ fontSize: '13px', color: tokens.textPrimary }}>{item}</span>
                       </div>
-                      {!tasksSent.includes(item)
-                        ? <button onClick={() => sendTaskToInbox(item)} style={{ fontSize: '10px', color: tokens.accent, background: tokens.accentDim, border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', flexShrink: 0, fontFamily: fonts.body }}>+ Task</button>
-                        : <span style={{ fontSize: '10px', color: tokens.green, flexShrink: 0 }}>✓</span>
+                      {tasksSent.includes(item) || createdTaskRefs.some(t => t.title === item)
+                        ? <span style={{ fontSize: '10px', color: tokens.green, flexShrink: 0 }}>✓</span>
+                        : <button onClick={() => sendTaskToInbox(item)} style={{ fontSize: '10px', color: tokens.accent, background: tokens.accentDim, border: 'none', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', flexShrink: 0, fontFamily: fonts.body }}>+ Task</button>
                       }
                     </div>
                   );
