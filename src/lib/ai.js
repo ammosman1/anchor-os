@@ -246,14 +246,20 @@ Allowed: day = "today" | "tomorrow", focusType = "deep" | "medium" | "quick"`;
 
   const raw = await callAI({
     messages: [{ role: 'user', content }],
-    maxTokens: 1200,
-    systemExtra: 'You are a precise scheduling engine. Return only valid JSON.',
+    maxTokens: 2000,
+    systemExtra: 'You are a precise scheduling engine. Return only valid JSON. No preamble, no explanation, no markdown.',
   });
 
+  console.log('[buildSchedule] raw response:', raw?.slice(0, 300));
+
   try {
-    const clean = (raw || '{"schedule":[]}').replace(/```json|```/g, '').trim();
-    return JSON.parse(clean);
-  } catch {
+    const stripped = (raw || '').replace(/```json|```/g, '').trim();
+    // Extract JSON object even if model added surrounding text
+    const match = stripped.match(/\{[\s\S]*\}/);
+    if (!match) return { schedule: [] };
+    return JSON.parse(match[0]);
+  } catch (err) {
+    console.error('[buildSchedule] parse error:', err, 'raw:', raw?.slice(0, 500));
     return null;
   }
 }

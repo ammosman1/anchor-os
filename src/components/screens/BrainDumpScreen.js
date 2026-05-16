@@ -490,8 +490,15 @@ BRAIN DUMP:\n${text}` }],
         return (rank[a.priority] ?? 2) - (rank[b.priority] ?? 2);
       });
 
+      if (!allTasks.length) {
+        setScheduleError('No tasks found to schedule. Confirm some tasks first or add tasks on the Tasks screen.');
+        return;
+      }
+
       const todayLabel    = todayDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
       const tomorrowLabel = tomorrowDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+      console.log('[buildSchedule] sending', allTasks.length, 'tasks, today slots:', todaySlots.length, 'tomorrow slots:', tomorrowSlots.length);
 
       const data = await buildSchedule({
         tasks:        allTasks,
