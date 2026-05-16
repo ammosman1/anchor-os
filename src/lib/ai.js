@@ -189,3 +189,23 @@ Give me the optimal payoff sequence and one actionable move for this week. Max 4
 
   return callAI({ messages: [{ role: 'user', content }], maxTokens: 300 });
 }
+
+export async function scoreGoals({ goals, tasks, brainDumps }) {
+  try {
+    const res = await fetch('/api/goals/score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        goals,
+        tasks:      tasks.slice(0, 50),
+        brainDumps: brainDumps.slice(0, 5),
+      }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    return data.scores || [];
+  } catch (err) {
+    console.error('scoreGoals error:', err);
+    return [];
+  }
+}

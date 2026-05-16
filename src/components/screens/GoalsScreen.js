@@ -1,9 +1,10 @@
 // src/components/screens/GoalsScreen.js
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { addGoal, updateGoal, deleteGoal } from '../../lib/db';
+import { addGoal, updateGoal, deleteGoal, getAICache, saveAICache } from '../../lib/db';
+import { scoreGoals } from '../../lib/ai';
 import { Button, Input, Select, Modal, EmptyState, MomentumBar, Tag } from '../ui';
 
 const STATUS_OPTIONS = [
@@ -43,12 +44,51 @@ function formatDollars(n) {
 }
 
 export default function GoalsScreen() {
-  const { user }   = useAuth();
-  const { goals }  = useData();
-  const [showModal, setShowModal] = useState(false);
-  const [form,      setForm]      = useState(emptyForm);
-  const [editing,   setEditing]   = useState(null);
-  const [saving,    setSaving]    = useState(false);
+  const { user }                          = useAuth();
+  const { goals, tasks, brainDumps }      = useData();
+  const [showModal, setShowModal]         = useState(false);
+  const [form,      setForm]              = useState(emptyForm);
+  const [editing,   setEditing]           = useState(null);
+  const [saving,    setSaving]            = useState(false);
+  const [scoring,   setScoring]           = useState(false);
+  const hasScoredRef                      = useRef(false);
+
+  const runScoring = async (force = false) => {
+    if (scoring) return;
+    const activeGoals = goals.filter(g => g.status === 'active');
+    if (!activeGoals.length) return;
+
+    if (!force) {
+      const hasUnscored = activeGoals.some(g => g.likelihoodScore == null);
+      if (!hasUnscored) {
+        const cached = await getAICache(user.uid, 'goals-likelihood', 24);
+        if (cached) return;
+      }
+    }
+
+    setScoring(true);
+    try {
+      const scores = await scoreGoals({ goals: activeGoals, tasks, brainDumps });
+      await Promise.all(
+        scores.map(s => updateGoal(user.uid, s.goalId, {
+          likelihoodScore: s.score,
+          likelihoodTrend: s.trend,
+        }))
+      );
+      await saveAICache(user.uid, 'goals-likelihood', 'scored');
+    } catch (err) {
+      console.error('Scoring error:', err);
+    } finally {
+      setScoring(false);
+    }
+  };
+
+  // Auto-score once when goals first load
+  useEffect(() => {
+    if (!user || !goals.length || hasScoredRef.current) return;
+    hasScoredRef.current = true;
+    runScoring();
+  }, [user, goals.length]); // eslint-disable-line
 
   const activeCount   = goals.filter(g => g.status === 'active').length;
   const achievedCount = goals.filter(g => g.status === 'achieved').length;
@@ -130,7 +170,12 @@ export default function GoalsScreen() {
             {activeCount} active · {achievedCount} achieved · {pausedCount} paused
           </p>
         </div>
-        <Button onClick={openNew}>+ New Goal</Button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <Button onClick={() => runScoring(true)} variant="ghost" loading={scoring} disabled={scoring}>
+            {scoring ? 'Scoring…' : '↻ Scores'}
+          </Button>
+          <Button onClick={openNew}>+ New Goal</Button>
+        </div>
       </div>
 
       {/* Stats */}
