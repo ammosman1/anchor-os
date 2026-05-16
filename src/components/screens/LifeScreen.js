@@ -4,7 +4,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { getProfile, disconnectCalendar } from '../../lib/db';
-import { initiateCalendarAuth, getValidAccessToken, getEvents, formatEventTime, formatEventDuration } from '../../lib/calendar';
+import { initiateCalendarAuth, getValidAccessToken, getEvents, formatEventTime, formatEventDuration, deleteEvent } from '../../lib/calendar';
 import { Card, SectionLabel, MomentumBar, Button } from '../ui';
 
 function LifeScreen() {
@@ -14,6 +14,17 @@ function LifeScreen() {
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [todayEvents,   setTodayEvents]   = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
+
+  const handleDeleteEvent = async (eventId) => {
+    try {
+      const token = await getValidAccessToken(user.uid, calendarIntegration);
+      if (!token) return;
+      await deleteEvent(token, eventId);
+      setTodayEvents(prev => prev.filter(e => e.id !== eventId));
+    } catch (err) {
+      console.error('Delete event error:', err);
+    }
+  };
 
   // Load today's calendar events when integration is connected
   useEffect(() => {
@@ -380,6 +391,10 @@ function LifeScreen() {
                             {formatEventDuration(event.start.dateTime, event.end.dateTime)}
                           </div>
                         )}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteEvent(event.id); }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.red, fontSize: '12px', opacity: 0.55, padding: '2px 4px', flexShrink: 0, lineHeight: 1 }}
+                        >✕</button>
                       </div>
                     );
                   })}

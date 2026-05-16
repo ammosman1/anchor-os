@@ -4,6 +4,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addTask, updateTask, deleteTask } from '../../lib/db';
+import { getValidAccessToken, deleteEvent } from '../../lib/calendar';
 import { Card, Button, Input, Select, SectionLabel, Tag, Modal, EmptyState, priorityColors } from '../ui';
 
 const PRIORITIES = [
@@ -29,7 +30,7 @@ function timeAgo(ts) {
 
 export default function TasksScreen() {
   const { user }                        = useAuth();
-  const { tasks, projects }             = useData();
+  const { tasks, projects, calendarIntegration } = useData();
   const [filter,    setFilter]          = useState('all');
   const [showModal, setShowModal]       = useState(false);
   const [form,      setForm]            = useState(emptyForm);
@@ -68,8 +69,16 @@ export default function TasksScreen() {
     await updateTask(user.uid, task.id, { done: !task.done });
   };
 
-  const handleDelete = async (taskId) => {
-    await deleteTask(user.uid, taskId);
+  const handleDelete = async (task) => {
+    if (task.calendarEventId && calendarIntegration?.connected) {
+      try {
+        const token = await getValidAccessToken(user.uid, calendarIntegration);
+        if (token) await deleteEvent(token, task.calendarEventId);
+      } catch (err) {
+        console.error('Calendar delete error:', err);
+      }
+    }
+    await deleteTask(user.uid, task.id);
   };
 
   const openNew = () => {
@@ -214,7 +223,7 @@ export default function TasksScreen() {
                   <Tag label={task.priority} color={pc.bg} textColor={pc.text} />
                   <div style={{ display: 'flex', gap: '4px' }}>
                     {!task.done && <button onClick={() => openEdit(task)} style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', fontFamily: fonts.body }}>Edit</button>}
-                    <button onClick={() => handleDelete(task.id)} style={{ background: 'none', border: 'none', color: tokens.red, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', opacity: 0.6, fontFamily: fonts.body }}>✕</button>
+                    <button onClick={() => handleDelete(task)} style={{ background: 'none', border: 'none', color: tokens.red, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', opacity: 0.6, fontFamily: fonts.body }}>✕</button>
                   </div>
                 </div>
               </div>

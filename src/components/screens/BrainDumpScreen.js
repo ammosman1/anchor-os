@@ -8,51 +8,159 @@ import { saveBrainDump, addTask, addProject, updateTask } from '../../lib/db';
 import { getValidAccessToken, getEvents, getFreeSlots, createEvent, formatEventTime } from '../../lib/calendar';
 import { Card, Button, SectionLabel, Tag, AICard } from '../ui';
 
-// ─── Focus type badge ─────────────────────────────────────────────────────────
+// ─── Focus styles ─────────────────────────────────────────────────────────────
 
 const focusStyles = {
-  deep:   { bg: tokens.blueDim,   text: tokens.blue   },
-  medium: { bg: tokens.amberDim,  text: tokens.amber  },
-  quick:  { bg: tokens.greenDim,  text: tokens.green  },
+  deep:   { bg: tokens.blueDim,  text: tokens.blue  },
+  medium: { bg: tokens.amberDim, text: tokens.amber },
+  quick:  { bg: tokens.greenDim, text: tokens.green },
 };
+
+const PRIORITY_CYCLE = { critical: 'high', high: 'medium', medium: 'low', low: 'critical' };
+const PRIORITY_EMOJI = { critical: '🔴', high: '🟠', medium: '🟡', low: '⚪' };
+
+// ─── Time recalculation (cross-day) ───────────────────────────────────────────
+// Packs ordered blocks greedily across today + tomorrow slots in sequence.
+// Returns blocks with updated start/end/day. Blocks that don't fit get day:null.
+
+function recalculateTimes(orderedBlocks, todaySlots, tomorrowSlots) {
+  const BUFFER_MS = 10 * 60000;
+  const allSlots  = [
+    ...todaySlots.map(s => ({ ...s, day: 'today' })),
+    ...tomorrowSlots.map(s => ({ ...s, day: 'tomorrow' })),
+  ];
+
+  if (!allSlots.length) return orderedBlocks.map(b => ({ ...b, day: null, start: null, end: null }));
+
+  let slotIdx = 0;
+  let cursor  = new Date(allSlots[0].start);
+  const result = [];
+
+  for (const block of orderedBlocks) {
+    const durationMs = (block.durationMinutes || 30) * 60000;
+    let placed = false;
+
+    while (slotIdx < allSlots.length) {
+      const slot      = allSlots[slotIdx];
+      const slotStart = new Date(slot.start);
+      const slotEnd   = new Date(slot.end);
+
+      if (cursor < slotStart) cursor = new Date(slotStart);
+      if (cursor >= slotEnd)  { slotIdx++; if (slotIdx < allSlots.length) cursor = new Date(allSlots[slotIdx].start); continue; }
+
+      const available = slotEnd.getTime() - cursor.getTime();
+      if (available >= durationMs) {
+        const start = new Date(cursor);
+        const end   = new Date(cursor.getTime() + durationMs);
+        result.push({ ...block, day: slot.day, start: start.toISOString(), end: end.toISOString() });
+        cursor  = new Date(end.getTime() + BUFFER_MS);
+        placed  = true;
+        break;
+      } else {
+        slotIdx++;
+        if (slotIdx < allSlots.length) cursor = new Date(allSlots[slotIdx].start);
+      }
+    }
+
+    if (!placed) result.push({ ...block, day: null, start: null, end: null });
+  }
+
+  return result;
+}
 
 // ─── Schedule block row ───────────────────────────────────────────────────────
 
-function ScheduleBlock({ block, removed, onToggle }) {
+function ScheduleBlock({
+  block, index, totalBlocks,
+  isEditing, editForm, onEditStart, onEditSave, onEditCancel, onEditChange,
+  onDelete,
+  isDragTarget,
+  onDragStart, onDragOver, onDragEnd, onDrop,
+}) {
   const fc = focusStyles[block.focusType] || focusStyles.medium;
+  const unscheduled = !block.start;
+
   return (
-    <div style={{
-      display: 'flex', alignItems: 'flex-start', gap: '12px',
-      padding: '12px 14px', marginBottom: '6px',
-      background: removed ? tokens.bgGlass : tokens.bgCard,
-      border: `1px solid ${removed ? 'rgba(255,255,255,0.04)' : tokens.border}`,
-      borderRadius: tokens.radiusMd, opacity: removed ? 0.38 : 1,
-      transition: 'all 0.15s',
-    }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: '11px', color: tokens.textMuted, marginBottom: '3px' }}>
-          {formatEventTime(block.start)} – {formatEventTime(block.end)} · {block.durationMinutes}m
-        </div>
-        <div style={{
-          fontSize: '14px', fontWeight: 600, color: tokens.textPrimary, lineHeight: 1.35,
-          textDecoration: removed ? 'line-through' : 'none',
-        }}>
-          {block.taskTitle}
-        </div>
-        {block.reason && (
-          <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '3px', lineHeight: 1.4 }}>
-            {block.reason}
+    <div
+      draggable={!isEditing && !unscheduled}
+      onDragStart={() => onDragStart(index)}
+      onDragOver={(e) => { e.preventDefault(); onDragOver(index); }}
+      onDragEnd={onDragEnd}
+      onDrop={(e) => { e.preventDefault(); onDrop(index); }}
+      style={{
+        display: 'flex', alignItems: 'flex-start', gap: '10px',
+        padding: '12px 14px', marginBottom: '6px',
+        background: isDragTarget ? tokens.accentDim : unscheduled ? tokens.bgGlass : tokens.bgCard,
+        border: `1px solid ${isDragTarget ? 'rgba(200,169,110,0.3)' : unscheduled ? 'rgba(255,255,255,0.04)' : tokens.border}`,
+        borderRadius: tokens.radiusMd,
+        opacity: unscheduled ? 0.45 : 1,
+        cursor: isEditing || unscheduled ? 'default' : 'grab',
+        transition: 'background 0.12s, border-color 0.12s',
+      }}
+    >
+      {/* Drag handle */}
+      <div style={{ color: tokens.textMuted, fontSize: '15px', paddingTop: '3px', userSelect: 'none', flexShrink: 0, opacity: unscheduled ? 0.3 : 0.6 }}>⠿</div>
+
+      {isEditing ? (
+        /* ── Inline edit mode ── */
+        <div style={{ flex: 1 }}>
+          <input
+            autoFocus
+            value={editForm.title}
+            onChange={e => onEditChange('title', e.target.value)}
+            style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.borderFocus}`, borderRadius: tokens.radiusMd, padding: '8px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box', marginBottom: '8px' }}
+          />
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input
+              type="number"
+              min="5" max="480"
+              value={editForm.durationMinutes}
+              onChange={e => onEditChange('durationMinutes', Math.max(5, parseInt(e.target.value) || 30))}
+              style={{ width: '70px', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: tokens.radiusMd, padding: '6px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}
+            />
+            <span style={{ fontSize: '11px', color: tokens.textMuted }}>min</span>
+            <Button size="sm" onClick={onEditSave} style={{ marginLeft: 'auto' }}>Save</Button>
+            <Button size="sm" variant="ghost" onClick={onEditCancel}>Cancel</Button>
           </div>
-        )}
-      </div>
-      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexShrink: 0, paddingTop: '2px' }}>
-        <span style={{ fontSize: '10px', fontWeight: 700, color: fc.text, background: fc.bg, padding: '2px 8px', borderRadius: '4px', letterSpacing: '0.04em' }}>
-          {block.focusType}
-        </span>
-        <button onClick={onToggle} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: removed ? tokens.green : tokens.red, opacity: 0.7, padding: '0 2px', fontFamily: fonts.body, lineHeight: 1 }}>
-          {removed ? '+' : '✕'}
-        </button>
-      </div>
+        </div>
+      ) : (
+        /* ── Normal display ── */
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {unscheduled ? (
+            <div style={{ fontSize: '11px', color: tokens.textMuted, marginBottom: '2px' }}>Couldn't fit in available slots</div>
+          ) : (
+            <div style={{ fontSize: '11px', color: tokens.textMuted, marginBottom: '3px' }}>
+              {formatEventTime(block.start)} – {formatEventTime(block.end)} · {block.durationMinutes}m
+            </div>
+          )}
+          <div style={{ fontSize: '14px', fontWeight: 600, color: unscheduled ? tokens.textSecondary : tokens.textPrimary, lineHeight: 1.35 }}>
+            {block.taskTitle}
+          </div>
+          {block.reason && !unscheduled && (
+            <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '3px', lineHeight: 1.4 }}>{block.reason}</div>
+          )}
+        </div>
+      )}
+
+      {!isEditing && (
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexShrink: 0, paddingTop: '2px' }}>
+          {!unscheduled && (
+            <span style={{ fontSize: '10px', fontWeight: 700, color: fc.text, background: fc.bg, padding: '2px 8px', borderRadius: '4px' }}>
+              {block.focusType}
+            </span>
+          )}
+          <button
+            onClick={() => onEditStart(index, block)}
+            title="Edit"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.textMuted, fontSize: '13px', padding: '2px 4px', opacity: 0.7, fontFamily: fonts.body }}
+          >✎</button>
+          <button
+            onClick={() => onDelete(index)}
+            title="Remove"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.red, fontSize: '13px', padding: '2px 4px', opacity: 0.6, fontFamily: fonts.body }}
+          >✕</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -141,35 +249,45 @@ function HistoryTab({ brainDumps }) {
   );
 }
 
-// ─── Category priority weights for sorting ────────────────────────────────────
-const CAT_WEIGHT = { Work: 8, Money: 8, Health: 6, Family: 5, Home: 4, Ideas: 3, Emotional: 2, Later: 1 };
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function BrainDumpScreen() {
-  const { user }                                    = useAuth();
-  const { projects, brainDumps, weeklyReviews, calendarIntegration } = useData();
+  const { user }   = useAuth();
+  const { projects, tasks, brainDumps, weeklyReviews, calendarIntegration } = useData();
+
+  // View: 'input' | 'taskReview' | 'results' | 'schedule' | 'confirmed'
+  const [view,        setView]        = useState('input');
+  const [activeTab,   setActiveTab]   = useState('dump');
 
   // Dump state
-  const [activeTab,   setActiveTab]   = useState('dump');
-  const [text,        setText]        = useState('');
-  const [processing,  setProcessing]  = useState(false);
-  const [result,      setResult]      = useState(null);
-  const [recording,   setRecording]   = useState(false);
-  const [saved,       setSaved]       = useState(false);
-  const [tasksSent,   setTasksSent]   = useState([]);
-  const [created,     setCreated]     = useState({ projects: [], tasks: [] });
-  const [createdTaskRefs, setCreatedTaskRefs] = useState([]); // [{ title, id, priority, estimatedMinutes }]
+  const [text,       setText]       = useState('');
+  const [processing, setProcessing] = useState(false);
+  const [result,     setResult]     = useState(null);
+  const [recording,  setRecording]  = useState(false);
+  const [saved,      setSaved]      = useState(false);
+  const [tasksSent,  setTasksSent]  = useState([]);
+
+  // Task review state
+  const [pendingTasks,  setPendingTasks]  = useState([]); // from AI, not yet written to Firestore
+  const [freshProjects, setFreshProjects] = useState([]); // auto-created in this session
+  const [savingTasks,   setSavingTasks]   = useState(false);
+  const [createdTaskRefs, setCreatedTaskRefs] = useState([]);
+  const [created,       setCreated]       = useState({ projects: [], tasks: [] });
 
   // Schedule state
   const [scheduling,        setScheduling]        = useState(false);
-  const [schedule,          setSchedule]          = useState(null);   // null = not built yet, [] = no slots found
+  const [scheduleBlocks,    setScheduleBlocks]    = useState([]);
+  const [rawSlots,          setRawSlots]          = useState({ today: [], tomorrow: [] });
   const [scheduleError,     setScheduleError]     = useState('');
-  const [removedItems,      setRemovedItems]      = useState(new Set());
   const [confirming,        setConfirming]        = useState(false);
-  const [scheduleConfirmed, setScheduleConfirmed] = useState(false);
   const [confirmedCount,    setConfirmedCount]    = useState(0);
   const [scheduleDates,     setScheduleDates]     = useState({ today: '', tomorrow: '' });
+
+  // Schedule block interaction
+  const [editingBlockIndex, setEditingBlockIndex] = useState(null);
+  const [editForm,          setEditForm]          = useState({ title: '', durationMinutes: 30 });
+  const [dragOver,          setDragOver]          = useState(null);
+  const dragItem = useRef(null);
 
   const recognitionRef = useRef(null);
 
@@ -214,7 +332,7 @@ Return ONLY valid JSON, no markdown:
   "tasksToCreate": [{"title":"task","priority":"critical|high|medium|low","projectName":"project name or null","estimatedMinutes":30}]
 }
 Only include newProjects if user explicitly mentioned creating one. Only tasksToCreate for clear actionable items.
-estimatedMinutes: realistic time to complete the task (15=quick call/email, 30=short task, 60=focused work, 90-120=deep complex work).
+estimatedMinutes: realistic time (15=quick call/email, 30=short task, 60=focused work, 90-120=deep/complex work).
 BRAIN DUMP:\n${text}` }],
       maxTokens: 1000,
       systemExtra: 'Return ONLY valid JSON. No markdown fences.',
@@ -224,7 +342,7 @@ BRAIN DUMP:\n${text}` }],
     try { const clean = (raw || '{}').replace(/```json|```/g, '').trim(); parsed = JSON.parse(clean); }
     catch { parsed = { summary: 'Your thoughts have been captured.', mostUrgent: null, categories: {}, actionItems: [], emotionalThemes: [], urgentFlags: [], newProjects: [], tasksToCreate: [] }; }
 
-    // Auto-create projects
+    // Auto-create projects immediately (no review needed)
     const createdProjects = [];
     if (parsed.newProjects?.length > 0) {
       for (const proj of parsed.newProjects) {
@@ -236,27 +354,65 @@ BRAIN DUMP:\n${text}` }],
         }
       }
     }
+    setFreshProjects(createdProjects);
 
-    // Auto-create tasks — track IDs for scheduling
-    const createdTaskTitles = [];
-    const taskRefs = [];
+    // Save brain dump to Firestore
+    await saveBrainDump(user.uid, { rawText: text, result: parsed });
+    setSaved(true);
+    setResult(parsed);
+    setProcessing(false);
+
+    // Gate tasks on review — skip review if no tasks to create
     if (parsed.tasksToCreate?.length > 0) {
-      const allProjects = [...projects, ...createdProjects];
-      for (const task of parsed.tasksToCreate) {
-        if (!task.title) continue;
-        const matched = task.projectName ? allProjects.find(p => p.title.toLowerCase().includes(task.projectName.toLowerCase())) : null;
-        const ref = await addTask(user.uid, { title: task.title, priority: task.priority || 'medium', project: matched?.title || 'Inbox', projectId: matched?.id || null, source: 'brain-dump', energy: 'medium' });
-        createdTaskTitles.push(task.title);
-        taskRefs.push({ title: task.title, id: ref?.id || null, priority: task.priority || 'medium', estimatedMinutes: task.estimatedMinutes || 30 });
-      }
+      setPendingTasks(parsed.tasksToCreate);
+      setView('taskReview');
+    } else {
+      setCreated({ projects: createdProjects.map(p => p.title), tasks: [] });
+      setView('results');
+    }
+  };
+
+  // ─── Task review handlers ──────────────────────────────────────────────────
+
+  const updatePendingTask = (index, field, value) =>
+    setPendingTasks(prev => prev.map((t, i) => i === index ? { ...t, [field]: value } : t));
+
+  const removePendingTask = (index) =>
+    setPendingTasks(prev => prev.filter((_, i) => i !== index));
+
+  const cyclePriority = (index) =>
+    setPendingTasks(prev => prev.map((t, i) => i === index ? { ...t, priority: PRIORITY_CYCLE[t.priority] || 'medium' } : t));
+
+  const handleConfirmTasks = async () => {
+    setSavingTasks(true);
+    const allProjects = [...projects, ...freshProjects];
+    const createdTitles = [];
+    const taskRefs = [];
+
+    for (const task of pendingTasks) {
+      if (!task.title?.trim()) continue;
+      const matched = task.projectName ? allProjects.find(p => p.title.toLowerCase().includes(task.projectName.toLowerCase())) : null;
+      const ref = await addTask(user.uid, {
+        title:     task.title.trim(),
+        priority:  task.priority || 'medium',
+        project:   matched?.title || 'Inbox',
+        projectId: matched?.id || null,
+        source:    'brain-dump',
+        energy:    'medium',
+      });
+      createdTitles.push(task.title.trim());
+      taskRefs.push({ title: task.title.trim(), id: ref?.id || null, priority: task.priority || 'medium', estimatedMinutes: task.estimatedMinutes || 30 });
     }
 
     setCreatedTaskRefs(taskRefs);
-    setCreated({ projects: createdProjects.map(p => p.title), tasks: createdTaskTitles });
-    setResult(parsed);
-    await saveBrainDump(user.uid, { rawText: text, result: parsed });
-    setSaved(true);
-    setProcessing(false);
+    setCreated({ projects: freshProjects.map(p => p.title), tasks: createdTitles });
+    setSavingTasks(false);
+    setView('results');
+  };
+
+  const handleSkipTasks = () => {
+    setCreated({ projects: freshProjects.map(p => p.title), tasks: [] });
+    setView('results');
   };
 
   // ─── Build schedule ────────────────────────────────────────────────────────
@@ -265,8 +421,7 @@ BRAIN DUMP:\n${text}` }],
     if (scheduling) return;
     setScheduling(true);
     setScheduleError('');
-    setSchedule(null);
-    setRemovedItems(new Set());
+    setScheduleBlocks([]);
 
     try {
       const token = await getValidAccessToken(user.uid, calendarIntegration);
@@ -274,20 +429,35 @@ BRAIN DUMP:\n${text}` }],
 
       const todayDate    = new Date();
       const tomorrowDate = new Date(todayDate.getTime() + 86400000);
-      todayDate.setSeconds(0, 0);
 
       const windowStart = new Date(todayDate); windowStart.setHours(0, 0, 0, 0);
       const windowEnd   = new Date(tomorrowDate); windowEnd.setHours(23, 59, 59, 999);
 
       const { events = [] } = await getEvents(token, windowStart.toISOString(), windowEnd.toISOString());
 
-      const todaySlots    = getFreeSlots(events, todayDate);
+      // Clip today's slots to current time (round up to next 15 min)
+      const rawTodaySlots = getFreeSlots(events, todayDate);
       const tomorrowSlots = getFreeSlots(events, tomorrowDate);
+      const roundedNow    = new Date(Math.ceil(Date.now() / (15 * 60000)) * (15 * 60000));
+
+      const todaySlots = rawTodaySlots.map(slot => {
+        const slotEnd   = new Date(slot.end);
+        const slotStart = new Date(slot.start);
+        if (slotEnd <= roundedNow) return null;
+        if (slotStart < roundedNow) {
+          const newDuration = Math.round((slotEnd - roundedNow) / 60000);
+          if (newDuration < 30) return null;
+          return { ...slot, start: roundedNow.toISOString(), durationMins: newDuration };
+        }
+        return slot;
+      }).filter(Boolean);
 
       if (!todaySlots.length && !tomorrowSlots.length) {
         setScheduleError('No free time slots found today or tomorrow. Your calendar looks packed.');
         return;
       }
+
+      setRawSlots({ today: todaySlots, tomorrow: tomorrowSlots });
 
       // Focus profile from recent weekly reviews
       const recentReviews = weeklyReviews.slice(0, 4);
@@ -295,19 +465,27 @@ BRAIN DUMP:\n${text}` }],
         ? Math.round(recentReviews.reduce((s, r) => s + (r.energyScore || 60), 0) / recentReviews.length)
         : 65;
 
-      // Build task list: auto-created tasks first (by priority), then unscheduled action items
-      const urgentSet = new Set(result?.urgentFlags || []);
-      const tasks = [
+      // Build combined task pool: brain dump tasks + unscheduled existing tasks
+      const urgentSet     = new Set(result?.urgentFlags || []);
+      const existingTasks = tasks
+        .filter(t => !t.done && !t.scheduledStart)
+        .map(t => ({ title: t.title, taskId: t.id, priority: t.priority || 'medium', estimatedMinutes: t.estimatedMinutes || 30 }));
+
+      const rawTasks = [
         ...createdTaskRefs.map(t => ({ title: t.title, taskId: t.id, priority: t.priority, estimatedMinutes: t.estimatedMinutes })),
         ...(result?.actionItems || [])
           .filter(item => !createdTaskRefs.some(t => t.title === item))
-          .map(item => ({
-            title:              item,
-            taskId:             null,
-            priority:           urgentSet.has(item) ? 'high' : 'medium',
-            estimatedMinutes:   30,
-          })),
-      ].sort((a, b) => {
+          .map(item => ({ title: item, taskId: null, priority: urgentSet.has(item) ? 'high' : 'medium', estimatedMinutes: 30 })),
+        ...existingTasks,
+      ];
+
+      // Deduplicate by taskId, then sort by priority
+      const seen    = new Set();
+      const allTasks = rawTasks.filter(t => {
+        if (t.taskId && seen.has(t.taskId)) return false;
+        if (t.taskId) seen.add(t.taskId);
+        return true;
+      }).sort((a, b) => {
         const rank = { critical: 0, high: 1, medium: 2, low: 3 };
         return (rank[a.priority] ?? 2) - (rank[b.priority] ?? 2);
       });
@@ -316,16 +494,17 @@ BRAIN DUMP:\n${text}` }],
       const tomorrowLabel = tomorrowDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
       const res = await fetch('/api/schedule/build', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tasks, slots: { today: todaySlots, tomorrow: tomorrowSlots }, focusProfile: { recentEnergy }, today: todayLabel, tomorrow: tomorrowLabel }),
+        body:    JSON.stringify({ tasks: allTasks, slots: { today: todaySlots, tomorrow: tomorrowSlots }, focusProfile: { recentEnergy }, today: todayLabel, tomorrow: tomorrowLabel }),
       });
 
       const data = await res.json();
       if (data.error) { setScheduleError('Schedule build failed. Try again.'); return; }
 
-      setSchedule(data.schedule || []);
+      setScheduleBlocks(data.schedule || []);
       setScheduleDates({ today: todayLabel, tomorrow: tomorrowLabel });
+      setView('schedule');
     } catch (err) {
       console.error('Build schedule error:', err);
       setScheduleError('Something went wrong building your schedule.');
@@ -334,11 +513,50 @@ BRAIN DUMP:\n${text}` }],
     }
   };
 
+  // ─── Schedule block interaction ────────────────────────────────────────────
+
+  const handleDragStart = (index) => { dragItem.current = index; };
+  const handleDragOver  = (index) => { setDragOver(index); };
+  const handleDragEnd   = () => { setDragOver(null); dragItem.current = null; };
+
+  const handleDrop = (targetIndex) => {
+    const from = dragItem.current;
+    if (from === null || from === targetIndex) { setDragOver(null); return; }
+    const newBlocks = [...scheduleBlocks];
+    const [moved] = newBlocks.splice(from, 1);
+    newBlocks.splice(targetIndex, 0, moved);
+    setScheduleBlocks(recalculateTimes(newBlocks, rawSlots.today, rawSlots.tomorrow));
+    dragItem.current = null;
+    setDragOver(null);
+  };
+
+  const handleEditStart = (index, block) => {
+    setEditingBlockIndex(index);
+    setEditForm({ title: block.taskTitle, durationMinutes: block.durationMinutes });
+  };
+
+  const handleEditSave = () => {
+    const newBlocks = scheduleBlocks.map((b, i) =>
+      i === editingBlockIndex ? { ...b, taskTitle: editForm.title, durationMinutes: editForm.durationMinutes } : b
+    );
+    setScheduleBlocks(recalculateTimes(newBlocks, rawSlots.today, rawSlots.tomorrow));
+    setEditingBlockIndex(null);
+  };
+
+  const handleEditCancel = () => setEditingBlockIndex(null);
+  const handleEditChange = (field, value) => setEditForm(f => ({ ...f, [field]: value }));
+
+  const handleDeleteBlock = (index) => {
+    const newBlocks = scheduleBlocks.filter((_, i) => i !== index);
+    setScheduleBlocks(recalculateTimes(newBlocks, rawSlots.today, rawSlots.tomorrow));
+    if (editingBlockIndex === index) setEditingBlockIndex(null);
+  };
+
   // ─── Confirm schedule ──────────────────────────────────────────────────────
 
   const handleConfirmSchedule = async () => {
     if (confirming) return;
-    const active = (schedule || []).filter((_, i) => !removedItems.has(i));
+    const active = scheduleBlocks.filter(b => b.start);
     if (!active.length) return;
 
     setConfirming(true);
@@ -347,22 +565,23 @@ BRAIN DUMP:\n${text}` }],
       const tz    = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
       await Promise.all(active.map(async (block) => {
-        await createEvent(token, {
+        const calEvent       = await createEvent(token, {
           summary:     block.taskTitle,
-          description: `Anchor brain dump schedule · ${block.focusType} focus`,
+          description: `Anchor schedule · ${block.focusType} focus`,
           start:       { dateTime: block.start, timeZone: tz },
           end:         { dateTime: block.end,   timeZone: tz },
         });
+        const calendarEventId = calEvent?.id || null;
 
         if (block.taskId) {
-          await updateTask(user.uid, block.taskId, { status: 'scheduled', scheduledStart: block.start, scheduledEnd: block.end });
+          await updateTask(user.uid, block.taskId, { status: 'scheduled', scheduledStart: block.start, scheduledEnd: block.end, calendarEventId });
         } else {
-          await addTask(user.uid, { title: block.taskTitle, priority: block.priority || 'medium', source: 'brain-dump', status: 'scheduled', scheduledStart: block.start, scheduledEnd: block.end });
+          await addTask(user.uid, { title: block.taskTitle, priority: block.priority || 'medium', source: 'brain-dump', status: 'scheduled', scheduledStart: block.start, scheduledEnd: block.end, calendarEventId });
         }
       }));
 
       setConfirmedCount(active.length);
-      setScheduleConfirmed(true);
+      setView('confirmed');
     } catch (err) {
       console.error('Confirm schedule error:', err);
     } finally {
@@ -370,7 +589,7 @@ BRAIN DUMP:\n${text}` }],
     }
   };
 
-  // ─── Misc handlers ─────────────────────────────────────────────────────────
+  // ─── Misc ─────────────────────────────────────────────────────────────────
 
   const sendTaskToInbox = async (taskText) => {
     await addTask(user.uid, { title: taskText, priority: 'medium', project: 'Inbox', energy: 'medium', source: 'brain-dump' });
@@ -379,36 +598,24 @@ BRAIN DUMP:\n${text}` }],
 
   const reset = () => {
     setText(''); setResult(null); setSaved(false); setTasksSent([]);
-    setCreated({ projects: [], tasks: [] }); setCreatedTaskRefs([]);
-    setSchedule(null); setScheduleError(''); setRemovedItems(new Set());
-    setScheduleConfirmed(false); setConfirmedCount(0); setScheduleDates({ today: '', tomorrow: '' });
+    setPendingTasks([]); setFreshProjects([]); setSavingTasks(false);
+    setCreatedTaskRefs([]); setCreated({ projects: [], tasks: [] });
+    setScheduleBlocks([]); setRawSlots({ today: [], tomorrow: [] }); setScheduleError('');
+    setConfirming(false); setConfirmedCount(0); setScheduleDates({ today: '', tomorrow: '' });
+    setEditingBlockIndex(null); setDragOver(null);
+    setView('input');
   };
 
-  const toggleRemove = (index) => {
-    setRemovedItems(prev => {
-      const next = new Set(prev);
-      next.has(index) ? next.delete(index) : next.add(index);
-      return next;
-    });
-  };
+  // ─── Derived ──────────────────────────────────────────────────────────────
 
-  // ─── Derived display data ──────────────────────────────────────────────────
-
-  const tips     = ['What\'s stressing me', 'What I\'m avoiding', 'Tasks I need to do', 'New project ideas', 'Money worries', 'What\'s unresolved'];
+  const tips      = ['What\'s stressing me', 'What I\'m avoiding', 'Tasks I need to do', 'New project ideas', 'Money worries', 'What\'s unresolved'];
   const catColors = { Work: { bg: tokens.blueDim, text: tokens.blue }, Money: { bg: tokens.redDim, text: tokens.red }, Family: { bg: tokens.purpleDim, text: tokens.purple }, Health: { bg: tokens.greenDim, text: tokens.green }, Home: { bg: tokens.amberDim, text: tokens.amber }, Ideas: { bg: tokens.accentDim, text: tokens.accent }, Emotional: { bg: tokens.purpleDim, text: tokens.purple }, Later: { bg: 'rgba(255,255,255,0.05)', text: tokens.textMuted } };
 
-  // Sort action items: urgent flags first, then by inferred category weight
-  const urgentSet = new Set(result?.urgentFlags || []);
-  const sortedActionItems = [...(result?.actionItems || [])].sort((a, b) => {
-    const aUrgent = urgentSet.has(a) ? 0 : 1;
-    const bUrgent = urgentSet.has(b) ? 0 : 1;
-    return aUrgent - bUrgent;
-  });
-
-  const calendarConnected = !!calendarIntegration?.connected;
-  const todayBlocks       = (schedule || []).filter(b => b.day === 'today');
-  const tomorrowBlocks    = (schedule || []).filter(b => b.day === 'tomorrow');
-  const activeBlockCount  = (schedule || []).filter((_, i) => !removedItems.has(i)).length;
+  const urgentSet          = new Set(result?.urgentFlags || []);
+  const sortedActionItems  = [...(result?.actionItems || [])].sort((a, b) => (urgentSet.has(a) ? 0 : 1) - (urgentSet.has(b) ? 0 : 1));
+  const calendarConnected  = !!calendarIntegration?.connected;
+  const activeBlockCount   = scheduleBlocks.filter(b => b.start).length;
+  const unscheduledBlocks  = scheduleBlocks.filter(b => !b.start);
 
   // ─── Render ────────────────────────────────────────────────────────────────
 
@@ -431,11 +638,10 @@ BRAIN DUMP:\n${text}` }],
         ))}
       </div>
 
-      {/* ── History tab ── */}
       {activeTab === 'history' ? (
         <HistoryTab brainDumps={brainDumps} />
 
-      ) : !result ? (
+      ) : view === 'input' ? (
         /* ── Dump input ── */
         <div className="fade-up stagger-2">
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '14px' }}>
@@ -467,7 +673,49 @@ BRAIN DUMP:\n${text}` }],
           </div>
         </div>
 
-      ) : scheduleConfirmed ? (
+      ) : view === 'taskReview' ? (
+        /* ── Task review ── */
+        <div className="fade-in">
+          <div style={{ marginBottom: '20px' }}>
+            <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Review Before Creating</div>
+            <h2 style={{ fontFamily: fonts.display, fontSize: '22px', fontWeight: 700, color: tokens.textPrimary, margin: 0 }}>Tasks to Create</h2>
+            <p style={{ fontSize: '13px', color: tokens.textSecondary, marginTop: '4px' }}>Edit, remove, or change priority. Nothing is written until you confirm.</p>
+          </div>
+
+          {pendingTasks.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '32px', color: tokens.textMuted, fontSize: '13px', background: tokens.bgCard, borderRadius: tokens.radiusLg, border: `1px solid ${tokens.border}`, marginBottom: '20px' }}>
+              All tasks removed.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
+              {pendingTasks.map((task, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: tokens.radiusMd }}>
+                  <button
+                    onClick={() => cyclePriority(i)}
+                    title="Tap to change priority"
+                    style={{ fontSize: '16px', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: '0 2px' }}
+                  >{PRIORITY_EMOJI[task.priority] || '🟡'}</button>
+                  <input
+                    value={task.title}
+                    onChange={e => updatePendingTask(i, 'title', e.target.value)}
+                    style={{ flex: 1, background: 'transparent', border: 'none', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, minWidth: 0 }}
+                  />
+                  <span style={{ fontSize: '11px', color: tokens.textMuted, flexShrink: 0, whiteSpace: 'nowrap' }}>{task.estimatedMinutes || 30}m</span>
+                  <button onClick={() => removePendingTask(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.red, fontSize: '14px', opacity: 0.6, padding: '0 2px', flexShrink: 0, fontFamily: fonts.body }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <Button onClick={handleSkipTasks} variant="ghost">Skip, no tasks</Button>
+            <Button onClick={handleConfirmTasks} loading={savingTasks}>
+              {pendingTasks.length === 0 ? 'Continue →' : `Confirm ${pendingTasks.length} Task${pendingTasks.length !== 1 ? 's' : ''} →`}
+            </Button>
+          </div>
+        </div>
+
+      ) : view === 'confirmed' ? (
         /* ── Schedule confirmed ── */
         <div className="fade-in" style={{ textAlign: 'center', padding: '40px 24px' }}>
           <div style={{ width: 56, height: 56, borderRadius: '50%', background: tokens.greenDim, border: `1px solid rgba(109,191,158,0.25)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', margin: '0 auto 16px' }}>✓</div>
@@ -481,49 +729,76 @@ BRAIN DUMP:\n${text}` }],
           </div>
         </div>
 
-      ) : schedule !== null ? (
+      ) : view === 'schedule' ? (
         /* ── Schedule preview ── */
         <div className="fade-in">
-          <div style={{ marginBottom: '18px' }}>
+          <div style={{ marginBottom: '16px' }}>
             <SectionLabel>Proposed Schedule</SectionLabel>
             <p style={{ fontSize: '13px', color: tokens.textMuted }}>
               {activeBlockCount === 0
-                ? 'All blocks removed. Add some back or cancel.'
-                : `${activeBlockCount} block${activeBlockCount !== 1 ? 's' : ''} ready to lock in. Remove any you don't want.`}
+                ? 'No schedulable blocks. Edit durations or go back.'
+                : `${activeBlockCount} block${activeBlockCount !== 1 ? 's' : ''} ready. Drag to reorder — times update automatically.`}
             </p>
           </div>
 
-          {todayBlocks.length > 0 && (
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, color: tokens.textMuted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '10px' }}>
-                TODAY — {scheduleDates.today}
-              </div>
-              {todayBlocks.map((block, i) => (
-                <ScheduleBlock key={i} block={block} removed={removedItems.has(i)} onToggle={() => toggleRemove(i)} />
-              ))}
-            </div>
-          )}
+          {/* Scheduled blocks */}
+          {scheduleBlocks.filter(b => b.start).length > 0 && (() => {
+            let lastDay = null;
+            return scheduleBlocks.map((block, i) => {
+              if (!block.start) return null;
+              const showHeader = block.day !== lastDay;
+              lastDay = block.day;
+              return (
+                <React.Fragment key={i}>
+                  {showHeader && (
+                    <div style={{ fontSize: '10px', fontWeight: 700, color: tokens.textMuted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px', marginTop: i > 0 ? '20px' : 0 }}>
+                      {block.day === 'today' ? `TODAY — ${scheduleDates.today}` : `TOMORROW — ${scheduleDates.tomorrow}`}
+                    </div>
+                  )}
+                  <ScheduleBlock
+                    block={block} index={i} totalBlocks={scheduleBlocks.length}
+                    isEditing={editingBlockIndex === i}
+                    editForm={editForm}
+                    onEditStart={handleEditStart} onEditSave={handleEditSave}
+                    onEditCancel={handleEditCancel} onEditChange={handleEditChange}
+                    onDelete={handleDeleteBlock}
+                    isDragTarget={dragOver === i}
+                    onDragStart={handleDragStart} onDragOver={handleDragOver}
+                    onDragEnd={handleDragEnd} onDrop={handleDrop}
+                  />
+                </React.Fragment>
+              );
+            });
+          })()}
 
-          {tomorrowBlocks.length > 0 && (
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, color: tokens.textMuted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '10px' }}>
-                TOMORROW — {scheduleDates.tomorrow}
+          {/* Unscheduled blocks */}
+          {unscheduledBlocks.length > 0 && (
+            <div style={{ marginTop: '20px' }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, color: tokens.red, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px' }}>
+                COULDN'T SCHEDULE ({unscheduledBlocks.length})
               </div>
-              {tomorrowBlocks.map((block, i) => {
-                const globalIndex = todayBlocks.length + i;
-                return <ScheduleBlock key={i} block={block} removed={removedItems.has(globalIndex)} onToggle={() => toggleRemove(globalIndex)} />;
+              {scheduleBlocks.map((block, i) => {
+                if (block.start) return null;
+                return (
+                  <ScheduleBlock
+                    key={i} block={block} index={i} totalBlocks={scheduleBlocks.length}
+                    isEditing={editingBlockIndex === i}
+                    editForm={editForm}
+                    onEditStart={handleEditStart} onEditSave={handleEditSave}
+                    onEditCancel={handleEditCancel} onEditChange={handleEditChange}
+                    onDelete={handleDeleteBlock}
+                    isDragTarget={dragOver === i}
+                    onDragStart={handleDragStart} onDragOver={handleDragOver}
+                    onDragEnd={handleDragEnd} onDrop={handleDrop}
+                  />
+                );
               })}
+              <p style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '6px' }}>Shorten their duration or remove to free them up.</p>
             </div>
           )}
 
-          {schedule.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '24px', color: tokens.textMuted, fontSize: '13px' }}>
-              No time slots could be scheduled. Your calendar may be fully booked.
-            </div>
-          )}
-
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', paddingTop: '8px' }}>
-            <Button onClick={() => { setSchedule(null); setScheduleError(''); }} variant="ghost">← Back</Button>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', paddingTop: '16px', borderTop: `1px solid ${tokens.border}`, marginTop: '8px' }}>
+            <Button onClick={() => setView('results')} variant="ghost">← Back</Button>
             <Button onClick={handleConfirmSchedule} loading={confirming} disabled={activeBlockCount === 0 || confirming}>
               Confirm — Schedule {activeBlockCount} item{activeBlockCount !== 1 ? 's' : ''} →
             </Button>
@@ -537,7 +812,7 @@ BRAIN DUMP:\n${text}` }],
 
           {(created.projects.length > 0 || created.tasks.length > 0) && (
             <div style={{ marginBottom: '14px', padding: '14px 16px', background: tokens.greenDim, border: `1px solid rgba(109,191,158,0.2)`, borderRadius: '12px' }}>
-              <div style={{ fontSize: '11px', color: tokens.green, fontWeight: 700, letterSpacing: '0.08em', marginBottom: '8px' }}>✓ AUTOMATICALLY CREATED</div>
+              <div style={{ fontSize: '11px', color: tokens.green, fontWeight: 700, letterSpacing: '0.08em', marginBottom: '8px' }}>✓ CREATED</div>
               {created.projects.length > 0 && <div style={{ fontSize: '13px', color: tokens.textPrimary, marginBottom: '4px' }}><span style={{ color: tokens.green }}>Projects: </span>{created.projects.join(', ')}</div>}
               {created.tasks.length > 0 && <div style={{ fontSize: '13px', color: tokens.textPrimary }}><span style={{ color: tokens.green }}>Tasks: </span>{created.tasks.join(', ')}</div>}
               <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '6px' }}>Now live in Projects and Tasks screens.</div>
@@ -555,7 +830,6 @@ BRAIN DUMP:\n${text}` }],
           )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-            {/* Action items — sorted by urgency */}
             {sortedActionItems.length > 0 && (
               <Card>
                 <SectionLabel>Action Items</SectionLabel>
@@ -564,9 +838,7 @@ BRAIN DUMP:\n${text}` }],
                   return (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '8px' }}>
                       <div style={{ display: 'flex', gap: '6px', flex: 1, alignItems: 'flex-start' }}>
-                        <span style={{ color: isUrgent ? tokens.amber : tokens.accent, flexShrink: 0, fontSize: isUrgent ? '13px' : '14px' }}>
-                          {isUrgent ? '⚑' : '→'}
-                        </span>
+                        <span style={{ color: isUrgent ? tokens.amber : tokens.accent, flexShrink: 0 }}>{isUrgent ? '⚑' : '→'}</span>
                         <span style={{ fontSize: '13px', color: tokens.textPrimary }}>{item}</span>
                       </div>
                       {!tasksSent.includes(item)
@@ -617,17 +889,14 @@ BRAIN DUMP:\n${text}` }],
                 <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '3px' }}>Build a time-blocked schedule</div>
                 <div style={{ fontSize: '12px', color: tokens.textMuted }}>
                   {calendarConnected
-                    ? 'AI reads your calendar, factors in priority and focus time, and lays out your day.'
+                    ? 'Reads your calendar + existing tasks, factors in priority and focus time, lays out your day.'
                     : 'Connect Google Calendar on the Life OS screen to unlock scheduling.'}
                 </div>
               </div>
-              {calendarConnected ? (
-                <Button onClick={handleBuildSchedule} loading={scheduling} disabled={scheduling}>
-                  {scheduling ? 'Building…' : '✦ Build My Schedule'}
-                </Button>
-              ) : (
-                <span style={{ fontSize: '11px', color: tokens.textMuted, fontStyle: 'italic' }}>Calendar not connected</span>
-              )}
+              {calendarConnected
+                ? <Button onClick={handleBuildSchedule} loading={scheduling} disabled={scheduling}>{scheduling ? 'Building…' : '✦ Build My Schedule'}</Button>
+                : <span style={{ fontSize: '11px', color: tokens.textMuted, fontStyle: 'italic' }}>Calendar not connected</span>
+              }
             </div>
             {scheduleError && <div style={{ fontSize: '12px', color: tokens.red, marginTop: '10px' }}>{scheduleError}</div>}
           </div>
