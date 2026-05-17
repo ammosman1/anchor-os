@@ -10,6 +10,7 @@ import {
 import { Button, Modal, Input, Spinner, priorityColors } from '../ui';
 import { updateTask } from '../../lib/db';
 import PlanScheduleFlow from './PlanScheduleFlow';
+import WorkScheduleImportModal from './WorkScheduleImportModal';
 
 const HOUR_HEIGHT = 60;
 const GRID_START  = 6;
@@ -123,6 +124,7 @@ export default function CalendarScreen() {
   const [detail, setDetail]            = useState(null);
   const [deleting, setDeleting]        = useState(false);
   const [planOpen, setPlanOpen]        = useState(false);
+  const [importOpen, setImportOpen]    = useState(false);
   const [sidebarOpen, setSidebarOpen]   = useState(true);
   const [sidebarFilter, setSidebarFilter] = useState('unscheduled'); // 'unscheduled' | 'all'
   const [conflicts, setConflicts]      = useState([]);
@@ -795,10 +797,16 @@ export default function CalendarScreen() {
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
             background: tokens.bgCard,
           }}>
-            <div style={{ padding: '10px 12px', borderBottom: `1px solid ${tokens.border}` }}>
+            <div style={{ padding: '10px 12px', borderBottom: `1px solid ${tokens.border}`, display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <Button onClick={() => setPlanOpen(true)} style={{ width: '100%', justifyContent: 'center' }}>
                 ✦ Plan My Schedule
               </Button>
+              <button onClick={() => setImportOpen(true)}
+                style={{ width: '100%', padding: '7px', background: tokens.bgGlass, border: `1px solid ${tokens.border}`, borderRadius: '8px', color: tokens.textSecondary, fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: fonts.body, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = tokens.borderHover; e.currentTarget.style.color = tokens.textPrimary; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = tokens.border; e.currentTarget.style.color = tokens.textSecondary; }}>
+                📷 Import Work Schedule
+              </button>
             </div>
             <div style={{ padding: '6px 14px 4px', borderBottom: `1px solid ${tokens.border}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
@@ -1133,6 +1141,17 @@ export default function CalendarScreen() {
           fetchWeek(ws);
         }}
         calendarIntegration={calendarIntegration}
+      />
+
+      {/* ── Work Schedule Import ── */}
+      <WorkScheduleImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        calendarIntegration={calendarIntegration}
+        onImported={() => {
+          fetched.current.clear();
+          fetchWeek(ws);
+        }}
       />
 
       {/* ── Task Edit Modal ── */}

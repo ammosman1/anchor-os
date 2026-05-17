@@ -3,7 +3,7 @@
 
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
-  getDoc, onSnapshot, query, orderBy, limit,
+  getDoc, getDocs, onSnapshot, query, orderBy, limit, where,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -275,3 +275,25 @@ export const subscribeWeeklyReviews = (uid, cb) =>
     query(collection(db, 'users', uid, 'weeklyReviews'), orderBy('savedAt', 'desc'), limit(12)),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+
+// ─── Work Schedule Blocks (WF import) ────────────────────────────────────────
+// Each block tracks one imported GCal event so we can delete/replace on re-import.
+export const addWorkScheduleBlock = (uid, data) =>
+  addDoc(collection(db, 'users', uid, 'workScheduleBlocks'), {
+    ...data,
+    importedAt: serverTimestamp(),
+  });
+
+export const getWorkScheduleBlocksInRange = async (uid, rangeStart, rangeEnd) => {
+  const snap = await getDocs(
+    query(
+      collection(db, 'users', uid, 'workScheduleBlocks'),
+      where('date', '>=', rangeStart),
+      where('date', '<=', rangeEnd),
+    )
+  );
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+};
+
+export const deleteWorkScheduleBlock = (uid, blockId) =>
+  deleteDoc(doc(db, 'users', uid, 'workScheduleBlocks', blockId));
