@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import {
   getValidAccessToken, getEvents, createEvent, deleteEvent, updateEvent,
-  formatEventTime, initiateCalendarAuth,
+  formatEventTime, initiateCalendarAuth, getFreeSlots,
 } from '../../lib/calendar';
 import { Button, Modal, Input, Spinner, priorityColors } from '../ui';
 import { updateTask } from '../../lib/db';
@@ -16,6 +16,8 @@ const GRID_START  = 6;
 const GRID_END    = 22;
 const HOURS = Array.from({ length: GRID_END - GRID_START }, (_, i) => GRID_START + i);
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DAY_NAMES_LOWER = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+const PRIORITIES = ['critical', 'high', 'medium', 'low'];
 
 const EVENT_PALETTE = [
   { bg: 'rgba(91,143,212,0.88)',  border: '#5B8FD4',  text: '#fff' },
@@ -61,9 +63,21 @@ function fmtHour(h) {
   return h < 12 ? `${h}am` : `${h - 12}pm`;
 }
 
+
+
 function localISO(date) {
   const pad = n => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function isWorkDay(date, workHours) {
+  if (!workHours) return true;
+  const name = DAY_NAMES_LOWER[date.getDay()];
+  return workHours[name]?.enabled !== false;
 }
 
 // Greedy column layout for overlapping events
@@ -94,13 +108,9 @@ function layoutDay(events) {
   });
 }
 
-function ymd(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 export default function CalendarScreen() {
-  const { user }                       = useAuth();
-  const { calendarIntegration, tasks } = useData();
+  const { user }                                               = useAuth();
+  const { calendarIntegration, tasks, userProfile, projects } = useData();
   const [ws, setWs]                    = useState(() => weekStart(new Date()));
   const [events, setEvents]            = useState([]);
   const [loading, setLoading]          = useState(false);
@@ -115,11 +125,27 @@ export default function CalendarScreen() {
   const [planOpen, setPlanOpen]        = useState(false);
   const [sidebarOpen, setSidebarOpen]  = useState(true);
   const [conflicts, setConflicts]      = useState([]);
-  const scrollRef                      = useRef(null);
-  const fetched                        = useRef(new Set());
-  const dragRef                        = useRef(null);
-  const tasksRef                       = useRef(tasks);
-  const [dragState, setDragState]      = useState(null);
+  // Task edit modal
+  const [editingTask, setEditingTask]  = useState(null);
+  const [editForm, setEditForm]        = useState({});
+  const [editSaving, setEditSaving]    = useState(false);
+  // Drag from sidebar
+  const [dragOverInfo, setDragOverInfo]   = useState(null); // { dayIndex, mins }
+  const [dragNoSlot, setDragNoSlot]       = useState('');
+  // Auto-schedule
+  const [autoScheduling, setAutoScheduling] = useState(new Set());
+  // Work hours warning
+  const [workHoursWarning, setWorkHoursWarning] = useState(null); // { task, day, mins }
+
+  const scrollRef               = useRef(null);
+  const fetched                 = useRef(new Set());
+  const dragRef                 = useRef(null);
+  const tasksRef                = useRef(tasks);
+  const draggedSidebarTask      = useRef(null);
+  const isDraggingFromSidebar   = useRef(false);
+  const [dragState, setDragState] = useState(null);
+
+  const yesterdayStr = ymd(new Date(Date.now() - 86400000));
 
   useEffect(() => {
     const fn = () => {
@@ -142,8 +168,6 @@ export default function CalendarScreen() {
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
   // ── Unscheduled tasks for sidebar ─────────────────────────────────────────
-  const yesterdayStr = ymd(new Date(Date.now() - 86400000));
-
   const unscheduledTasks = useMemo(() => tasks
     .filter(t => {
       if (t.done) return false;
@@ -157,9 +181,9 @@ export default function CalendarScreen() {
     }),
   [tasks, yesterdayStr]);
 
-  // ── Drag-to-reschedule ─────────────────────────────────────────────────────
+  // ── Drag-to-reschedule existing calendar events ────────────────────────────
   const onEventMouseDown = useCallback((e, ev) => {
-    if (isMobile || !ev.start?.dateTime) return;
+    if (isMobile || !ev.start?.dateTime || isDraggingFromSidebar.current) return;
     e.preventDefault();
     e.stopPropagation();
     dragRef.current = { event: ev, startY: e.clientY, hasMoved: false };
@@ -227,16 +251,11 @@ export default function CalendarScreen() {
   // ── Phase 2: sync-on-open ──────────────────────────────────────────────────
   const syncTasksWithEvents = useCallback(async (fetchedEvents) => {
     const linked = (tasksRef.current || []).filter(t => t.calendarEventId && t.scheduledStart);
-    const detected = [];
-
     for (const task of linked) {
       const ev = fetchedEvents.find(e => e.id === task.calendarEventId);
       if (!ev?.start?.dateTime) continue;
-
       const newStart = ev.start.dateTime;
       const newEnd   = ev.end?.dateTime;
-
-      // Event was moved — sync task
       if (newStart !== task.scheduledStart || newEnd !== task.scheduledEnd) {
         try {
           await updateTask(user.uid, task.id, {
@@ -250,7 +269,7 @@ export default function CalendarScreen() {
       }
     }
 
-    // Detect conflicts: non-anchor calendar events overlapping anchor task blocks
+    const detected = [];
     const anchorTasks = (tasksRef.current || []).filter(t => t.calendarEventId && t.scheduledStart && t.scheduledEnd);
     for (const ev of fetchedEvents.filter(e => !e._anchor && e.start?.dateTime)) {
       const evStart = new Date(ev.start.dateTime).getTime();
@@ -258,9 +277,7 @@ export default function CalendarScreen() {
       for (const task of anchorTasks) {
         const tStart = new Date(task.scheduledStart).getTime();
         const tEnd   = new Date(task.scheduledEnd).getTime();
-        if (evStart < tEnd && evEnd > tStart) {
-          detected.push({ event: ev, task });
-        }
+        if (evStart < tEnd && evEnd > tStart) detected.push({ event: ev, task });
       }
     }
     if (detected.length > 0) setConflicts(detected);
@@ -284,7 +301,6 @@ export default function CalendarScreen() {
         });
         return [...outside, ...(raw || [])];
       });
-      // Phase 2: sync tasks on calendar open
       syncTasksWithEvents(raw || []);
     } catch {
       setFetchError('Could not load events');
@@ -294,6 +310,151 @@ export default function CalendarScreen() {
   }, [user, calendarIntegration, syncTasksWithEvents]);
 
   useEffect(() => { fetchWeek(ws); }, [ws, fetchWeek]);
+
+  // ── Task edit ─────────────────────────────────────────────────────────────
+  const openEdit = (task) => {
+    setEditingTask(task);
+    setEditForm({
+      title:              task.title || '',
+      priority:           task.priority || 'medium',
+      dueDate:            task.dueDate || '',
+      estimatedMinutes:   task.estimatedMinutes || '',
+      notes:              task.notes || '',
+      project:            task.project || 'Inbox',
+      projectId:          task.projectId || null,
+    });
+  };
+
+  const handleEditSave = async () => {
+    if (!editingTask || !editForm.title.trim()) return;
+    setEditSaving(true);
+    const linked = (projects || []).find(p => p.title === editForm.project);
+    try {
+      await updateTask(user.uid, editingTask.id, {
+        title:            editForm.title.trim(),
+        priority:         editForm.priority,
+        dueDate:          editForm.dueDate || null,
+        estimatedMinutes: editForm.estimatedMinutes ? Number(editForm.estimatedMinutes) : null,
+        notes:            editForm.notes,
+        project:          editForm.project,
+        projectId:        linked?.id || editForm.projectId || null,
+      });
+      setEditingTask(null);
+    } catch (err) {
+      console.error('Edit save error:', err);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  // ── Auto-schedule single task ──────────────────────────────────────────────
+  const handleAutoSchedule = async (task) => {
+    setAutoScheduling(prev => new Set([...prev, task.id]));
+    setDragNoSlot('');
+
+    try {
+      const workHours = userProfile?.workHours || null;
+      const todayDate = new Date();
+      const tomDate   = new Date(todayDate); tomDate.setDate(tomDate.getDate() + 1);
+
+      const todayEvs = events.filter(e => e.start?.dateTime?.startsWith(ymd(todayDate)));
+      const tomEvs   = events.filter(e => e.start?.dateTime?.startsWith(ymd(tomDate)));
+
+      const todaySlots = getFreeSlots(todayEvs, todayDate.toISOString(), workHours);
+      const tomSlots   = getFreeSlots(tomEvs,   tomDate.toISOString(),   workHours);
+
+      const needed = task.estimatedMinutes || 45;
+      const slot   = [...todaySlots, ...tomSlots].find(s => s.durationMins >= needed);
+
+      if (!slot) {
+        setDragNoSlot(`No free slot found for "${task.title}" today or tomorrow.`);
+        setTimeout(() => setDragNoSlot(''), 4000);
+        return;
+      }
+
+      const start = new Date(slot.start);
+      const end   = new Date(start.getTime() + needed * 60000);
+
+      await updateTask(user.uid, task.id, {
+        status:         'scheduled',
+        scheduledDate:  ymd(start),
+        scheduledStart: start.toISOString(),
+        scheduledEnd:   end.toISOString(),
+      });
+    } finally {
+      setAutoScheduling(prev => { const n = new Set(prev); n.delete(task.id); return n; });
+    }
+  };
+
+  // ── Drag from sidebar ──────────────────────────────────────────────────────
+  const handleSidebarDragStart = (e, task) => {
+    draggedSidebarTask.current = task;
+    isDraggingFromSidebar.current = true;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', task.id);
+  };
+
+  const handleSidebarDragEnd = () => {
+    draggedSidebarTask.current = null;
+    isDraggingFromSidebar.current = false;
+    setDragOverInfo(null);
+  };
+
+  const handleCalendarDragOver = useCallback((e, dayIndex, day) => {
+    if (!isDraggingFromSidebar.current) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    const y    = e.clientY - rect.top;
+    const rawMins  = Math.floor((y / HOUR_HEIGHT) * 60) + GRID_START * 60;
+    const snapped  = Math.max(GRID_START * 60, Math.min(GRID_END * 60 - 30, Math.round(rawMins / 15) * 15));
+    setDragOverInfo({ dayIndex, day, mins: snapped });
+  }, []);
+
+  const handleCalendarDrop = useCallback(async (e, dayIndex, day) => {
+    e.preventDefault();
+    const task = draggedSidebarTask.current;
+    if (!task) return;
+
+    draggedSidebarTask.current = null;
+    isDraggingFromSidebar.current = false;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const y    = e.clientY - rect.top;
+    const rawMins = Math.floor((y / HOUR_HEIGHT) * 60) + GRID_START * 60;
+    const mins    = Math.max(GRID_START * 60, Math.min(GRID_END * 60 - 30, Math.round(rawMins / 15) * 15));
+
+    setDragOverInfo(null);
+
+    // Warn if dropped on a non-work day
+    const wh = userProfile?.workHours;
+    if (wh && !isWorkDay(day, wh)) {
+      setWorkHoursWarning({ task, day, mins });
+      return;
+    }
+
+    await scheduleTaskAtSlot(task, day, mins);
+  }, [userProfile]); // eslint-disable-line
+
+  const scheduleTaskAtSlot = async (task, day, mins) => {
+    const start = new Date(day);
+    start.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
+    const end = new Date(start.getTime() + (task.estimatedMinutes || 45) * 60000);
+
+    await updateTask(user.uid, task.id, {
+      status:         'scheduled',
+      scheduledDate:  ymd(start),
+      scheduledStart: start.toISOString(),
+      scheduledEnd:   end.toISOString(),
+    });
+  };
+
+  const confirmWorkHoursOverride = async () => {
+    if (!workHoursWarning) return;
+    const { task, day, mins } = workHoursWarning;
+    setWorkHoursWarning(null);
+    await scheduleTaskAtSlot(task, day, mins);
+  };
 
   const days    = weekDays(ws);
   const today   = new Date();
@@ -428,49 +589,98 @@ export default function CalendarScreen() {
         </div>
       )}
 
+      {/* ── No-slot toast ── */}
+      {dragNoSlot && (
+        <div style={{ background: tokens.redDim, border: `1px solid ${tokens.red}`, borderRadius: '8px', padding: '8px 14px', marginBottom: '8px', flexShrink: 0, fontSize: '12px', color: tokens.red, fontWeight: 600 }}>
+          {dragNoSlot}
+        </div>
+      )}
+
       {/* ── Main layout: sidebar + calendar ── */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', gap: 0 }}>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
         {/* ── Sidebar ── */}
         {!isMobile && sidebarOpen && (
           <div style={{
-            width: 240, flexShrink: 0, borderRight: `1px solid ${tokens.border}`,
+            width: 260, flexShrink: 0, borderRight: `1px solid ${tokens.border}`,
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
             background: tokens.bgCard,
           }}>
-            <div style={{ padding: '12px' }}>
+            <div style={{ padding: '10px 12px', borderBottom: `1px solid ${tokens.border}` }}>
               <Button onClick={() => setPlanOpen(true)} style={{ width: '100%', justifyContent: 'center' }}>
                 ✦ Plan My Schedule
               </Button>
             </div>
-            <div style={{ padding: '4px 14px 8px', borderBottom: `1px solid ${tokens.border}` }}>
+            <div style={{ padding: '6px 14px 4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${tokens.border}` }}>
               <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: tokens.textMuted }}>
                 Unscheduled · {unscheduledTasks.length}
               </div>
+              <span style={{ fontSize: '10px', color: tokens.textMuted }}>drag to place</span>
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {unscheduledTasks.length === 0 && (
-                <div style={{ padding: '20px 14px', textAlign: 'center', color: tokens.textMuted, fontSize: '12px' }}>
+                <div style={{ padding: '24px 14px', textAlign: 'center', color: tokens.textMuted, fontSize: '12px' }}>
                   All tasks scheduled ✓
                 </div>
               )}
-              {unscheduledTasks.slice(0, 50).map(task => {
-                const pc       = priorityColors[task.priority] || {};
-                const overdue  = task.scheduledDate && task.scheduledDate < yesterdayStr;
-                const yest     = task.scheduledDate === yesterdayStr;
+              {unscheduledTasks.slice(0, 60).map(task => {
+                const pc      = priorityColors[task.priority] || {};
+                const overdue = task.scheduledDate && task.scheduledDate < yesterdayStr;
+                const yest    = task.scheduledDate === yesterdayStr;
+                const isAutoSched = autoScheduling.has(task.id);
+
                 return (
-                  <div key={task.id} style={{
-                    padding: '9px 14px', borderBottom: `1px solid ${tokens.border}`,
-                    cursor: 'default',
-                  }}>
-                    <div style={{ fontSize: '12px', color: tokens.textPrimary, fontWeight: 500, lineHeight: 1.3, marginBottom: '4px' }}>
-                      {task.title}
+                  <div
+                    key={task.id}
+                    draggable
+                    onDragStart={e => handleSidebarDragStart(e, task)}
+                    onDragEnd={handleSidebarDragEnd}
+                    style={{
+                      padding: '9px 12px', borderBottom: `1px solid ${tokens.border}`,
+                      cursor: 'grab', userSelect: 'none',
+                      opacity: isAutoSched ? 0.5 : 1,
+                      transition: 'background 0.1s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = tokens.bgCardHover}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '6px' }}>
+                      <div style={{ fontSize: '12px', color: tokens.textPrimary, fontWeight: 500, lineHeight: 1.35, flex: 1, minWidth: 0 }}>
+                        {task.title}
+                      </div>
+                      {/* Action buttons */}
+                      <div style={{ display: 'flex', gap: '3px', flexShrink: 0 }}>
+                        <button
+                          onClick={() => openEdit(task)}
+                          title="Edit task"
+                          style={{ background: 'none', border: `1px solid ${tokens.border}`, color: tokens.textMuted, borderRadius: '5px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px', lineHeight: 1.2, fontFamily: fonts.body }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = tokens.accent; e.currentTarget.style.color = tokens.accent; }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = tokens.border; e.currentTarget.style.color = tokens.textMuted; }}
+                        >✎</button>
+                        <button
+                          onClick={() => handleAutoSchedule(task)}
+                          disabled={isAutoSched}
+                          title="Auto-schedule in next free slot"
+                          style={{ background: 'none', border: `1px solid ${tokens.border}`, color: tokens.textMuted, borderRadius: '5px', padding: '2px 6px', cursor: isAutoSched ? 'default' : 'pointer', fontSize: '10px', lineHeight: 1.2, fontFamily: fonts.body }}
+                          onMouseEnter={e => { if (!isAutoSched) { e.currentTarget.style.borderColor = tokens.green; e.currentTarget.style.color = tokens.green; }}}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = tokens.border; e.currentTarget.style.color = tokens.textMuted; }}
+                        >{isAutoSched ? '…' : '⚡'}</button>
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '5px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {/* Metadata row */}
+                    <div style={{ display: 'flex', gap: '5px', marginTop: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '3px', background: pc.bg || tokens.accentDim, color: pc.text || tokens.accent, fontWeight: 700, textTransform: 'uppercase' }}>
                         {task.priority}
                       </span>
-                      {yest  && <span style={{ fontSize: '9px', color: tokens.amber, fontWeight: 600 }}>⚡ yesterday</span>}
+                      {task.estimatedMinutes && (
+                        <span style={{ fontSize: '9px', color: tokens.textMuted }}>⏱ {task.estimatedMinutes}m</span>
+                      )}
+                      {task.dueDate && (
+                        <span style={{ fontSize: '9px', color: new Date(task.dueDate + 'T12:00:00') < today ? tokens.red : tokens.textMuted }}>
+                          due {new Date(task.dueDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      )}
+                      {yest    && <span style={{ fontSize: '9px', color: tokens.amber, fontWeight: 600 }}>⚡ yesterday</span>}
                       {overdue && !yest && <span style={{ fontSize: '9px', color: tokens.red, fontWeight: 600 }}>overdue</span>}
                     </div>
                   </div>
@@ -507,11 +717,12 @@ export default function CalendarScreen() {
             <div style={{ display: 'flex', flexShrink: 0, borderBottom: `1px solid ${tokens.border}` }}>
               <div style={{ width: 48, flexShrink: 0 }} />
               {days.map((d, i) => {
-                const isToday = sameDay(d, today);
+                const isToday    = sameDay(d, today);
+                const isNonWork  = userProfile?.workHours && !isWorkDay(d, userProfile.workHours);
                 return (
-                  <div key={i} style={{ flex: 1, textAlign: 'center', padding: '6px 2px 8px', borderLeft: i > 0 ? `1px solid ${tokens.border}` : 'none', background: isToday ? 'rgba(200,169,110,0.03)' : 'transparent' }}>
-                    <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted }}>{DAY_SHORT[d.getDay()]}</div>
-                    <div style={{ fontFamily: fonts.display, fontSize: '20px', fontWeight: 700, color: isToday ? tokens.accent : tokens.textPrimary, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', background: isToday ? tokens.accentDim : 'transparent', margin: '3px auto 0' }}>
+                  <div key={i} style={{ flex: 1, textAlign: 'center', padding: '6px 2px 8px', borderLeft: i > 0 ? `1px solid ${tokens.border}` : 'none', background: isNonWork ? 'rgba(0,0,0,0.02)' : isToday ? 'rgba(200,169,110,0.03)' : 'transparent' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: isNonWork ? tokens.textDisabled : tokens.textMuted }}>{DAY_SHORT[d.getDay()]}</div>
+                    <div style={{ fontFamily: fonts.display, fontSize: '20px', fontWeight: 700, color: isToday ? tokens.accent : isNonWork ? tokens.textDisabled : tokens.textPrimary, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', background: isToday ? tokens.accentDim : 'transparent', margin: '3px auto 0' }}>
                       {d.getDate()}
                     </div>
                   </div>
@@ -554,10 +765,16 @@ export default function CalendarScreen() {
                 ))}
 
                 {visible.map((day, di) => {
-                  const laid    = layoutDay(timedForDay(day));
-                  const isToday = sameDay(day, today);
+                  const laid      = layoutDay(timedForDay(day));
+                  const isToday   = sameDay(day, today);
+                  const isNonWork = userProfile?.workHours && !isWorkDay(day, userProfile.workHours);
+                  const ghostInfo = dragOverInfo?.dayIndex === di ? dragOverInfo : null;
+                  const ghostH    = ((draggedSidebarTask.current?.estimatedMinutes || 45) / 60) * HOUR_HEIGHT;
+
                   return (
                     <div key={di}
+                      onDragOver={e => handleCalendarDragOver(e, di, day)}
+                      onDrop={e => handleCalendarDrop(e, di, day)}
                       onClick={(e) => {
                         if (e.target !== e.currentTarget) return;
                         if (dragState) return;
@@ -567,7 +784,14 @@ export default function CalendarScreen() {
                         const min  = Math.floor((y % HOUR_HEIGHT) / HOUR_HEIGHT * 4) * 15;
                         openCreate(day, hr, min);
                       }}
-                      style={{ position: 'relative', height: gridHeight, borderLeft: di > 0 ? `1px solid ${tokens.border}` : 'none', cursor: 'crosshair', background: isToday ? 'rgba(200,169,110,0.015)' : 'transparent' }}
+                      style={{
+                        position: 'relative', height: gridHeight,
+                        borderLeft: di > 0 ? `1px solid ${tokens.border}` : 'none',
+                        cursor: 'crosshair',
+                        background: isNonWork
+                          ? 'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(0,0,0,0.012) 8px, rgba(0,0,0,0.012) 16px)'
+                          : isToday ? 'rgba(200,169,110,0.015)' : 'transparent',
+                      }}
                     >
                       {HOURS.map(h => (
                         <div key={h} style={{ position: 'absolute', left: 0, right: 0, top: (h - GRID_START) * HOUR_HEIGHT + HOUR_HEIGHT / 2, borderTop: `1px dashed rgba(0,0,0,0.05)`, pointerEvents: 'none' }} />
@@ -578,6 +802,34 @@ export default function CalendarScreen() {
                           <div style={{ height: 2, background: tokens.red, opacity: 0.85 }} />
                         </div>
                       )}
+
+                      {/* Drag ghost preview */}
+                      {ghostInfo && (
+                        <div style={{
+                          position: 'absolute',
+                          top: minsToTop(ghostInfo.mins) + 1,
+                          left: 2, right: 2,
+                          height: Math.max(ghostH - 2, 18),
+                          background: tokens.accentDim,
+                          border: `2px dashed ${tokens.accent}`,
+                          borderRadius: '5px',
+                          pointerEvents: 'none',
+                          zIndex: 15,
+                          display: 'flex',
+                          alignItems: 'center',
+                          padding: '0 6px',
+                          overflow: 'hidden',
+                        }}>
+                          <div style={{ fontSize: '10px', fontWeight: 600, color: tokens.accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {draggedSidebarTask.current?.title}
+                            <span style={{ marginLeft: 6, opacity: 0.7 }}>
+                              {Math.floor(ghostInfo.mins / 60) % 12 || 12}:{String(ghostInfo.mins % 60).padStart(2, '0')}{ghostInfo.mins < 720 ? 'am' : 'pm'}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Calendar events */}
                       {laid.map((ev, ei) => {
                         const sMins = ev.start?.dateTime
                           ? new Date(ev.start.dateTime).getHours() * 60 + new Date(ev.start.dateTime).getMinutes()
@@ -629,12 +881,77 @@ export default function CalendarScreen() {
         open={planOpen}
         onClose={() => {
           setPlanOpen(false);
-          // Refresh calendar after committing
           fetched.current.clear();
           fetchWeek(ws);
         }}
         calendarIntegration={calendarIntegration}
       />
+
+      {/* ── Task Edit Modal ── */}
+      <Modal open={!!editingTask} onClose={() => setEditingTask(null)} title="Edit Task">
+        {editingTask && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <Input label="Title" value={editForm.title} onChange={v => setEditForm(p => ({ ...p, title: v }))} placeholder="Task title" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Priority</label>
+                <select value={editForm.priority} onChange={e => setEditForm(p => ({ ...p, priority: e.target.value }))}
+                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                  {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Project</label>
+                <select value={editForm.project} onChange={e => setEditForm(p => ({ ...p, project: e.target.value }))}
+                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                  <option value="Inbox">Inbox</option>
+                  {(projects || []).filter(p => p.status === 'active').map(p => <option key={p.id} value={p.title}>{p.title}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
+                <input type="date" value={editForm.dueDate || ''}
+                  onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))}
+                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, colorScheme: 'light', boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Est. Minutes</label>
+                <input type="number" min="5" max="480" value={editForm.estimatedMinutes || ''}
+                  onChange={e => setEditForm(p => ({ ...p, estimatedMinutes: e.target.value }))}
+                  placeholder="45"
+                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
+              </div>
+            </div>
+            <Input label="Notes" value={editForm.notes} onChange={v => setEditForm(p => ({ ...p, notes: v }))} placeholder="Context, links, details..." multiline rows={2} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <Button onClick={() => setEditingTask(null)} variant="ghost">Cancel</Button>
+              <Button onClick={handleEditSave} loading={editSaving} disabled={!editForm.title.trim()}>Save Task</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Work Hours Override Warning ── */}
+      <Modal open={!!workHoursWarning} onClose={() => setWorkHoursWarning(null)} title="Outside Work Hours">
+        {workHoursWarning && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ padding: '12px 14px', background: tokens.amberDim, borderRadius: '8px', border: `1px solid ${tokens.amber}` }}>
+              <div style={{ fontSize: '13px', color: tokens.amber, fontWeight: 600, marginBottom: '4px' }}>
+                {DAY_SHORT[workHoursWarning.day.getDay()]} is outside your scheduled work days.
+              </div>
+              <div style={{ fontSize: '12px', color: tokens.textSecondary }}>
+                Your work hours settings show {DAY_SHORT[workHoursWarning.day.getDay()]} as a day off. You can still schedule here if needed.
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <Button onClick={() => setWorkHoursWarning(null)} variant="ghost">Cancel</Button>
+              <Button onClick={confirmWorkHoursOverride}>Schedule Anyway</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* ── Create Event Modal ── */}
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New Event">

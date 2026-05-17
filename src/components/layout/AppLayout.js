@@ -506,12 +506,12 @@ export default function AppLayout({ children }) {
       {/* ── Main Content ──────────────────────────────────────────────────────── */}
       <main style={{
         paddingTop: '76px',   // 52px topbar + 24px breathing room
-        paddingLeft: 'max(16px, env(safe-area-inset-left, 16px))',
-        paddingRight: 'max(16px, env(safe-area-inset-right, 16px))',
+        paddingLeft: location.pathname.startsWith('/calendar') ? '16px' : 'max(16px, env(safe-area-inset-left, 16px))',
+        paddingRight: location.pathname.startsWith('/calendar') ? '16px' : 'max(16px, env(safe-area-inset-right, 16px))',
         paddingBottom: 'max(40px, env(safe-area-inset-bottom, 40px))',
         minHeight: '100vh',
-        maxWidth: '960px',
-        margin: '0 auto',
+        maxWidth: location.pathname.startsWith('/calendar') ? 'none' : '960px',
+        margin: location.pathname.startsWith('/calendar') ? '0' : '0 auto',
       }}>
         {children}
       </main>
