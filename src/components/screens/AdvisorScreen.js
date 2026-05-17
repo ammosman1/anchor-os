@@ -1,5 +1,5 @@
 // src/components/screens/AdvisorScreen.js
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -47,7 +47,7 @@ function parseActions(text) {
 
 export default function AdvisorScreen() {
   const { user, profile }                      = useAuth();
-  const { projects, tasks, debtAccounts, totalDebt } = useData();
+  const { projects, tasks, debtAccounts, totalDebt, goals } = useData();
   const [messages,       setMessages]          = useState([]);
   const [input,          setInput]             = useState('');
   const [loading,        setLoading]           = useState(false);
@@ -56,6 +56,53 @@ export default function AdvisorScreen() {
   const [executedActions, setExecutedActions] = useState([]);
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
+
+  // Pattern-based proactive insights
+  const proactiveInsights = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const insights = [];
+
+    const overdue = tasks.filter(t => !t.done && t.scheduledDate && t.scheduledDate < today);
+    if (overdue.length >= 3) {
+      insights.push({
+        label: `${overdue.length} tasks overdue`,
+        prompt: `I have ${overdue.length} overdue tasks including "${overdue[0].title}". Am I overcommitting or avoiding?`,
+      });
+    }
+
+    const stalled = projects.filter(p => p.status === 'stalled');
+    if (stalled.length > 0) {
+      insights.push({
+        label: `${stalled[0].title} is stalled`,
+        prompt: `My "${stalled[0].title}" project is stalled. What's the right move — push, pause, or kill it?`,
+      });
+    }
+
+    const critical = tasks.filter(t => !t.done && t.priority === 'critical');
+    if (critical.length > 0) {
+      insights.push({
+        label: `${critical.length} critical task${critical.length > 1 ? 's' : ''} pending`,
+        prompt: `I have ${critical.length} critical task${critical.length > 1 ? 's' : ''} pending: "${critical[0].title}". Help me unblock this.`,
+      });
+    }
+
+    const inbox = tasks.filter(t => !t.done && (!t.projectId || t.project === 'Inbox'));
+    if (inbox.length >= 10) {
+      insights.push({
+        label: `${inbox.length} tasks in inbox`,
+        prompt: `My inbox has ${inbox.length} unorganized tasks. How should I process this backlog?`,
+      });
+    }
+
+    if ((goals || []).filter(g => g.status === 'active').length === 0 && projects.length > 2) {
+      insights.push({
+        label: 'No active goals set',
+        prompt: "I have projects but no goals defined. Help me identify what I'm actually working toward.",
+      });
+    }
+
+    return insights.slice(0, 3);
+  }, [tasks, projects, goals]);
 
   useEffect(() => {
     const load = async () => {
@@ -187,6 +234,32 @@ You can include multiple CREATE_TASK markers. Always confirm what you created in
           Context-aware · Can create projects and tasks · Session saved automatically
         </p>
       </div>
+
+      {/* Proactive pattern insights */}
+      {proactiveInsights.length > 0 && messages.length === 0 && !loadingSession && (
+        <div className="fade-up stagger-1" style={{ marginBottom: '14px', flexShrink: 0 }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px' }}>
+            ✦ Pattern Detected
+          </div>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            {proactiveInsights.map((insight, i) => (
+              <button key={i} onClick={() => send(insight.prompt)}
+                style={{
+                  fontSize: '11px', color: tokens.accent,
+                  background: tokens.accentDim,
+                  border: `1px solid rgba(200,169,110,0.25)`,
+                  borderRadius: '99px', padding: '5px 14px',
+                  cursor: 'pointer', fontFamily: fonts.body, transition: 'all 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(200,169,110,0.2)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = tokens.accentDim; }}
+              >
+                ⚑ {insight.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Suggested prompts */}
       {messages.length === 0 && !loadingSession && (

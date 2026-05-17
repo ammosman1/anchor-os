@@ -307,6 +307,46 @@ Return ONLY valid JSON:
   }
 }
 
+export async function processSmartCapture({ text, projects }) {
+  const projList = (projects || []).filter(p => p.status === 'active').map(p => p.title);
+  const content = `Process this quick capture note and extract actionable tasks.
+
+Text: "${text}"
+Available projects: ${projList.length > 0 ? projList.join(', ') : 'Inbox only'}
+
+Return ONLY valid JSON:
+{
+  "tasks": [
+    {
+      "title": "concise action-oriented title (under 10 words)",
+      "priority": "critical|high|medium|low",
+      "project": "exact project name from available list, or Inbox",
+      "notes": "any important context, or empty string"
+    }
+  ]
+}
+
+Rules:
+- Extract 1-5 separate tasks. Break compound items into individual tasks.
+- Priority: urgent/ASAP/critical → critical; important/need to → high; default → medium; someday/later → low
+- Route to most relevant available project; if unclear use Inbox
+- Titles must start with action verbs: Call, Send, Review, Schedule, Draft, Follow up, etc.`;
+
+  const raw = await callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 600,
+    systemExtra: 'Return ONLY valid JSON. No markdown fences. No explanation.',
+  });
+
+  try {
+    const clean = (raw || '{}').replace(/```json|```/g, '').trim();
+    const match = clean.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : { tasks: [] };
+  } catch {
+    return { tasks: [] };
+  }
+}
+
 export async function scoreGoals({ goals, tasks, brainDumps }) {
   try {
     const res = await fetch('/api/goals/score', {

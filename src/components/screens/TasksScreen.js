@@ -1,5 +1,5 @@
 // src/components/screens/TasksScreen.js
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -43,7 +43,36 @@ export default function TasksScreen() {
   const [form,       setForm]           = useState(emptyForm);
   const [saving,     setSaving]         = useState(false);
   const [editing,    setEditing]        = useState(null);
-  const [search,     setSearch]         = useState('');
+  const [search,       setSearch]        = useState('');
+  const [schedulingTask, setSchedulingTask] = useState(null);
+  const [focusTask,    setFocusTask]     = useState(null); // { task, duration, startTime }
+  const [timeLeft,     setTimeLeft]      = useState(null); // seconds
+
+  // Focus timer countdown
+  useEffect(() => {
+    if (!focusTask) { setTimeLeft(null); return; }
+    const iv = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - focusTask.startTime) / 1000);
+      const remaining = focusTask.duration * 60 - elapsed;
+      setTimeLeft(Math.max(0, remaining));
+      if (remaining <= 0) clearInterval(iv);
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [focusTask]);
+
+  const startFocus = (task) => {
+    const duration = task.estimatedMinutes || 25;
+    setFocusTask({ task, duration, startTime: Date.now() });
+    setTimeLeft(duration * 60);
+  };
+
+  const stopFocus = () => { setFocusTask(null); setTimeLeft(null); };
+
+  const fmt = (secs) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
 
   const projectOptions = [
     { value: '', label: 'Inbox (no project)' },
@@ -236,6 +265,43 @@ export default function TasksScreen() {
         )}
       </div>
 
+      {/* Focus Timer Banner */}
+      {focusTask && (
+        <div className="fade-up" style={{
+          background: timeLeft === 0 ? tokens.green : tokens.accent,
+          borderRadius: '12px', padding: '12px 16px', marginBottom: '16px',
+          display: 'flex', alignItems: 'center', gap: '14px',
+          boxShadow: `0 4px 16px rgba(154,120,48,0.3)`,
+        }}>
+          <span style={{ fontFamily: fonts.display, fontSize: '22px', fontWeight: 700, color: '#0C0E12', minWidth: '54px' }}>
+            {timeLeft === 0 ? '✓' : fmt(timeLeft ?? focusTask.duration * 60)}
+          </span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(12,14,18,0.65)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              {timeLeft === 0 ? 'Session complete!' : 'Focusing on'}
+            </div>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: '#0C0E12' }}>{focusTask.task.title}</div>
+          </div>
+          {timeLeft === 0 ? (
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={() => { handleToggle(focusTask.task); stopFocus(); }}
+                style={{ background: '#0C0E12', color: tokens.accent, border: 'none', borderRadius: '8px', padding: '6px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body }}>
+                Mark Done
+              </button>
+              <button onClick={stopFocus}
+                style={{ background: 'rgba(0,0,0,0.12)', color: '#0C0E12', border: 'none', borderRadius: '8px', padding: '6px 10px', fontSize: '12px', cursor: 'pointer', fontFamily: fonts.body }}>
+                Dismiss
+              </button>
+            </div>
+          ) : (
+            <button onClick={stopFocus}
+              style={{ background: 'rgba(0,0,0,0.15)', color: '#0C0E12', border: 'none', borderRadius: '8px', padding: '6px 12px', fontSize: '12px', cursor: 'pointer', fontFamily: fonts.body }}>
+              Stop
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Task list */}
       <div className="fade-up stagger-2" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
         {filtered.length === 0 ? (
@@ -285,13 +351,53 @@ export default function TasksScreen() {
                     </div>
                   )}
                   {task.notes && <div style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '4px' }}>{task.notes}</div>}
+
+                  {/* Inline date scheduler */}
+                  {schedulingTask === task.id && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${tokens.border}` }}>
+                      <span style={{ fontSize: '11px', color: tokens.textMuted, whiteSpace: 'nowrap' }}>Schedule for:</span>
+                      <input
+                        type="date"
+                        defaultValue={task.scheduledDate || ''}
+                        min={new Date().toISOString().split('T')[0]}
+                        autoFocus
+                        onChange={async e => {
+                          if (e.target.value) {
+                            await updateTask(user.uid, task.id, { scheduledDate: e.target.value, status: 'scheduled' });
+                          }
+                          setSchedulingTask(null);
+                        }}
+                        style={{ background: tokens.bgInput, border: `1px solid ${tokens.borderFocus}`, borderRadius: '6px', padding: '4px 8px', color: tokens.textPrimary, fontSize: '12px', outline: 'none', fontFamily: fonts.body, colorScheme: tokens.colorScheme }}
+                      />
+                      <button onClick={() => setSchedulingTask(null)}
+                        style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '11px', cursor: 'pointer', fontFamily: fonts.body }}>
+                        ✕
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Right */}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
                   <Tag label={task.priority} color={pc.bg} textColor={pc.text} />
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    {!task.done && <button onClick={() => openEdit(task)} style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', fontFamily: fonts.body }}>Edit</button>}
+                  <div style={{ display: 'flex', gap: '2px' }}>
+                    {!task.done && (
+                      <>
+                        <button
+                          onClick={() => startFocus(task)}
+                          title={`Focus for ${task.estimatedMinutes || 25} min`}
+                          style={{ background: focusTask?.task?.id === task.id ? tokens.accentDim : 'none', border: 'none', color: focusTask?.task?.id === task.id ? tokens.accent : tokens.textMuted, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', fontFamily: fonts.body, borderRadius: '4px' }}>
+                          ▶
+                        </button>
+                        <button
+                          onClick={() => setSchedulingTask(s => s === task.id ? null : task.id)}
+                          title="Schedule"
+                          style={{ background: schedulingTask === task.id ? tokens.accentDim : 'none', border: 'none', color: schedulingTask === task.id ? tokens.accent : tokens.textMuted, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', fontFamily: fonts.body, borderRadius: '4px' }}>
+                          ◷
+                        </button>
+                        <button onClick={() => openEdit(task)} style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', fontFamily: fonts.body }}>Edit</button>
+                      </>
+                    )}
                     <button onClick={() => handleDelete(task)} style={{ background: 'none', border: 'none', color: tokens.red, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', opacity: 0.6, fontFamily: fonts.body }}>✕</button>
                   </div>
                 </div>

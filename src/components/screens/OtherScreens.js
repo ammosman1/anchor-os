@@ -1,5 +1,5 @@
 // src/components/screens/OtherScreens.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -845,67 +845,105 @@ export function IdeasScreen() {
 }
 
 // ─── Life OS ──────────────────────────────────────────────────────────────────
+
+function getCompletedDate(task) {
+  if (!task.completedAt) return null;
+  if (typeof task.completedAt === 'string') return task.completedAt.split('T')[0];
+  if (task.completedAt?.toDate) return task.completedAt.toDate().toISOString().split('T')[0];
+  return null;
+}
+
 export function LifeScreen() {
-  const { projects, tasks, totalDebt } = useData();
+  const { projects, tasks, totalDebt, goals } = useData();
+  const today = new Date().toISOString().split('T')[0];
 
-  const activeCount   = projects.filter(p => p.status === 'active').length;
-  const doneCount     = tasks.filter(t => t.done).length;
-  const pendingCount  = tasks.filter(t => !t.done).length;
-  const stalledProjs  = projects.filter(p => p.status === 'stalled');
+  // Last 14 days array (YYYY-MM-DD)
+  const last14Days = useMemo(() => {
+    const days = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      days.push(d.toISOString().split('T')[0]);
+    }
+    return days;
+  }, []);
 
-  const lifeAreas = [
-    { area: 'Work',     score: Math.min(100, activeCount * 20 + 40), color: tokens.blue,   icon: '◈' },
-    { area: 'Finance',  score: totalDebt > 0 ? 35 : 70,              color: tokens.amber,  icon: '◉' },
-    { area: 'Health',   score: 65,                                    color: tokens.green,  icon: '◎' },
-    { area: 'Home',     score: stalledProjs.some(p => p.category === 'home') ? 30 : 60, color: tokens.accent, icon: '⌂' },
-    { area: 'Family',   score: 70,                                    color: tokens.purple, icon: '♡' },
-    { area: 'Creative', score: 50,                                    color: tokens.blue,   icon: '✦' },
-  ];
+  // Tasks completed per day for last 14 days
+  const completionsByDay = useMemo(() =>
+    last14Days.map(day => tasks.filter(t => t.done && getCompletedDate(t) === day).length),
+    [tasks, last14Days]
+  );
 
-  const executionData = Array.from({ length: 14 }, (_, i) => Math.floor(40 + Math.random() * 50));
+  const maxDay = Math.max(...completionsByDay, 1);
+  const totalCompletedLast14 = completionsByDay.reduce((a, b) => a + b, 0);
+
+  // Completion streak (consecutive days going back from today)
+  const streak = useMemo(() => {
+    let count = 0;
+    for (let i = 0; i <= 60; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const day = d.toISOString().split('T')[0];
+      const hasDone = tasks.some(t => t.done && getCompletedDate(t) === day);
+      if (!hasDone) {
+        if (i === 0) continue; // today might not have completions yet
+        break;
+      }
+      count++;
+    }
+    return count;
+  }, [tasks]);
+
+  const activeGoals    = (goals || []).filter(g => g.status === 'active').slice(0, 4);
+  const activeCount    = projects.filter(p => p.status === 'active').length;
+  const pendingCount   = tasks.filter(t => !t.done).length;
+  const stalledProjs   = projects.filter(p => p.status === 'stalled');
+  const overdueTasks   = tasks.filter(t => !t.done && t.scheduledDate && t.scheduledDate < today);
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto' }}>
       <div className="fade-up" style={{ marginBottom: '28px' }}>
         <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Life Dashboard</div>
         <h1 style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>Life OS Overview</h1>
-        <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '6px' }}>High-level view. Where is your energy and execution going?</p>
+        <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '6px' }}>Real data. No fake scores.</p>
       </div>
 
-      {/* Life area scores */}
-      <div className="fade-up stagger-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '16px' }}>
-        {lifeAreas.map(item => (
-          <Card key={item.area} style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '22px', marginBottom: '6px', color: item.color }}>{item.icon}</div>
-            <div style={{ fontSize: '11px', color: tokens.textMuted, marginBottom: '6px' }}>{item.area}</div>
-            <div style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: item.color, marginBottom: '10px' }}>{item.score}</div>
-            <MomentumBar value={item.score} color={item.color} />
-          </Card>
-        ))}
-      </div>
-
-      {/* Stats row */}
-      <div className="fade-up stagger-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' }}>
+      {/* Key metrics */}
+      <div className="fade-up stagger-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' }}>
         {[
-          { label: 'Projects Active', val: activeCount, color: tokens.blue },
-          { label: 'Tasks Done',      val: doneCount,   color: tokens.green },
-          { label: 'Tasks Pending',   val: pendingCount, color: tokens.amber },
-          { label: 'Debt Load',       val: `$${(totalDebt/1000).toFixed(0)}k`, color: tokens.red },
+          { label: 'Done (14d)', val: totalCompletedLast14, color: tokens.green },
+          { label: 'Streak (days)', val: streak, color: tokens.accent },
+          { label: 'Pending', val: pendingCount, color: tokens.amber },
+          { label: 'Overdue', val: overdueTasks.length, color: overdueTasks.length > 0 ? tokens.red : tokens.textMuted },
         ].map(item => (
           <Card key={item.label} style={{ textAlign: 'center', padding: '14px' }}>
-            <div style={{ fontFamily: fonts.display, fontSize: '26px', fontWeight: 700, color: item.color }}>{item.val}</div>
+            <div style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: item.color }}>{item.val}</div>
             <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '4px', letterSpacing: '0.04em' }}>{item.label}</div>
           </Card>
         ))}
       </div>
 
-      {/* Execution chart */}
-      <div className="fade-up stagger-3" style={{ marginBottom: '14px' }}>
+      {/* Real execution chart */}
+      <div className="fade-up stagger-2" style={{ marginBottom: '16px' }}>
         <Card>
-          <SectionLabel>Execution Consistency — Last 14 Days</SectionLabel>
-          <div style={{ display: 'flex', gap: '4px', alignItems: 'flex-end', height: '64px' }}>
-            {executionData.map((v, i) => (
-              <div key={i} style={{ flex: 1, height: `${v}%`, borderRadius: '3px 3px 0 0', background: v > 70 ? tokens.green : v > 50 ? tokens.accent : tokens.red, opacity: 0.75, transition: 'height 0.5s ease' }} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <SectionLabel style={{ marginBottom: 0 }}>Tasks Completed — Last 14 Days</SectionLabel>
+            <span style={{ fontSize: '11px', color: tokens.textMuted }}>{totalCompletedLast14} total</span>
+          </div>
+          <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '64px' }}>
+            {completionsByDay.map((count, i) => (
+              <div
+                key={i}
+                title={`${last14Days[i]}: ${count} completed`}
+                style={{
+                  flex: 1,
+                  height: count > 0 ? `${Math.max(Math.round((count / maxDay) * 100), 10)}%` : '4px',
+                  borderRadius: '3px 3px 0 0',
+                  background: count >= 4 ? tokens.green : count >= 2 ? tokens.accent : count === 1 ? 'rgba(200,169,110,0.45)' : tokens.border,
+                  transition: 'height 0.5s ease',
+                  alignSelf: 'flex-end',
+                }}
+              />
             ))}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '10px', color: tokens.textMuted }}>
@@ -914,21 +952,87 @@ export function LifeScreen() {
         </Card>
       </div>
 
-      {/* Neglected */}
-      {stalledProjs.length > 0 && (
-        <div className="fade-up stagger-4">
+      {/* Active goal momentum */}
+      {activeGoals.length > 0 && (
+        <div className="fade-up stagger-3" style={{ marginBottom: '16px' }}>
+          <Card>
+            <SectionLabel>Goal Momentum</SectionLabel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {activeGoals.map(g => {
+                const score = g.likelihoodScore ?? 50;
+                const color = score >= 70 ? tokens.green : score >= 40 ? tokens.accent : tokens.red;
+                return (
+                  <div key={g.id}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '13px', color: tokens.textPrimary, fontWeight: 500 }}>{g.title}</span>
+                      <span style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 700, color }}>{score}%</span>
+                    </div>
+                    <MomentumBar value={score} color={color} height={6} />
+                    {g.targetDate && (
+                      <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '4px' }}>Target: {g.targetDate}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Projects & Debt */}
+      <div className="fade-up stagger-4" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+        <Card>
+          <SectionLabel>Projects</SectionLabel>
+          <div style={{ fontFamily: fonts.display, fontSize: '36px', fontWeight: 700, color: tokens.blue, lineHeight: 1 }}>{activeCount}</div>
+          <div style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '4px' }}>active</div>
+          {stalledProjs.length > 0 && (
+            <div style={{ marginTop: '8px', fontSize: '12px', color: tokens.red, fontWeight: 600 }}>
+              {stalledProjs.length} stalled
+            </div>
+          )}
+        </Card>
+        <Card>
+          <SectionLabel>Debt Load</SectionLabel>
+          <div style={{ fontFamily: fonts.display, fontSize: '36px', fontWeight: 700, color: totalDebt > 0 ? tokens.red : tokens.green, lineHeight: 1 }}>
+            {totalDebt > 0 ? `$${(totalDebt / 1000).toFixed(0)}k` : '$0'}
+          </div>
+          <div style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '4px' }}>
+            {totalDebt > 0 ? 'outstanding' : 'debt free'}
+          </div>
+        </Card>
+      </div>
+
+      {/* Needs attention */}
+      {(stalledProjs.length > 0 || overdueTasks.length > 0) && (
+        <div className="fade-up stagger-5">
           <Card style={{ borderColor: 'rgba(212,122,107,0.2)', background: 'rgba(212,122,107,0.02)' }}>
             <SectionLabel>⚑ Needs Attention</SectionLabel>
             {stalledProjs.map(p => (
               <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${tokens.border}` }}>
                 <div>
                   <div style={{ fontSize: '13px', color: tokens.textPrimary, fontWeight: 500 }}>{p.title}</div>
-                  <div style={{ fontSize: '11px', color: tokens.textMuted }}>{p.category} · stalled</div>
+                  <div style={{ fontSize: '11px', color: tokens.textMuted }}>project · stalled</div>
                 </div>
-                <div style={{ fontFamily: fonts.display, fontSize: '18px', fontWeight: 700, color: tokens.red }}>{p.momentum || 0}%</div>
+                <span style={{ fontSize: '12px', color: tokens.red, fontWeight: 600 }}>stalled</span>
+              </div>
+            ))}
+            {overdueTasks.slice(0, 5).map(t => (
+              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${tokens.border}` }}>
+                <div>
+                  <div style={{ fontSize: '13px', color: tokens.textPrimary, fontWeight: 500 }}>{t.title}</div>
+                  <div style={{ fontSize: '11px', color: tokens.textMuted }}>task · was due {t.scheduledDate}</div>
+                </div>
+                <span style={{ fontSize: '12px', color: tokens.amber, fontWeight: 600 }}>overdue</span>
               </div>
             ))}
           </Card>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {tasks.length === 0 && projects.length === 0 && (
+        <div className="fade-up stagger-3">
+          <EmptyState icon="▦" title="No data yet" subtitle="Complete tasks, set goals, and add projects — your life OS will populate with real data." />
         </div>
       )}
     </div>

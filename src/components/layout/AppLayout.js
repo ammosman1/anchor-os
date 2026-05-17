@@ -5,6 +5,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addTask } from '../../lib/db';
+import { processSmartCapture } from '../../lib/ai';
 
 const NAV_GROUPS = [
   {
@@ -102,16 +103,32 @@ export default function AppLayout({ children }) {
   const handleCaptureSave = async () => {
     if (!captureText.trim() || captureSaving) return;
     setCaptureSaving(true);
-    const linkedProject = projects?.find(p => p.title === captureProj);
-    await addTask(user.uid, {
-      title:     captureText.trim(),
-      project:   captureProj,
-      projectId: linkedProject?.id || null,
-      priority:  'medium',
-      status:    'pending',
-      tags:      [],
-      source:    'capture',
-    });
+    try {
+      const result = await processSmartCapture({ text: captureText.trim(), projects: projects || [] });
+      const tasksToCreate = result?.tasks?.length > 0 ? result.tasks : [{
+        title: captureText.trim(), priority: 'medium', project: captureProj, notes: '',
+      }];
+      for (const t of tasksToCreate) {
+        const linked = (projects || []).find(p => p.title === t.project);
+        await addTask(user.uid, {
+          title:     t.title,
+          project:   linked?.title || t.project || captureProj,
+          projectId: linked?.id || null,
+          priority:  t.priority || 'medium',
+          notes:     t.notes || '',
+          status:    'pending',
+          tags:      [],
+          source:    'quick-capture',
+        });
+      }
+    } catch {
+      const linked = (projects || []).find(p => p.title === captureProj);
+      await addTask(user.uid, {
+        title: captureText.trim(), project: captureProj,
+        projectId: linked?.id || null, priority: 'medium',
+        status: 'pending', tags: [], source: 'quick-capture',
+      });
+    }
     setCaptureSaving(false);
     closeCapture();
   };
@@ -425,8 +442,8 @@ export default function AppLayout({ children }) {
             <div style={{ maxWidth: 640, margin: '0 auto' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: tokens.accent, flexShrink: 0 }} />
-                <span style={{ fontSize: '12px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Quick Capture</span>
-                <span style={{ fontSize: '10px', color: tokens.textMuted, marginLeft: 'auto' }}>⌘↵ to save · Esc to close</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.1em', textTransform: 'uppercase' }}>✦ Smart Capture</span>
+                <span style={{ fontSize: '10px', color: tokens.textMuted, marginLeft: 'auto' }}>AI extracts tasks · ⌘↵ to save · Esc to close</span>
               </div>
 
               <textarea
@@ -437,7 +454,7 @@ export default function AppLayout({ children }) {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleCaptureSave(); }
                   if (e.key === 'Escape') closeCapture();
                 }}
-                placeholder="What needs to get done?"
+                placeholder="Brain dump anything — AI will extract and route tasks..."
                 rows={3}
                 style={{
                   width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.borderFocus}`,
@@ -478,7 +495,7 @@ export default function AppLayout({ children }) {
                     transition: 'opacity 0.15s',
                   }}
                 >
-                  {captureSaving ? '…' : 'Add Task'}
+                  {captureSaving ? '✦ Thinking…' : '✦ Capture'}
                 </button>
               </div>
             </div>
