@@ -32,7 +32,6 @@ const NAV_GROUPS = [
   {
     label: 'More',
     items: [
-      { path: '/decisions', icon: '⊡', label: 'Decisions' },
       { path: '/ideas',     icon: '◇', label: 'Ideas'     },
       { path: '/debt',      icon: '◉', label: 'Finance'   },
     ],
@@ -49,7 +48,6 @@ const PAGE_TITLES = {
   '/life':       'Life OS',
   '/projects':   'Projects',
   '/brain-dump': 'Brain Dump',
-  '/decisions':  'Decisions',
   '/ideas':      'Ideas',
   '/debt':       'Finance',
   '/profile':    'Settings',

@@ -14,9 +14,9 @@ export function Card({ children, style = {}, onClick, glass = false, accent = fa
       onMouseLeave={() => isClickable && setHovered(false)}
       style={{
         background: accent
-          ? 'linear-gradient(135deg, rgba(200,169,110,0.09) 0%, rgba(200,169,110,0.03) 100%)'
+          ? `linear-gradient(135deg, ${tokens.accentDim} 0%, ${tokens.accentGlow} 100%)`
           : glass ? tokens.bgGlass : (hovered ? tokens.bgCardHover : tokens.bgCard),
-        border: `1px solid ${accent ? 'rgba(200,169,110,0.2)' : hovered ? tokens.borderHover : tokens.border}`,
+        border: `1px solid ${accent ? tokens.accentDim : hovered ? tokens.borderHover : tokens.border}`,
         borderRadius: tokens.radiusLg,
         padding: '20px',
         transition: 'all 0.18s ease',
@@ -40,7 +40,7 @@ export function Button({
   const variants = {
     primary: {
       background: disabled ? tokens.track : hovered ? tokens.accentLight : tokens.accent,
-      color: disabled ? tokens.textDisabled : '#0C0E12',
+      color: disabled ? tokens.textDisabled : tokens.bgCard === '#FFFFFF' ? '#0C0E12' : '#fff',
       border: 'none',
     },
     ghost: {
@@ -49,14 +49,14 @@ export function Button({
       border: `1px solid ${hovered ? tokens.borderHover : tokens.border}`,
     },
     danger: {
-      background: hovered ? 'rgba(212,122,107,0.2)' : tokens.redDim,
+      background: hovered ? tokens.redDim : 'transparent',
       color: tokens.red,
-      border: `1px solid rgba(212,122,107,0.2)`,
+      border: `1px solid ${tokens.redDim}`,
     },
     accent: {
-      background: hovered ? 'rgba(200,169,110,0.18)' : tokens.accentDim,
+      background: hovered ? tokens.accentDim : `${tokens.accentDim}88`,
       color: tokens.accent,
-      border: `1px solid rgba(200,169,110,0.2)`,
+      border: `1px solid ${tokens.accentDim}`,
     },
   };
 
@@ -227,7 +227,7 @@ export function Spinner({ size = 20, color = tokens.accent }) {
   return (
     <div className="spinning" style={{
       width: size, height: size,
-      border: `2px solid rgba(255,255,255,0.08)`,
+      border: `2px solid ${tokens.track}`,
       borderTop: `2px solid ${color}`,
       borderRadius: '50%',
     }} />
@@ -242,7 +242,7 @@ export function Modal({ open, onClose, title, children, width = 480 }) {
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0,
-        background: 'rgba(0,0,0,0.7)',
+        background: 'rgba(0,0,0,0.55)',
         backdropFilter: 'blur(8px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         zIndex: 1000, padding: '20px',
@@ -260,7 +260,7 @@ export function Modal({ open, onClose, title, children, width = 480 }) {
           maxWidth: width,
           maxHeight: '90vh',
           overflowY: 'auto',
-          boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
+          boxShadow: '0 24px 80px rgba(0,0,0,0.35)',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -277,14 +277,14 @@ export function Modal({ open, onClose, title, children, width = 480 }) {
 export function AICard({ text, loading, onRefresh, label = 'ANCHOR' }) {
   return (
     <div style={{
-      background: 'linear-gradient(135deg, rgba(154,120,48,0.07) 0%, rgba(154,120,48,0.02) 100%)',
-      border: `1px solid rgba(154,120,48,0.18)`,
+      background: `linear-gradient(135deg, ${tokens.accentGlow} 0%, transparent 100%)`,
+      border: `1px solid ${tokens.accentDim}`,
       borderRadius: tokens.radiusLg,
       padding: '18px',
       position: 'relative',
       overflow: 'hidden',
     }}>
-      <div style={{ position: 'absolute', top: 0, right: 0, width: 100, height: 100, background: 'radial-gradient(circle, rgba(154,120,48,0.07) 0%, transparent 70%)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', top: 0, right: 0, width: 100, height: 100, background: `radial-gradient(circle, ${tokens.accentGlow} 0%, transparent 70%)`, pointerEvents: 'none' }} />
       <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
         <div style={{ width: 30, height: 30, borderRadius: '8px', background: tokens.accentDim, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: 0 }}>✦</div>
         <div style={{ flex: 1 }}>
@@ -325,18 +325,19 @@ export function Dot({ color, size = 7 }) {
   return <span style={{ display: 'inline-block', width: size, height: size, borderRadius: '50%', background: color, flexShrink: 0 }} />;
 }
 
-// ─── StatusTag helpers ────────────────────────────────────────────────────────
+// ─── StatusTag helpers ─────────────────────────────────────────────────────────
+// Derived from tokens so they work across all themes
 export const statusColors = {
-  active:   { bg: 'rgba(39,122,86,0.10)',   text: '#277A56' },
-  stalled:  { bg: 'rgba(184,50,32,0.10)',   text: '#B83220' },
-  planning: { bg: 'rgba(38,96,176,0.10)',   text: '#2660B0' },
-  complete: { bg: 'rgba(96,64,168,0.10)',   text: '#6040A8' },
-  paused:   { bg: 'rgba(28,24,20,0.07)',    text: 'rgba(28,24,20,0.42)' },
+  active:   { bg: tokens.greenDim,  text: tokens.green  },
+  stalled:  { bg: tokens.redDim,    text: tokens.red    },
+  planning: { bg: tokens.blueDim,   text: tokens.blue   },
+  complete: { bg: tokens.purpleDim, text: tokens.purple },
+  paused:   { bg: tokens.track,     text: tokens.textMuted },
 };
 
 export const priorityColors = {
-  critical: { bg: 'rgba(184,50,32,0.10)',  text: '#B83220' },
-  high:     { bg: 'rgba(154,120,48,0.10)', text: '#9A7830' },
-  medium:   { bg: 'rgba(38,96,176,0.10)',  text: '#2660B0' },
-  low:      { bg: 'rgba(28,24,20,0.07)',   text: 'rgba(28,24,20,0.42)' },
+  critical: { bg: tokens.redDim,    text: tokens.red    },
+  high:     { bg: tokens.accentDim, text: tokens.accent },
+  medium:   { bg: tokens.blueDim,   text: tokens.blue   },
+  low:      { bg: tokens.track,     text: tokens.textMuted },
 };

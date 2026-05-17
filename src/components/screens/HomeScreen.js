@@ -22,6 +22,16 @@ function getDateString() {
   return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 }
 
+function todayYMD() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function formatTime(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
 const QUOTES = [
   { text: "Momentum matters. Action beats overthinking.", attr: "" },
   { text: "Systems outperform willpower.", attr: "" },
@@ -34,7 +44,7 @@ const QUOTES = [
 
 export default function HomeScreen() {
   const { user, profile, updateProfile } = useAuth();
-  const { tasks, activeProjects, totalDebt } = useData();
+  const { tasks, activeProjects, totalDebt, goals } = useData();
   const navigate = useNavigate();
 
   const [energy,     setEnergy]     = useState(profile?.energyToday || 7);
@@ -44,19 +54,34 @@ export default function HomeScreen() {
   const [addingTask, setAddingTask] = useState(false);
   const [quote]                     = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
 
-  // Only surface high/critical tasks on Today — not every project task
+  const isAfter5pm = new Date().getHours() >= 17;
+  const todayStr   = todayYMD();
+
+  // Today's scheduled tasks
+  const scheduledToday = tasks.filter(t =>
+    !t.done && t.status === 'scheduled' && t.scheduledDate === todayStr
+  ).sort((a, b) => (a.scheduledStart || '').localeCompare(b.scheduledStart || ''));
+
+  // Priority tasks (high/critical, unscheduled)
   const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
   const todayTasks = [...tasks]
     .filter(t => !t.done && (t.priority === 'critical' || t.priority === 'high' || t.source === 'brain-dump' || !t.projectId))
     .sort((a, b) => (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9));
 
-  const top3     = todayTasks.slice(0, 3);
-  const mustWin  = top3.find(t => t.priority === 'critical') || top3[0];
+  const top3    = todayTasks.slice(0, 3);
+  const mustWin = top3.find(t => t.priority === 'critical') || top3[0];
+
   const doneTodayCount = tasks.filter(t => {
     if (!t.done) return false;
     const updated = t.updatedAt?.toDate?.() || new Date(0);
     return updated.toDateString() === new Date().toDateString();
   }).length;
+
+  // Goal snapshot — show top 3 active goals with likelihood scores
+  const goalsSnapshot = (goals || [])
+    .filter(g => g.status === 'active' && g.likelihoodScore != null)
+    .sort((a, b) => a.likelihoodScore - b.likelihoodScore) // worst first
+    .slice(0, 3);
 
   const fetchAI = async () => {
     setAiLoading(true);
@@ -80,7 +105,11 @@ export default function HomeScreen() {
   };
 
   const handleToggleTask = async (task) => {
-    await updateTask(user.uid, task.id, { done: !task.done });
+    if (!task.done) {
+      await updateTask(user.uid, task.id, { done: true, status: 'completed', completedAt: new Date().toISOString() });
+    } else {
+      await updateTask(user.uid, task.id, { done: false, status: 'pending', completedAt: null });
+    }
   };
 
   const handleQuickAdd = async () => {
@@ -92,18 +121,20 @@ export default function HomeScreen() {
       project: 'Inbox',
       energy: 'medium',
       source: 'quick-capture',
+      status: 'pending',
     });
     setQuickTask('');
     setAddingTask(false);
   };
 
   const momentumColor = (m) => m >= 65 ? tokens.green : m >= 35 ? tokens.accent : tokens.red;
+  const likelihoodColor = (s) => s >= 70 ? tokens.green : s >= 40 ? tokens.amber : tokens.red;
 
   return (
     <div style={{ maxWidth: 820, margin: '0 auto' }}>
 
       {/* Header */}
-      <div className="fade-up" style={{ marginBottom: '20px' }}>
+      <div className="fade-up" style={{ marginBottom: '16px' }}>
         <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '4px', textTransform: 'uppercase' }}>
           {getDateString()}
         </div>
@@ -111,105 +142,82 @@ export default function HomeScreen() {
           {getGreeting()}, {profile?.firstName || 'Andrew'}.
         </h1>
         <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '4px' }}>
-          {doneTodayCount > 0 ? `${doneTodayCount} done today · ` : ''}{top3.length} priorities on deck.
+          {doneTodayCount > 0 ? `${doneTodayCount} done today · ` : ''}{scheduledToday.length > 0 ? `${scheduledToday.length} scheduled · ` : ''}{top3.length} priorities on deck.
         </p>
       </div>
 
-      {/* Quick Capture — full width at top */}
+      {/* Quick Capture */}
       <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
-        <div style={{
-          background: tokens.bgCard,
-          border: `1px solid ${tokens.border}`,
-          borderRadius: tokens.radiusLg,
-          padding: '14px 16px',
-          display: 'flex',
-          gap: '8px',
-          alignItems: 'center',
-        }}>
+        <div style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: tokens.radiusLg, padding: '14px 16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span style={{ fontSize: '16px', flexShrink: 0 }}>⚡</span>
           <input
             value={quickTask}
             onChange={e => setQuickTask(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleQuickAdd(); }}
             placeholder="Quick capture — what's on your mind?"
-            style={{
-              flex: 1,
-              background: 'transparent',
-              border: 'none',
-              color: tokens.textPrimary,
-              fontSize: '14px',
-              outline: 'none',
-              fontFamily: fonts.body,
-            }}
+            style={{ flex: 1, background: 'transparent', border: 'none', color: tokens.textPrimary, fontSize: '14px', outline: 'none', fontFamily: fonts.body }}
           />
           {quickTask.trim() ? (
-            <button
-              onClick={handleQuickAdd}
-              disabled={addingTask}
-              style={{
-                background: tokens.accent,
-                color: '#0C0E12',
-                border: 'none',
-                borderRadius: '6px',
-                padding: '6px 14px',
-                fontSize: '12px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                flexShrink: 0,
-                fontFamily: fonts.body,
-              }}
-            >
+            <button onClick={handleQuickAdd} disabled={addingTask}
+              style={{ background: tokens.accent, color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', flexShrink: 0, fontFamily: fonts.body }}>
               {addingTask ? '...' : 'Add'}
             </button>
           ) : (
-            <button
-              onClick={() => navigate('/brain-dump')}
-              style={{
-                background: tokens.accentDim,
-                color: tokens.accent,
-                border: 'none',
-                borderRadius: '6px',
-                padding: '6px 14px',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                flexShrink: 0,
-                fontFamily: fonts.body,
-                whiteSpace: 'nowrap',
-              }}
-            >
+            <button onClick={() => navigate('/brain-dump')}
+              style={{ background: tokens.accentDim, color: tokens.accent, border: 'none', borderRadius: '6px', padding: '6px 14px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', flexShrink: 0, fontFamily: fonts.body, whiteSpace: 'nowrap' }}>
               Full Dump →
             </button>
           )}
         </div>
       </div>
 
-      {/* AI Focus Card */}
+      {/* AI Daily Briefing — primary card */}
       <div className="fade-up stagger-2" style={{ marginBottom: '14px' }}>
         <AICard
-          text={aiText || 'Loading your strategic recommendation...'}
+          text={aiText || 'Generating your daily briefing...'}
           loading={aiLoading}
           onRefresh={fetchAI}
-          label="FOCUS RECOMMENDATION"
+          label="DAILY BRIEFING"
         />
       </div>
 
-      {/* Must Win */}
-      <div className="fade-up stagger-2" style={{ marginBottom: '14px' }}>
+      {/* Today's Scheduled Tasks */}
+      {scheduledToday.length > 0 && (
+        <div className="fade-up stagger-2" style={{ marginBottom: '14px' }}>
+          <Card>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <SectionLabel style={{ marginBottom: 0 }}>Scheduled Today</SectionLabel>
+              <button onClick={() => navigate('/calendar')} style={{ background: 'none', border: 'none', fontSize: '11px', color: tokens.accent, cursor: 'pointer' }}>Calendar →</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {scheduledToday.map(task => (
+                <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
+                  <div onClick={() => handleToggleTask(task)}
+                    style={{ width: 18, height: 18, borderRadius: '4px', flexShrink: 0, border: `1.5px solid ${task.done ? tokens.green : tokens.blue}`, background: task.done ? tokens.greenDim : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '10px', color: tokens.green, transition: 'all 0.15s' }}>
+                    {task.done ? '✓' : ''}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '13px', fontWeight: 500, color: tokens.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.title}</div>
+                    {task.scheduledStart && (
+                      <div style={{ fontSize: '11px', color: tokens.blue, marginTop: '2px' }}>{formatTime(task.scheduledStart)} – {formatTime(task.scheduledEnd)}</div>
+                    )}
+                  </div>
+                  <Tag label={task.priority} color={priorityColors[task.priority]?.bg} textColor={priorityColors[task.priority]?.text} />
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Must-Win + Top Priorities + Energy */}
+      <div className="fade-up stagger-3" style={{ marginBottom: '14px' }}>
         <Card accent>
           <SectionLabel>Must-Win Today</SectionLabel>
           {mustWin ? (
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
-              <div
-                onClick={() => handleToggleTask(mustWin)}
-                style={{
-                  width: 22, height: 22, borderRadius: '6px', flexShrink: 0, marginTop: 1,
-                  border: `1.5px solid ${tokens.accent}`,
-                  background: mustWin.done ? tokens.accentDim : 'transparent',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer', fontSize: '12px', color: tokens.accent,
-                }}
-              >
+              <div onClick={() => handleToggleTask(mustWin)}
+                style={{ width: 22, height: 22, borderRadius: '6px', flexShrink: 0, marginTop: 1, border: `1.5px solid ${tokens.accent}`, background: mustWin.done ? tokens.accentDim : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '12px', color: tokens.accent }}>
                 {mustWin.done ? '✓' : ''}
               </div>
               <div style={{ flex: 1 }}>
@@ -222,38 +230,28 @@ export default function HomeScreen() {
             </div>
           ) : (
             <div style={{ fontSize: '13px', color: tokens.textMuted }}>
-              No critical task set. <span style={{ color: tokens.accent, cursor: 'pointer' }} onClick={() => navigate('/projects')}>Add one →</span>
+              No critical task set. <span style={{ color: tokens.accent, cursor: 'pointer' }} onClick={() => navigate('/tasks')}>Add one →</span>
             </div>
           )}
         </Card>
       </div>
 
-      {/* Top Priorities + Energy */}
+      {/* Top Priorities + Energy — side by side */}
       <div className="fade-up stagger-3" style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '12px', marginBottom: '14px' }}>
-
-        {/* Top 3 */}
         <Card>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
             <SectionLabel style={{ marginBottom: 0 }}>Top Priorities</SectionLabel>
-            <button onClick={() => navigate('/projects')} style={{ background: 'none', border: 'none', fontSize: '11px', color: tokens.accent, cursor: 'pointer' }}>All →</button>
+            <button onClick={() => navigate('/tasks')} style={{ background: 'none', border: 'none', fontSize: '11px', color: tokens.accent, cursor: 'pointer' }}>All →</button>
           </div>
           {top3.length === 0 ? (
             <div style={{ fontSize: '13px', color: tokens.textMuted }}>
-              Nothing high priority. <span style={{ color: tokens.accent, cursor: 'pointer' }} onClick={() => navigate('/projects')}>Add tasks →</span>
+              Nothing high priority. <span style={{ color: tokens.accent, cursor: 'pointer' }} onClick={() => navigate('/tasks')}>Add tasks →</span>
             </div>
           ) : (
             top3.map((task, i) => (
               <div key={task.id} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', marginBottom: i < top3.length - 1 ? '12px' : 0 }}>
-                <div
-                  onClick={() => handleToggleTask(task)}
-                  style={{
-                    width: 18, height: 18, borderRadius: '4px', flexShrink: 0, marginTop: '2px',
-                    border: `1.5px solid ${task.done ? tokens.green : tokens.border}`,
-                    background: task.done ? tokens.greenDim : 'transparent',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    cursor: 'pointer', fontSize: '10px', color: tokens.green,
-                  }}
-                >
+                <div onClick={() => handleToggleTask(task)}
+                  style={{ width: 18, height: 18, borderRadius: '4px', flexShrink: 0, marginTop: '2px', border: `1.5px solid ${task.done ? tokens.green : tokens.border}`, background: task.done ? tokens.greenDim : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '10px', color: tokens.green }}>
                   {task.done ? '✓' : ''}
                 </div>
                 <div style={{ flex: 1 }}>
@@ -268,7 +266,6 @@ export default function HomeScreen() {
           )}
         </Card>
 
-        {/* Energy */}
         <Card style={{ minWidth: '140px' }}>
           <SectionLabel>Energy</SectionLabel>
           <div style={{ fontFamily: fonts.display, fontSize: '36px', fontWeight: 700, color: energy >= 7 ? tokens.green : energy >= 4 ? tokens.accent : tokens.red, lineHeight: 1 }}>
@@ -285,6 +282,32 @@ export default function HomeScreen() {
         </Card>
       </div>
 
+      {/* Goal Likelihood Snapshot */}
+      {goalsSnapshot.length > 0 && (
+        <div className="fade-up stagger-4" style={{ marginBottom: '14px' }}>
+          <Card>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <SectionLabel style={{ marginBottom: 0 }}>Goal Likelihood</SectionLabel>
+              <button onClick={() => navigate('/goals')} style={{ background: 'none', border: 'none', fontSize: '11px', color: tokens.accent, cursor: 'pointer' }}>All Goals →</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {goalsSnapshot.map(goal => (
+                <div key={goal.id} onClick={() => navigate('/goals')} style={{ cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 500, color: tokens.textPrimary }}>{goal.title}</span>
+                    <span style={{ fontSize: '12px', fontWeight: 700, color: likelihoodColor(goal.likelihoodScore) }}>{goal.likelihoodScore}%</span>
+                  </div>
+                  <MomentumBar value={goal.likelihoodScore} color={likelihoodColor(goal.likelihoodScore)} height={3} />
+                  {goal.likelihoodScore < 50 && (
+                    <div style={{ fontSize: '10px', color: tokens.red, marginTop: '3px', fontWeight: 600 }}>⚑ Off track — see Goals for recovery plan</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
       {/* Active Projects */}
       <div className="fade-up stagger-4" style={{ marginBottom: '14px' }}>
         <Card>
@@ -299,13 +322,10 @@ export default function HomeScreen() {
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px' }}>
               {activeProjects.slice(0, 6).map(p => (
-                <div
-                  key={p.id}
-                  onClick={() => navigate('/projects')}
+                <div key={p.id} onClick={() => navigate('/projects')}
                   style={{ padding: '12px 14px', borderRadius: '8px', background: tokens.bgGlass, border: `1px solid ${tokens.border}`, cursor: 'pointer', transition: 'all 0.15s' }}
                   onMouseEnter={e => e.currentTarget.style.borderColor = tokens.borderHover}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = tokens.border}
-                >
+                  onMouseLeave={e => e.currentTarget.style.borderColor = tokens.border}>
                   <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</div>
                   <MomentumBar value={p.momentum || 0} color={momentumColor(p.momentum || 0)} />
                   <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '5px' }}>{p.momentum || 0}% momentum</div>
@@ -316,20 +336,26 @@ export default function HomeScreen() {
         </Card>
       </div>
 
+      {/* EOD Check-in CTA — visible after 5pm */}
+      {isAfter5pm && (
+        <div className="fade-up stagger-5" style={{ marginBottom: '14px' }}>
+          <div
+            onClick={() => navigate('/review')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', background: tokens.blueDim, border: `1px solid ${tokens.blueDim}`, borderRadius: '12px', cursor: 'pointer' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.blue, marginBottom: '2px' }}>🌙 End-of-Day Check-in</div>
+              <div style={{ fontSize: '12px', color: tokens.textSecondary }}>Reflect on today, set tomorrow's intentions.</div>
+            </div>
+            <span style={{ fontSize: '14px', color: tokens.blue }}>→</span>
+          </div>
+        </div>
+      )}
+
       {/* Debt Callout */}
       {totalDebt > 0 && (
         <div className="fade-up stagger-5" style={{ marginBottom: '14px' }}>
-          <div
-            onClick={() => navigate('/debt')}
-            style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '14px 18px',
-              background: tokens.redDim,
-              border: `1px solid rgba(212,122,107,0.15)`,
-              borderRadius: '10px',
-              cursor: 'pointer',
-            }}
-          >
+          <div onClick={() => navigate('/debt')}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: tokens.redDim, border: `1px solid ${tokens.redDim}`, borderRadius: '10px', cursor: 'pointer' }}>
             <div>
               <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.red }}>Outstanding Debt Load</div>
               <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>Track your payoff progress →</div>

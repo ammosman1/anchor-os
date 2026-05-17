@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/agent/morning",
+      "schedule": "30 11 * * *"
+    },
+    {
+      "path": "/api/agent/eod",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/agent/weekly",
+      "schedule": "0 12 * * 1"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 // src/components/screens/TasksScreen.js
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -14,9 +14,9 @@ const PRIORITIES = [
   { value: 'low',      label: '⚪ Low'      },
 ];
 
-const FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'done'];
+const STATUS_FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'done'];
 
-const emptyForm = { title: '', priority: 'high', projectId: '', notes: '', estimatedMinutes: '' };
+const emptyForm = { title: '', priority: 'high', projectId: '', notes: '', estimatedMinutes: '', tags: '' };
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -28,25 +28,38 @@ function timeAgo(ts) {
   return `${Math.floor(diff / 1440)}d ago`;
 }
 
+function parseTags(str) {
+  return str.split(',').map(s => s.trim()).filter(Boolean);
+}
+
 export default function TasksScreen() {
   const { user }                        = useAuth();
   const { tasks, projects, calendarIntegration } = useData();
-  const [filter,    setFilter]          = useState('all');
-  const [showModal, setShowModal]       = useState(false);
-  const [form,      setForm]            = useState(emptyForm);
-  const [saving,    setSaving]          = useState(false);
-  const [editing,   setEditing]         = useState(null);
-  const [search,    setSearch]          = useState('');
+  const [filter,     setFilter]         = useState('all');
+  const [filterTag,  setFilterTag]      = useState('');
+  const [filterProject, setFilterProject] = useState('');
+  const [showModal,  setShowModal]      = useState(false);
+  const [form,       setForm]           = useState(emptyForm);
+  const [saving,     setSaving]         = useState(false);
+  const [editing,    setEditing]        = useState(null);
+  const [search,     setSearch]         = useState('');
 
-  // Build project options — include id so we can link properly
   const projectOptions = [
-    { value: '',    label: 'Inbox (no project)' },
+    { value: '', label: 'Inbox (no project)' },
     ...projects.map(p => ({ value: p.id, label: p.title })),
   ];
+
+  // All unique tags across tasks
+  const allTags = useMemo(() =>
+    [...new Set(tasks.flatMap(t => t.tags || []))].sort(),
+    [tasks]
+  );
 
   // Filter logic
   const filtered = tasks.filter(t => {
     if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterTag && !(t.tags || []).includes(filterTag)) return false;
+    if (filterProject && t.projectId !== filterProject) return false;
     switch (filter) {
       case 'inbox':      return !t.done && (!t.projectId || t.project === 'Inbox');
       case 'brain-dump': return !t.done && t.source === 'brain-dump';
@@ -66,7 +79,15 @@ export default function TasksScreen() {
   const brainCount   = tasks.filter(t => !t.done && t.source === 'brain-dump').length;
 
   const handleToggle = async (task) => {
-    await updateTask(user.uid, task.id, { done: !task.done });
+    if (!task.done) {
+      await updateTask(user.uid, task.id, {
+        done: true,
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      });
+    } else {
+      await updateTask(user.uid, task.id, { done: false, status: 'pending', completedAt: null });
+    }
   };
 
   const handleDelete = async (task) => {
@@ -94,6 +115,7 @@ export default function TasksScreen() {
       projectId:        task.projectId        || '',
       notes:            task.notes            || '',
       estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : '',
+      tags:             task.tags?.join(', ') || '',
     });
     setEditing(task.id);
     setShowModal(true);
@@ -103,7 +125,6 @@ export default function TasksScreen() {
     if (!form.title.trim()) return;
     setSaving(true);
 
-    // Resolve project name from projectId
     const linkedProject = projects.find(p => p.id === form.projectId);
     const taskData = {
       title:            form.title.trim(),
@@ -112,12 +133,13 @@ export default function TasksScreen() {
       project:          linkedProject ? linkedProject.title : 'Inbox',
       notes:            form.notes,
       estimatedMinutes: parseInt(form.estimatedMinutes) || null,
+      tags:             parseTags(form.tags),
     };
 
     if (editing) {
       await updateTask(user.uid, editing, taskData);
     } else {
-      await addTask(user.uid, { ...taskData, source: 'manual' });
+      await addTask(user.uid, { ...taskData, source: 'manual', status: 'pending' });
     }
     setSaving(false);
     setShowModal(false);
@@ -125,9 +147,9 @@ export default function TasksScreen() {
   };
 
   const sourceLabel = (task) => {
-    if (task.source === 'brain-dump')    return { label: 'Brain Dump',     color: tokens.purple };
-    if (task.source === 'quick-capture') return { label: 'Quick Capture',  color: tokens.blue   };
-    if (task.source === 'project')       return { label: 'Project',        color: tokens.green  };
+    if (task.source === 'brain-dump')    return { label: 'Brain Dump',    color: tokens.purple };
+    if (task.source === 'quick-capture') return { label: 'Quick Capture', color: tokens.blue   };
+    if (task.source === 'project')       return { label: 'Project',       color: tokens.green  };
     return null;
   };
 
@@ -177,14 +199,37 @@ export default function TasksScreen() {
         />
       </div>
 
-      {/* Filters */}
-      <div className="fade-up stagger-1" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '14px' }}>
-        {FILTERS.map(f => (
+      {/* Status Filters */}
+      <div className="fade-up stagger-1" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+        {STATUS_FILTERS.map(f => (
           <button key={f} onClick={() => setFilter(f)}
-            style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 12px', borderRadius: '99px', background: filter === f ? tokens.accentDim : 'transparent', color: filter === f ? tokens.accent : tokens.textMuted, border: `1px solid ${filter === f ? 'rgba(200,169,110,0.2)' : tokens.border}`, cursor: 'pointer', transition: 'all 0.15s', fontFamily: fonts.body }}>
+            style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 12px', borderRadius: '99px', background: filter === f ? tokens.accentDim : 'transparent', color: filter === f ? tokens.accent : tokens.textMuted, border: `1px solid ${filter === f ? tokens.accentDim : tokens.border}`, cursor: 'pointer', transition: 'all 0.15s', fontFamily: fonts.body }}>
             {f}{f === 'inbox' ? ` (${inboxCount})` : f === 'brain-dump' ? ` (${brainCount})` : ''}
           </button>
         ))}
+      </div>
+
+      {/* Project + Tag filters */}
+      <div className="fade-up stagger-1" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px', alignItems: 'center' }}>
+        {projects.length > 0 && (
+          <select value={filterProject} onChange={e => setFilterProject(e.target.value)}
+            style={{ fontSize: '11px', background: filterProject ? tokens.accentDim : tokens.bgCard, border: `1px solid ${filterProject ? tokens.accentDim : tokens.border}`, borderRadius: '99px', padding: '4px 10px', color: filterProject ? tokens.accent : tokens.textMuted, outline: 'none', cursor: 'pointer', fontFamily: fonts.body }}>
+            <option value="">All Projects</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+          </select>
+        )}
+        {allTags.map(tag => (
+          <button key={tag} onClick={() => setFilterTag(filterTag === tag ? '' : tag)}
+            style={{ fontSize: '10px', fontWeight: 700, padding: '3px 10px', borderRadius: '99px', background: filterTag === tag ? tokens.accentDim : tokens.bgCard, color: filterTag === tag ? tokens.accent : tokens.textMuted, border: `1px solid ${filterTag === tag ? tokens.accentDim : tokens.border}`, cursor: 'pointer', fontFamily: fonts.body }}>
+            #{tag}
+          </button>
+        ))}
+        {(filterTag || filterProject) && (
+          <button onClick={() => { setFilterTag(''); setFilterProject(''); }}
+            style={{ fontSize: '10px', color: tokens.textMuted, background: 'none', border: 'none', cursor: 'pointer', fontFamily: fonts.body }}>
+            Clear ✕
+          </button>
+        )}
       </div>
 
       {/* Task list */}
@@ -221,7 +266,19 @@ export default function TasksScreen() {
                         {task.estimatedMinutes >= 60 ? `${Math.floor(task.estimatedMinutes/60)}h${task.estimatedMinutes%60 ? ` ${task.estimatedMinutes%60}m` : ''}` : `${task.estimatedMinutes}m`}
                       </span>
                     )}
+                    {task.status === 'scheduled' && <span style={{ fontSize: '10px', color: tokens.blue, fontWeight: 600 }}>· Scheduled</span>}
                   </div>
+                  {/* Tags */}
+                  {task.tags?.length > 0 && (
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
+                      {task.tags.map(tag => (
+                        <span key={tag} onClick={() => setFilterTag(tag === filterTag ? '' : tag)}
+                          style={{ fontSize: '10px', color: tokens.accent, background: tokens.accentDim, padding: '1px 7px', borderRadius: '4px', cursor: 'pointer', fontWeight: 600 }}>
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {task.notes && <div style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '4px' }}>{task.notes}</div>}
                 </div>
 
@@ -247,6 +304,7 @@ export default function TasksScreen() {
             <Select label="Priority" value={form.priority} onChange={v => setForm(f => ({ ...f, priority: v }))} options={PRIORITIES} />
             <Select label="Project" value={form.projectId} onChange={v => setForm(f => ({ ...f, projectId: v }))} options={projectOptions} />
           </div>
+          <Input label="Tags (comma-separated)" value={form.tags} onChange={v => setForm(f => ({ ...f, tags: v }))} placeholder="e.g. email, client, urgent" />
           <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Any context..." multiline rows={2} />
           <Input label="Estimated Time (minutes)" value={form.estimatedMinutes} onChange={v => setForm(f => ({ ...f, estimatedMinutes: v }))} placeholder="e.g. 30, 60, 90" type="number" />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>

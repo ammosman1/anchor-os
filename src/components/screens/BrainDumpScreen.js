@@ -570,10 +570,11 @@ BRAIN DUMP:\n${text}` }],
         });
         const calendarEventId = calEvent?.id || null;
 
+        const scheduledDate = block.start ? block.start.split('T')[0] : null;
         if (block.taskId) {
-          await updateTask(user.uid, block.taskId, { status: 'scheduled', scheduledStart: block.start, scheduledEnd: block.end, calendarEventId });
+          await updateTask(user.uid, block.taskId, { status: 'scheduled', scheduledStart: block.start, scheduledEnd: block.end, scheduledDate, calendarEventId });
         } else {
-          await addTask(user.uid, { title: block.taskTitle, priority: block.priority || 'medium', source: 'brain-dump', status: 'scheduled', scheduledStart: block.start, scheduledEnd: block.end, calendarEventId });
+          await addTask(user.uid, { title: block.taskTitle, priority: block.priority || 'medium', source: 'brain-dump', status: 'scheduled', scheduledStart: block.start, scheduledEnd: block.end, scheduledDate, calendarEventId });
         }
       }));
 

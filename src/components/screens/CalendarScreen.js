@@ -4,7 +4,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import {
-  getValidAccessToken, getEvents, createEvent, deleteEvent,
+  getValidAccessToken, getEvents, createEvent, deleteEvent, updateEvent,
   formatEventTime, initiateCalendarAuth,
 } from '../../lib/calendar';
 import { Button, Modal, Input, Spinner } from '../ui';
@@ -119,6 +119,8 @@ export default function CalendarScreen() {
   const [deleting, setDeleting]           = useState(false);
   const scrollRef                         = useRef(null);
   const fetched                           = useRef(new Set());
+  const dragRef                           = useRef(null);
+  const [dragState, setDragState]         = useState(null); // { eventId, deltaMins }
 
   useEffect(() => {
     const fn = () => setIsMobile(window.innerWidth < 768);
@@ -132,6 +134,74 @@ export default function CalendarScreen() {
       scrollRef.current.scrollTop = (8 - GRID_START) * HOUR_HEIGHT;
     }
   }, []);
+
+  // ── Drag-to-reschedule (desktop only) ─────────────────────────────────────
+  const onEventMouseDown = useCallback((e, ev) => {
+    if (isMobile || !ev.start?.dateTime) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragRef.current = {
+      event:    ev,
+      startY:   e.clientY,
+      hasMoved: false,
+    };
+    setDragState({ eventId: ev.id, deltaMins: 0 });
+  }, [isMobile]);
+
+  useEffect(() => {
+    const onMouseMove = (e) => {
+      if (!dragRef.current) return;
+      const deltaY = e.clientY - dragRef.current.startY;
+      if (Math.abs(deltaY) > 4) dragRef.current.hasMoved = true;
+      // 1px = 1min (since HOUR_HEIGHT = 60), snap to 15 min
+      const deltaMins = Math.round(deltaY / 15) * 15;
+      setDragState(prev => prev ? { ...prev, deltaMins } : null);
+    };
+
+    const onMouseUp = async (e) => {
+      if (!dragRef.current) return;
+      const ref = dragRef.current;
+      dragRef.current = null;
+
+      const rawDelta = e.clientY - ref.startY;
+      const deltaMins = Math.round(rawDelta / 15) * 15;
+      setDragState(null);
+
+      if (!ref.hasMoved || deltaMins === 0) return;
+
+      const ev       = ref.event;
+      const newStart = new Date(new Date(ev.start.dateTime).getTime() + deltaMins * 60000);
+      const newEnd   = new Date(new Date(ev.end.dateTime).getTime()   + deltaMins * 60000);
+
+      // Optimistic update
+      setEvents(prev => prev.map(e =>
+        e.id === ev.id
+          ? { ...e, start: { dateTime: newStart.toISOString() }, end: { dateTime: newEnd.toISOString() } }
+          : e
+      ));
+
+      try {
+        const token = await getValidAccessToken(user.uid, calendarIntegration);
+        if (token) {
+          await updateEvent(token, ev.id, {
+            start: { dateTime: newStart.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+            end:   { dateTime: newEnd.toISOString(),   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+          });
+        }
+      } catch (err) {
+        console.error('Drag reschedule failed:', err);
+        // Revert on failure
+        setEvents(prev => prev.map(e => e.id === ev.id ? ev : e));
+      }
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup',   onMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup',   onMouseUp);
+    };
+  }, [user, calendarIntegration]);
 
   const fetchWeek = useCallback(async (start) => {
     const key = start.toISOString();
@@ -368,6 +438,7 @@ export default function CalendarScreen() {
               return (
                 <div key={di} onClick={(e) => {
                     if (e.target !== e.currentTarget) return;
+                    if (dragState) return; // skip if drag just finished
                     const rect = e.currentTarget.getBoundingClientRect();
                     const y    = e.clientY - rect.top;
                     const hr   = Math.floor(y / HOUR_HEIGHT) + GRID_START;
@@ -398,17 +469,20 @@ export default function CalendarScreen() {
                       ? new Date(ev.end.dateTime).getHours() * 60 + new Date(ev.end.dateTime).getMinutes()
                       : GRID_END * 60;
 
-                    const top    = minsToTop(Math.max(sMins, GRID_START * 60));
+                    const baseTop    = minsToTop(Math.max(sMins, GRID_START * 60));
                     const height = Math.max(((Math.min(eMins, GRID_END * 60) - Math.max(sMins, GRID_START * 60)) / 60) * HOUR_HEIGHT - 2, 18);
                     const color  = eventColor(ev, ei);
                     const pct    = 100 / ev._totalCols;
+                    const isDragging = dragState?.eventId === ev.id;
+                    const top = isDragging ? baseTop + dragState.deltaMins : baseTop;
 
                     return (
                       <div key={ev.id}
-                        onClick={(e) => { e.stopPropagation(); setDetail(ev); }}
-                        onMouseEnter={e => e.currentTarget.style.filter = 'brightness(1.18)'}
+                        onMouseDown={(e) => { if (!isDragging) onEventMouseDown(e, ev); }}
+                        onClick={(e) => { e.stopPropagation(); if (!dragRef.current && !(dragState?.eventId === ev.id)) setDetail(ev); }}
+                        onMouseEnter={e => { if (!dragState) e.currentTarget.style.filter = 'brightness(1.18)'; }}
                         onMouseLeave={e => e.currentTarget.style.filter = 'none'}
-                        style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: 'pointer', zIndex: 5, boxShadow: '0 1px 4px rgba(0,0,0,0.35)', transition: 'filter 0.12s' }}>
+                        style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: isDragging ? 'grabbing' : 'grab', zIndex: isDragging ? 20 : 5, boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: isDragging ? 0.9 : 1, transition: isDragging ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none' }}>
                         <div style={{ fontSize: '11px', fontWeight: 700, color: color.text, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {ev.summary}
                         </div>

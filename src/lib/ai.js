@@ -268,6 +268,45 @@ Allowed: day = "today" | "tomorrow", focusType = "deep" | "medium" | "quick"`;
   }
 }
 
+export async function generateGoalScenarios({ goal, tasks, brainDumps }) {
+  const content = `Goal at risk: "${goal.title}"
+Likelihood score: ${goal.likelihoodScore}/100
+Why it matters: ${goal.why || 'not specified'}
+Target date: ${goal.targetDate || 'none'}
+Description: ${goal.description || 'none'}
+Recent tasks related: ${tasks.filter(t => !t.done && (t.goalId === goal.id || t.project?.toLowerCase().includes(goal.title?.toLowerCase()?.slice(0,10)))).slice(0,5).map(t => t.title).join(', ') || 'none'}
+Recent brain dumps: ${brainDumps.slice(0,3).map(b => b.summary || b.rawText?.slice(0,100)).filter(Boolean).join(' | ') || 'none'}
+
+Generate 3 distinct recovery scenarios to get this goal back on track. Each should be meaningfully different in approach (e.g., accelerate timeline, reduce scope, change strategy).
+
+Return ONLY valid JSON:
+{
+  "scenarios": [
+    {
+      "id": "s1",
+      "title": "Scenario name (5 words max)",
+      "description": "One sharp sentence on the approach",
+      "likelihoodBoost": 15,
+      "steps": ["Concrete action 1", "Concrete action 2", "Concrete action 3"]
+    }
+  ]
+}`;
+
+  const raw = await callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 800,
+    systemExtra: 'Return ONLY valid JSON. No markdown. No explanation.',
+  });
+
+  try {
+    const clean = (raw || '{}').replace(/```json|```/g, '').trim();
+    const match = clean.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : { scenarios: [] };
+  } catch {
+    return { scenarios: [] };
+  }
+}
+
 export async function scoreGoals({ goals, tasks, brainDumps }) {
   try {
     const res = await fetch('/api/goals/score', {

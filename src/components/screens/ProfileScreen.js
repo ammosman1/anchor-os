@@ -2,11 +2,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { tokens, fonts } from '../../lib/tokens';
+import { tokens, fonts, THEME_LIST, setTheme } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { saveProfile } from '../../lib/db';
 import { auth, storage } from '../../lib/firebase';
+import { requestNotificationPermission, disableNotifications } from '../../lib/notifications';
 import { Card, Button, SectionLabel } from '../ui';
 
 const DAYS = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
@@ -39,6 +40,13 @@ export default function ProfileScreen() {
   const [photoURL,       setPhotoURL]       = useState('');
   const [persona,        setPersona]        = useState('');
   const [workHours,      setWorkHours]      = useState(DEFAULT_WORK_HOURS);
+  const [currentTheme]                      = useState(() => { try { return localStorage.getItem('anchorTheme') || 'warmCream'; } catch { return 'warmCream'; } });
+
+  const [notifStatus,    setNotifStatus]    = useState(() => {
+    if (!('Notification' in window)) return 'unsupported';
+    return Notification.permission; // 'default' | 'granted' | 'denied'
+  });
+  const [notifLoading,   setNotifLoading]   = useState(false);
 
   const [savingProfile,  setSavingProfile]  = useState(false);
   const [savingHours,    setSavingHours]    = useState(false);
@@ -112,6 +120,20 @@ export default function ProfileScreen() {
     await saveProfile(user.uid, { persona });
     setSavingPersona(false);
     showSaved('persona');
+  };
+
+  const handleEnableNotifications = async () => {
+    setNotifLoading(true);
+    const result = await requestNotificationPermission(user.uid);
+    setNotifStatus(result === 'granted' ? 'granted' : result === 'denied' ? 'denied' : 'default');
+    setNotifLoading(false);
+  };
+
+  const handleDisableNotifications = async () => {
+    setNotifLoading(true);
+    await disableNotifications(user.uid);
+    setNotifLoading(false);
+    setNotifStatus('default');
   };
 
   const handlePasswordReset = async () => {
@@ -225,8 +247,63 @@ export default function ProfileScreen() {
         </Card>
       </div>
 
-      {/* ── My Persona ── */}
+      {/* ── Appearance ── */}
       <div className="fade-up stagger-3" style={{ marginBottom: '12px' }}>
+        <Card>
+          <SectionLabel>Appearance</SectionLabel>
+          <p style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '-4px', marginBottom: '14px' }}>
+            Choose your color theme. The page will reload to apply the change.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px' }}>
+            {THEME_LIST.map(theme => {
+              const isActive = currentTheme === theme.id;
+              return (
+                <button key={theme.id} onClick={() => setTheme(theme.id)}
+                  style={{ padding: '12px', borderRadius: '10px', border: `2px solid ${isActive ? tokens.accent : tokens.border}`, background: isActive ? tokens.accentDim : tokens.bgInput, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s', fontFamily: fonts.body }}>
+                  <div style={{ fontSize: '13px', fontWeight: isActive ? 700 : 500, color: isActive ? tokens.accent : tokens.textPrimary, marginBottom: '2px' }}>{theme.name}</div>
+                  <div style={{ fontSize: '10px', color: tokens.textMuted, lineHeight: 1.4 }}>{theme.description}</div>
+                  {isActive && <div style={{ fontSize: '10px', color: tokens.accent, marginTop: '6px', fontWeight: 700 }}>✓ Active</div>}
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      </div>
+
+      {/* ── Notifications ── */}
+      <div className="fade-up stagger-4" style={{ marginBottom: '12px' }}>
+        <Card>
+          <SectionLabel>Notifications</SectionLabel>
+          <p style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '-4px', marginBottom: '14px' }}>
+            Morning briefings, EOD check-ins, and weekly reviews sent as push notifications.
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              {notifStatus === 'granted' && (
+                <div style={{ fontSize: '13px', color: tokens.green, fontWeight: 600 }}>✓ Notifications enabled</div>
+              )}
+              {notifStatus === 'denied' && (
+                <div style={{ fontSize: '13px', color: tokens.red }}>Blocked — enable in browser settings</div>
+              )}
+              {notifStatus === 'unsupported' && (
+                <div style={{ fontSize: '13px', color: tokens.textMuted }}>Not supported on this browser</div>
+              )}
+              {notifStatus === 'default' && (
+                <div style={{ fontSize: '13px', color: tokens.textSecondary }}>Not yet enabled</div>
+              )}
+            </div>
+            {notifStatus === 'granted'
+              ? <Button onClick={handleDisableNotifications} loading={notifLoading} variant="ghost" size="sm">Turn Off</Button>
+              : notifStatus !== 'unsupported' && notifStatus !== 'denied'
+                ? <Button onClick={handleEnableNotifications} loading={notifLoading} size="sm">Enable Notifications</Button>
+                : null
+            }
+          </div>
+        </Card>
+      </div>
+
+      {/* ── My Persona ── */}
+      <div className="fade-up stagger-5" style={{ marginBottom: '12px' }}>
         <Card>
           <SectionLabel>My Persona</SectionLabel>
           <p style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '-4px', marginBottom: '12px' }}>
@@ -250,7 +327,7 @@ export default function ProfileScreen() {
       </div>
 
       {/* ── Security ── */}
-      <div className="fade-up stagger-4" style={{ marginBottom: '12px' }}>
+      <div className="fade-up stagger-6" style={{ marginBottom: '12px' }}>
         <Card>
           <SectionLabel>Security</SectionLabel>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -267,7 +344,7 @@ export default function ProfileScreen() {
       </div>
 
       {/* ── Account ── */}
-      <div className="fade-up stagger-5">
+      <div className="fade-up stagger-7">
         <Card>
           <SectionLabel>Account</SectionLabel>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

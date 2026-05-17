@@ -92,6 +92,17 @@ export async function createEvent(accessToken, event) {
   return res.json(); // created event object with id
 }
 
+// updates shape: { summary?, description?, start?: { dateTime }, end?: { dateTime } }
+export async function updateEvent(accessToken, eventId, updates) {
+  const res = await fetch('/api/calendar/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accessToken, eventId, updates }),
+  });
+  if (!res.ok) throw new Error('Failed to update calendar event');
+  return res.json();
+}
+
 export async function deleteEvent(accessToken, eventId) {
   const res = await fetch('/api/calendar/delete', {
     method: 'POST',

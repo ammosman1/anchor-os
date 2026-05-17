@@ -3,8 +3,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { addGoal, updateGoal, deleteGoal, getAICache, saveAICache } from '../../lib/db';
-import { scoreGoals } from '../../lib/ai';
+import { addGoal, updateGoal, deleteGoal, addTask, getAICache, saveAICache } from '../../lib/db';
+import { scoreGoals, generateGoalScenarios } from '../../lib/ai';
 import { Button, Input, Select, Modal, EmptyState, MomentumBar, Tag } from '../ui';
 
 const STATUS_OPTIONS = [
@@ -52,6 +52,13 @@ export default function GoalsScreen() {
   const [saving,    setSaving]            = useState(false);
   const [scoring,   setScoring]           = useState(false);
   const hasScoredRef                      = useRef(false);
+
+  // Scenario modeling state
+  const [scenarioGoalId,  setScenarioGoalId]  = useState(null);
+  const [scenarios,       setScenarios]       = useState([]);
+  const [loadingScenario, setLoadingScenario] = useState(false);
+  const [pickedScenario,  setPickedScenario]  = useState(null);
+  const [creatingTasks,   setCreatingTasks]   = useState(false);
 
   const runScoring = async (force = false) => {
     if (scoring) return;
@@ -136,6 +143,53 @@ export default function GoalsScreen() {
   };
 
   const handleDelete = async (id) => { await deleteGoal(user.uid, id); };
+
+  const openScenarios = async (goal) => {
+    setScenarioGoalId(goal.id);
+    setScenarios([]);
+    setPickedScenario(null);
+    setLoadingScenario(true);
+    try {
+      const result = await generateGoalScenarios({ goal, tasks, brainDumps });
+      setScenarios(result.scenarios || []);
+    } catch {
+      setScenarios([]);
+    } finally {
+      setLoadingScenario(false);
+    }
+  };
+
+  const closeScenarios = () => {
+    setScenarioGoalId(null);
+    setScenarios([]);
+    setPickedScenario(null);
+  };
+
+  const adoptScenario = async (scenario) => {
+    if (creatingTasks) return;
+    setCreatingTasks(true);
+    const goal = goals.find(g => g.id === scenarioGoalId);
+    try {
+      await Promise.all(
+        scenario.steps.map(step =>
+          addTask(user.uid, {
+            title:    step,
+            project:  goal?.title || '',
+            goalId:   scenarioGoalId,
+            priority: 'high',
+            status:   'pending',
+            tags:     ['recovery'],
+          })
+        )
+      );
+      await updateGoal(user.uid, scenarioGoalId, { recoveryScenario: scenario.title });
+    } catch (err) {
+      console.error('adoptScenario error:', err);
+    } finally {
+      setCreatingTasks(false);
+      closeScenarios();
+    }
+  };
 
   const toggleDep = (id) => {
     setForm(f => ({
@@ -296,6 +350,76 @@ export default function GoalsScreen() {
                       <span style={{ fontSize: '10px', color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Depends on</span>
                       {depNames.map(name => (
                         <span key={name} style={{ fontSize: '11px', color: tokens.blue, background: tokens.blueDim, borderRadius: '4px', padding: '2px 8px', fontWeight: 600 }}>{name}</span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Off-track recovery prompt */}
+                  {goal.status === 'active' && goal.likelihoodScore != null && goal.likelihoodScore < 50 && scenarioGoalId !== goal.id && (
+                    <div style={{ marginTop: '12px', padding: '10px 14px', background: `${tokens.red}14`, border: `1px solid ${tokens.red}30`, borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.red }}>⚑ Off track</div>
+                        <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>Score is {goal.likelihoodScore}/100 — generate recovery scenarios</div>
+                      </div>
+                      <Button size="sm" onClick={() => openScenarios(goal)}>Get Back on Track</Button>
+                    </div>
+                  )}
+
+                  {/* Scenario panel */}
+                  {scenarioGoalId === goal.id && (
+                    <div style={{ marginTop: '12px', padding: '14px', background: tokens.bgCardHover, border: `1px solid ${tokens.border}`, borderRadius: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.textPrimary }}>Recovery Scenarios</div>
+                        <button onClick={closeScenarios} style={{ background: 'none', border: 'none', color: tokens.textMuted, cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '2px' }}>✕</button>
+                      </div>
+
+                      {loadingScenario && (
+                        <div style={{ fontSize: '12px', color: tokens.textMuted, textAlign: 'center', padding: '12px 0' }}>
+                          Generating recovery options…
+                        </div>
+                      )}
+
+                      {!loadingScenario && scenarios.length === 0 && (
+                        <div style={{ fontSize: '12px', color: tokens.textMuted }}>Could not generate scenarios. Try again.</div>
+                      )}
+
+                      {!loadingScenario && scenarios.map(s => (
+                        <div key={s.id}
+                          onClick={() => setPickedScenario(pickedScenario?.id === s.id ? null : s)}
+                          style={{
+                            marginBottom: '8px',
+                            padding: '12px 14px',
+                            background: pickedScenario?.id === s.id ? tokens.accentDim : tokens.bgCard,
+                            border: `1px solid ${pickedScenario?.id === s.id ? tokens.accent : tokens.border}`,
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{s.title}</div>
+                            <span style={{ fontSize: '11px', color: tokens.green, background: tokens.greenDim, borderRadius: '4px', padding: '2px 7px', fontWeight: 600 }}>+{s.likelihoodBoost}%</span>
+                          </div>
+                          <div style={{ fontSize: '12px', color: tokens.textSecondary, marginBottom: '8px' }}>{s.description}</div>
+                          {pickedScenario?.id === s.id && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {s.steps.map((step, i) => (
+                                <div key={i} style={{ fontSize: '11px', color: tokens.textMuted, display: 'flex', gap: '6px' }}>
+                                  <span style={{ color: tokens.accent, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                                  {step}
+                                </div>
+                              ))}
+                              <Button
+                                size="sm"
+                                loading={creatingTasks}
+                                onClick={(e) => { e.stopPropagation(); adoptScenario(s); }}
+                                style={{ marginTop: '8px', alignSelf: 'flex-end' }}
+                              >
+                                Adopt — Create Tasks
+                              </Button>
+                            </div>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
