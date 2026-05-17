@@ -9,7 +9,7 @@ import { generateProjectAnalysis } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
 import { calculateMomentum, getMomentumBlurb } from '../../lib/momentum';
 import { RECURRENCE_OPTIONS } from '../../lib/tasks';
-import { Button, Modal, Input, Select, MomentumBar, Spinner } from '../ui';
+import { Button, Modal, Input, MomentumBar, Spinner } from '../ui';
 
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
 
@@ -150,6 +150,14 @@ export default function ProjectDetailScreen() {
 
   const loadAnalysis = useCallback(async (force = false) => {
     if (!project || analysisLoading) return;
+
+    // Auto-correct stalled status once — fire-and-forget, no reactive loop
+    if (project.status === 'stalled' && mScore > 50) {
+      updateProject(user.uid, projectId, { status: 'active' }).catch(err =>
+        console.error('Status auto-correct error:', err)
+      );
+    }
+
     if (!force) {
       const cached = await getAICache(user.uid, `project-analysis-${projectId}`, 6);
       if (cached) {
@@ -181,22 +189,6 @@ export default function ProjectDetailScreen() {
   useEffect(() => {
     if (project) loadAnalysis();
   }, [projectId]); // eslint-disable-line
-
-  // Auto-correct stalled → active when momentum is healthy.
-  // Use a ref so the write fires at most once per project load, preventing
-  // a feedback loop where the updatedAt bump re-triggers the effect.
-  const hasCorrectedStatusRef = React.useRef(false);
-  useEffect(() => {
-    hasCorrectedStatusRef.current = false;
-  }, [projectId]);
-  useEffect(() => {
-    if (hasCorrectedStatusRef.current) return;
-    if (!project || !user) return;
-    if (project.status === 'stalled' && mScore > 50) {
-      hasCorrectedStatusRef.current = true;
-      updateProject(user.uid, projectId, { status: 'active' });
-    }
-  }, [project?.status, mScore]); // eslint-disable-line
 
   const handleFeedbackSubmit = async () => {
     if (!feedbackText.trim()) return;
@@ -362,7 +354,10 @@ export default function ProjectDetailScreen() {
     paused:   { bg: tokens.bgGlass,           text: tokens.textMuted },
     complete: { bg: tokens.greenDim,          text: tokens.green  },
   };
-  const sc = statusColors[project.status] || statusColors.paused;
+  // If stored status is stalled but momentum is healthy, display active immediately
+  // (the write to Firestore happens via loadAnalysis, but UI shouldn't wait for it)
+  const displayStatus = (project.status === 'stalled' && mScore > 50) ? 'active' : project.status;
+  const sc = statusColors[displayStatus] || statusColors.paused;
 
   const thumbBtnStyle = (active) => ({
     background: active ? tokens.accentDim : 'transparent',
@@ -393,7 +388,7 @@ export default function ProjectDetailScreen() {
       <div style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '5px', background: sc.bg, color: sc.text, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-            {project.status}
+            {displayStatus}
           </span>
           <span style={{ fontSize: '11px', color: tokens.textMuted }}>{project.category}</span>
           {linkedGoal && (
@@ -675,8 +670,20 @@ export default function ProjectDetailScreen() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <Input label="Project Title" value={editForm.title || ''} onChange={v => setEditForm(f => ({ ...f, title: v }))} placeholder="e.g. Half Bath Remodel" />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <Select label="Category" value={editForm.category || 'work'} onChange={v => setEditForm(f => ({ ...f, category: v }))} options={CATEGORIES} />
-            <Select label="Status"   value={editForm.status   || 'active'} onChange={v => setEditForm(f => ({ ...f, status: v }))}   options={STATUSES} />
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Category</label>
+              <select value={editForm.category || 'work'} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Status</label>
+              <select value={editForm.status || 'active'} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
           </div>
           <div>
             <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Linked Goal</label>
