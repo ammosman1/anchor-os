@@ -6,8 +6,9 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { updateGoal, addTask, updateTask, getAICache, saveAICache } from '../../lib/db';
 import { generateGoalInsights, generateGoalExecutionPlan } from '../../lib/ai';
+import { RECURRENCE_OPTIONS } from '../../lib/tasks';
 import { fetchMonthlyCashFlow, fetchAccounts } from '../../lib/plaid';
-import { Button, Modal, Input, Select, MomentumBar, Spinner } from '../ui';
+import { Button, Modal, Input, MomentumBar, Spinner } from '../ui';
 
 const GOAL_TYPE_CONFIG = {
   financial:   { label: 'Financial',   color: '#6DBF9E' },
@@ -17,6 +18,12 @@ const GOAL_TYPE_CONFIG = {
 };
 
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
+
+const FOCUS_TYPES = [
+  { value: 'deep',    label: '🧠 Deep Work' },
+  { value: 'shallow', label: '💬 Shallow'   },
+  { value: 'admin',   label: '📋 Admin'     },
+];
 
 function monthsFrom(yyyyMM) {
   if (!yyyyMM) return null;
@@ -68,9 +75,12 @@ export default function GoalDetailScreen() {
   const [approvedTasks,  setApprovedTasks]  = useState(new Set());
 
   const [addTaskOpen,    setAddTaskOpen]    = useState(false);
-  const [newTaskTitle,   setNewTaskTitle]   = useState('');
-  const [newTaskPriority, setNewTaskPriority] = useState('high');
   const [addingTask,     setAddingTask]     = useState(false);
+  const emptyTaskForm = {
+    title: '', priority: 'high', focusType: 'deep', project: '',
+    estimatedMinutes: '', dueDate: '', notes: '', tags: '', recurrence: 'none',
+  };
+  const [newTaskForm,    setNewTaskForm]    = useState(emptyTaskForm);
 
   const [balanceOpen,     setBalanceOpen]     = useState(false);
   const [newBalance,      setNewBalance]      = useState('');
@@ -158,17 +168,26 @@ export default function GoalDetailScreen() {
   };
 
   const handleAddTask = async () => {
-    if (!newTaskTitle.trim() || addingTask) return;
+    if (!newTaskForm.title.trim() || addingTask) return;
     setAddingTask(true);
     try {
+      const tagsArr = newTaskForm.tags
+        ? newTaskForm.tags.split(',').map(t => t.trim()).filter(Boolean)
+        : [];
       await addTask(user.uid, {
-        title:    newTaskTitle.trim(),
-        priority: newTaskPriority,
+        title:            newTaskForm.title.trim(),
+        priority:         newTaskForm.priority,
+        focusType:        newTaskForm.focusType || null,
+        project:          newTaskForm.project || goal.title || 'Inbox',
+        estimatedMinutes: newTaskForm.estimatedMinutes ? Number(newTaskForm.estimatedMinutes) : null,
+        dueDate:          newTaskForm.dueDate || null,
+        notes:            newTaskForm.notes || '',
+        tags:             tagsArr.length ? tagsArr : null,
+        recurrence:       newTaskForm.recurrence !== 'none' ? newTaskForm.recurrence : null,
         goalId,
-        project:  goal.title || 'Inbox',
-        status:   'pending',
+        status:           'pending',
       });
-      setNewTaskTitle('');
+      setNewTaskForm(emptyTaskForm);
       setAddTaskOpen(false);
     } finally {
       setAddingTask(false);
@@ -670,18 +689,74 @@ export default function GoalDetailScreen() {
       </Modal>
 
       {/* Add Task Modal */}
-      <Modal open={addTaskOpen} onClose={() => setAddTaskOpen(false)} title="Add Task to Goal">
+      <Modal open={addTaskOpen} onClose={() => { setAddTaskOpen(false); setNewTaskForm(emptyTaskForm); }} title="Add Task to Goal">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <Input label="Task" value={newTaskTitle} onChange={setNewTaskTitle} placeholder="What needs to happen?" />
-          <Select
-            label="Priority"
-            value={newTaskPriority}
-            onChange={setNewTaskPriority}
-            options={PRIORITIES.map(p => ({ value: p, label: p.charAt(0).toUpperCase() + p.slice(1) }))}
-          />
+          <Input label="Title" value={newTaskForm.title} onChange={v => setNewTaskForm(f => ({ ...f, title: v }))} placeholder="What needs to happen?" />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Priority</label>
+              <select value={newTaskForm.priority} onChange={e => setNewTaskForm(f => ({ ...f, priority: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Focus Type</label>
+              <select value={newTaskForm.focusType} onChange={e => setNewTaskForm(f => ({ ...f, focusType: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                {FOCUS_TYPES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Project</label>
+              <select value={newTaskForm.project} onChange={e => setNewTaskForm(f => ({ ...f, project: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                <option value="">Use Goal Name</option>
+                <option value="Inbox">Inbox</option>
+                {(projects || []).filter(p => p.status === 'active').map(p => <option key={p.id} value={p.title}>{p.title}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Recurrence</label>
+              <select value={newTaskForm.recurrence} onChange={e => setNewTaskForm(f => ({ ...f, recurrence: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                {RECURRENCE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
+              <input type="date" value={newTaskForm.dueDate}
+                onChange={e => setNewTaskForm(f => ({ ...f, dueDate: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, colorScheme: 'light', boxSizing: 'border-box' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Est. Minutes</label>
+              <input type="number" min="5" max="480" value={newTaskForm.estimatedMinutes}
+                onChange={e => setNewTaskForm(f => ({ ...f, estimatedMinutes: e.target.value }))}
+                placeholder="45"
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Tags (comma separated)</label>
+            <input value={newTaskForm.tags} onChange={e => setNewTaskForm(f => ({ ...f, tags: e.target.value }))}
+              placeholder="e.g. design, research"
+              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
+          </div>
+
+          <Input label="Notes" value={newTaskForm.notes} onChange={v => setNewTaskForm(f => ({ ...f, notes: v }))} placeholder="Context, links, details..." multiline rows={2} />
+
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <Button variant="ghost" onClick={() => setAddTaskOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddTask} loading={addingTask} disabled={!newTaskTitle.trim()}>Add Task</Button>
+            <Button variant="ghost" onClick={() => { setAddTaskOpen(false); setNewTaskForm(emptyTaskForm); }}>Cancel</Button>
+            <Button onClick={handleAddTask} loading={addingTask} disabled={!newTaskForm.title.trim()}>Add Task</Button>
           </div>
         </div>
       </Modal>

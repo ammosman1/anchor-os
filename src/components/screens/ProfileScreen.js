@@ -48,6 +48,10 @@ export default function ProfileScreen() {
   });
   const [notifLoading,   setNotifLoading]   = useState(false);
 
+  const [calGridStart,   setCalGridStart]   = useState(6);
+  const [calGridEnd,     setCalGridEnd]     = useState(22);
+  const [savingCalGrid,  setSavingCalGrid]  = useState(false);
+
   const [savingProfile,  setSavingProfile]  = useState(false);
   const [savingHours,    setSavingHours]    = useState(false);
   const [savingPersona,  setSavingPersona]  = useState(false);
@@ -66,6 +70,8 @@ export default function ProfileScreen() {
     if (userProfile) {
       setPersona(userProfile.persona || '');
       if (userProfile.workHours) setWorkHours(userProfile.workHours);
+      if (userProfile.calGridStart != null) setCalGridStart(userProfile.calGridStart);
+      if (userProfile.calGridEnd   != null) setCalGridEnd(userProfile.calGridEnd);
     }
   }, [userProfile]);
 
@@ -113,6 +119,14 @@ export default function ProfileScreen() {
     await saveProfile(user.uid, { workHours });
     setSavingHours(false);
     showSaved('hours');
+  };
+
+  const handleSaveCalGrid = async () => {
+    if (calGridEnd <= calGridStart) return;
+    setSavingCalGrid(true);
+    await saveProfile(user.uid, { calGridStart, calGridEnd });
+    setSavingCalGrid(false);
+    showSaved('calGrid');
   };
 
   const handleSavePersona = async () => {
@@ -247,8 +261,46 @@ export default function ProfileScreen() {
         </Card>
       </div>
 
-      {/* ── Appearance ── */}
+      {/* ── Calendar View Hours ── */}
       <div className="fade-up stagger-3" style={{ marginBottom: '12px' }}>
+        <Card>
+          <SectionLabel>Calendar View Hours</SectionLabel>
+          <p style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '-4px', marginBottom: '14px' }}>
+            Set the visible hour range in your calendar grid. Default is 6am – 10pm.
+          </p>
+          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted }}>Start Hour</label>
+              <select value={calGridStart} onChange={e => setCalGridStart(Number(e.target.value))}
+                style={{ background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                {Array.from({ length: 13 }, (_, i) => i).map(h => (
+                  <option key={h} value={h}>{h === 0 ? '12am' : h < 12 ? `${h}am` : '12pm'}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ fontSize: '14px', color: tokens.textMuted, alignSelf: 'flex-end', paddingBottom: '10px' }}>→</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted }}>End Hour</label>
+              <select value={calGridEnd} onChange={e => setCalGridEnd(Number(e.target.value))}
+                style={{ background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                {Array.from({ length: 11 }, (_, i) => i + 14).map(h => (
+                  <option key={h} value={h}>{h === 24 ? '12am' : h > 12 ? `${h - 12}pm` : h === 12 ? '12pm' : `${h}am`}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {calGridEnd <= calGridStart && (
+            <div style={{ fontSize: '11px', color: tokens.red, marginTop: '8px' }}>End must be after start.</div>
+          )}
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '14px' }}>
+            <Button onClick={handleSaveCalGrid} loading={savingCalGrid} size="sm" disabled={calGridEnd <= calGridStart}>Save Hours</Button>
+            {savedSection === 'calGrid' && <span style={{ fontSize: '12px', color: tokens.green }}>✓ Saved</span>}
+          </div>
+        </Card>
+      </div>
+
+      {/* ── Appearance ── */}
+      <div className="fade-up stagger-4" style={{ marginBottom: '12px' }}>
         <Card>
           <SectionLabel>Appearance</SectionLabel>
           <p style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '-4px', marginBottom: '14px' }}>
@@ -271,7 +323,7 @@ export default function ProfileScreen() {
       </div>
 
       {/* ── Notifications ── */}
-      <div className="fade-up stagger-4" style={{ marginBottom: '12px' }}>
+      <div className="fade-up stagger-5" style={{ marginBottom: '12px' }}>
         <Card>
           <SectionLabel>Notifications</SectionLabel>
           <p style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '-4px', marginBottom: '14px' }}>
@@ -303,7 +355,7 @@ export default function ProfileScreen() {
       </div>
 
       {/* ── My Persona ── */}
-      <div className="fade-up stagger-5" style={{ marginBottom: '12px' }}>
+      <div className="fade-up stagger-6" style={{ marginBottom: '12px' }}>
         <Card>
           <SectionLabel>My Persona</SectionLabel>
           <p style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '-4px', marginBottom: '12px' }}>
@@ -327,7 +379,7 @@ export default function ProfileScreen() {
       </div>
 
       {/* ── Security ── */}
-      <div className="fade-up stagger-6" style={{ marginBottom: '12px' }}>
+      <div className="fade-up stagger-7" style={{ marginBottom: '12px' }}>
         <Card>
           <SectionLabel>Security</SectionLabel>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -344,7 +396,7 @@ export default function ProfileScreen() {
       </div>
 
       {/* ── Account ── */}
-      <div className="fade-up stagger-7">
+      <div className="fade-up stagger-8">
         <Card>
           <SectionLabel>Account</SectionLabel>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

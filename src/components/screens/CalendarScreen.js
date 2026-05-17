@@ -9,13 +9,11 @@ import {
 } from '../../lib/calendar';
 import { Button, Modal, Input, Spinner, priorityColors } from '../ui';
 import { updateTask } from '../../lib/db';
+import { RECURRENCE_OPTIONS } from '../../lib/tasks';
 import PlanScheduleFlow from './PlanScheduleFlow';
 import WorkScheduleImportModal from './WorkScheduleImportModal';
 
 const HOUR_HEIGHT = 60;
-const GRID_START  = 6;
-const GRID_END    = 22;
-const HOURS = Array.from({ length: GRID_END - GRID_START }, (_, i) => GRID_START + i);
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_NAMES_LOWER = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
@@ -55,9 +53,15 @@ function sameDay(a, b) {
     a.getDate() === b.getDate();
 }
 
-function minsToTop(totalMins) {
-  return ((totalMins - GRID_START * 60) / 60) * HOUR_HEIGHT;
+function minsToTop(totalMins, gs = 6) {
+  return ((totalMins - gs * 60) / 60) * HOUR_HEIGHT;
 }
+
+const FOCUS_TYPES = [
+  { value: 'deep',    label: '🧠 Deep Work' },
+  { value: 'shallow', label: '💬 Shallow'   },
+  { value: 'admin',   label: '📋 Admin'     },
+];
 
 function fmtHour(h) {
   if (h === 0)  return '12am';
@@ -111,8 +115,15 @@ function layoutDay(events) {
 }
 
 export default function CalendarScreen() {
-  const { user }                                               = useAuth();
-  const { calendarIntegration, tasks, userProfile, projects } = useData();
+  const { user }                                                      = useAuth();
+  const { calendarIntegration, tasks, userProfile, projects, goals } = useData();
+
+  const gridStart = userProfile?.calGridStart ?? 6;
+  const gridEnd   = userProfile?.calGridEnd   ?? 22;
+  const gridHours = useMemo(() =>
+    Array.from({ length: gridEnd - gridStart }, (_, i) => gridStart + i),
+    [gridStart, gridEnd]
+  );
   const [ws, setWs]                    = useState(() => weekStart(new Date()));
   const [events, setEvents]            = useState([]);
   const [loading, setLoading]          = useState(false);
@@ -167,8 +178,8 @@ export default function CalendarScreen() {
   }, []);
 
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = (8 - GRID_START) * HOUR_HEIGHT;
-  }, []);
+    if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, 8 - gridStart) * HOUR_HEIGHT;
+  }, [gridStart]); // re-scroll when user changes grid start hour
 
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
@@ -372,13 +383,17 @@ export default function CalendarScreen() {
   const openEdit = (task) => {
     setEditingTask(task);
     setEditForm({
-      title:              task.title || '',
-      priority:           task.priority || 'medium',
-      dueDate:            task.dueDate || '',
-      estimatedMinutes:   task.estimatedMinutes || '',
-      notes:              task.notes || '',
-      project:            task.project || 'Inbox',
-      projectId:          task.projectId || null,
+      title:            task.title || '',
+      priority:         task.priority || 'medium',
+      dueDate:          task.dueDate || '',
+      estimatedMinutes: task.estimatedMinutes || '',
+      notes:            task.notes || '',
+      project:          task.project || 'Inbox',
+      projectId:        task.projectId || null,
+      goalId:           task.goalId || '',
+      focusType:        task.focusType || 'deep',
+      tags:             Array.isArray(task.tags) ? task.tags.join(', ') : task.tags || '',
+      recurrence:       task.recurrence || 'none',
     });
   };
 
@@ -388,6 +403,9 @@ export default function CalendarScreen() {
     const linked = (projects || []).find(p => p.title === editForm.project);
     try {
       const newMins = editForm.estimatedMinutes ? Number(editForm.estimatedMinutes) : null;
+      const tagsArr = editForm.tags
+        ? editForm.tags.split(',').map(t => t.trim()).filter(Boolean)
+        : [];
       const updates = {
         title:            editForm.title.trim(),
         priority:         editForm.priority,
@@ -396,6 +414,10 @@ export default function CalendarScreen() {
         notes:            editForm.notes,
         project:          editForm.project,
         projectId:        linked?.id || editForm.projectId || null,
+        goalId:           editForm.goalId || null,
+        focusType:        editForm.focusType || null,
+        tags:             tagsArr.length ? tagsArr : null,
+        recurrence:       editForm.recurrence !== 'none' ? editForm.recurrence : null,
       };
       // Recalculate end time when duration changes and task has a time slot
       if (editingTask.scheduledStart && newMins) {
@@ -585,10 +607,10 @@ export default function CalendarScreen() {
     e.dataTransfer.dropEffect = 'move';
     const rect = e.currentTarget.getBoundingClientRect();
     const y    = e.clientY - rect.top;
-    const rawMins  = Math.floor((y / HOUR_HEIGHT) * 60) + GRID_START * 60;
-    const snapped  = Math.max(GRID_START * 60, Math.min(GRID_END * 60 - 30, Math.round(rawMins / 15) * 15));
+    const rawMins  = Math.floor((y / HOUR_HEIGHT) * 60) + gridStart * 60;
+    const snapped  = Math.max(gridStart * 60, Math.min(gridEnd * 60 - 30, Math.round(rawMins / 15) * 15));
     setDragOverInfo({ dayIndex, day, mins: snapped });
-  }, []);
+  }, [gridStart, gridEnd]);
 
   const handleCalendarDrop = useCallback(async (e, dayIndex, day) => {
     e.preventDefault();
@@ -600,8 +622,8 @@ export default function CalendarScreen() {
 
     const rect = e.currentTarget.getBoundingClientRect();
     const y    = e.clientY - rect.top;
-    const rawMins = Math.floor((y / HOUR_HEIGHT) * 60) + GRID_START * 60;
-    const mins    = Math.max(GRID_START * 60, Math.min(GRID_END * 60 - 30, Math.round(rawMins / 15) * 15));
+    const rawMins = Math.floor((y / HOUR_HEIGHT) * 60) + gridStart * 60;
+    const mins    = Math.max(gridStart * 60, Math.min(gridEnd * 60 - 30, Math.round(rawMins / 15) * 15));
 
     setDragOverInfo(null);
 
@@ -666,8 +688,21 @@ export default function CalendarScreen() {
     calView === '3day' ? Array.from({ length: 3 }, (_, i) => { const d = new Date(ws); d.setDate(d.getDate() + i); return d; }) :
     days;
 
+  // Map calendarEventId → active task so GCal events can get checkbox/edit behavior
+  const calEventTaskMap = useMemo(() => {
+    const map = new Map();
+    tasks.forEach(t => { if (t.calendarEventId && !t.done) map.set(t.calendarEventId, t); });
+    return map;
+  }, [tasks]);
+
   const timedForDay = (day) => [
-    ...events.filter(e => e.start?.dateTime && sameDay(new Date(e.start.dateTime), day) && !doneTaskCalEventIds.has(e.id)),
+    ...events
+      .filter(e => e.start?.dateTime && sameDay(new Date(e.start.dateTime), day) && !doneTaskCalEventIds.has(e.id))
+      .map(e => {
+        const linkedTask = calEventTaskMap.get(e.id);
+        if (linkedTask) return { ...e, _isTask: true, _anchor: true, _taskId: linkedTask.id, _done: false };
+        return e;
+      }),
     ...taskCalEvents.filter(e => sameDay(new Date(e.start.dateTime), day)),
   ];
   const allDayForDay = (day) => events.filter(e => !e.start?.dateTime && e.start?.date && sameDay(new Date(e.start.date + 'T12:00:00'), day));
@@ -746,10 +781,10 @@ export default function CalendarScreen() {
     }
   };
 
-  const gridHeight = (GRID_END - GRID_START) * HOUR_HEIGHT;
+  const gridHeight = (gridEnd - gridStart) * HOUR_HEIGHT;
   const nowMins    = today.getHours() * 60 + today.getMinutes();
-  const nowTop     = minsToTop(nowMins);
-  const showNow    = nowMins >= GRID_START * 60 && nowMins < GRID_END * 60;
+  const nowTop     = minsToTop(nowMins, gridStart);
+  const showNow    = nowMins >= gridStart * 60 && nowMins < gridEnd * 60;
 
   const monthLabel = (() => {
     if (calView === 'day') {
@@ -1042,16 +1077,16 @@ export default function CalendarScreen() {
           <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', position: 'relative' }}>
             <div style={{ display: 'flex' }}>
               <div style={{ width: 48, flexShrink: 0, position: 'relative', height: gridHeight }}>
-                {HOURS.map(h => (
-                  <div key={h} style={{ position: 'absolute', top: (h - GRID_START) * HOUR_HEIGHT - 8, right: 8, fontSize: '10px', color: tokens.textMuted, lineHeight: 1, userSelect: 'none', whiteSpace: 'nowrap' }}>
+                {gridHours.map(h => (
+                  <div key={h} style={{ position: 'absolute', top: (h - gridStart) * HOUR_HEIGHT - 8, right: 8, fontSize: '10px', color: tokens.textMuted, lineHeight: 1, userSelect: 'none', whiteSpace: 'nowrap' }}>
                     {fmtHour(h)}
                   </div>
                 ))}
               </div>
 
               <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `repeat(${visible.length}, 1fr)`, position: 'relative', borderLeft: `1px solid ${tokens.border}` }}>
-                {HOURS.map(h => (
-                  <div key={h} style={{ position: 'absolute', left: 0, right: 0, top: (h - GRID_START) * HOUR_HEIGHT, borderTop: `1px solid ${tokens.border}`, pointerEvents: 'none', zIndex: 1 }} />
+                {gridHours.map(h => (
+                  <div key={h} style={{ position: 'absolute', left: 0, right: 0, top: (h - gridStart) * HOUR_HEIGHT, borderTop: `1px solid ${tokens.border}`, pointerEvents: 'none', zIndex: 1 }} />
                 ))}
 
                 {visible.map((day, di) => {
@@ -1070,7 +1105,7 @@ export default function CalendarScreen() {
                         if (dragState) return;
                         const rect = e.currentTarget.getBoundingClientRect();
                         const y    = e.clientY - rect.top;
-                        const hr   = Math.floor(y / HOUR_HEIGHT) + GRID_START;
+                        const hr   = Math.floor(y / HOUR_HEIGHT) + gridStart;
                         const min  = Math.floor((y % HOUR_HEIGHT) / HOUR_HEIGHT * 4) * 15;
                         openCreate(day, hr, min);
                       }}
@@ -1083,8 +1118,8 @@ export default function CalendarScreen() {
                           : isToday ? 'rgba(200,169,110,0.015)' : 'transparent',
                       }}
                     >
-                      {HOURS.map(h => (
-                        <div key={h} style={{ position: 'absolute', left: 0, right: 0, top: (h - GRID_START) * HOUR_HEIGHT + HOUR_HEIGHT / 2, borderTop: `1px dashed rgba(0,0,0,0.05)`, pointerEvents: 'none' }} />
+                      {gridHours.map(h => (
+                        <div key={h} style={{ position: 'absolute', left: 0, right: 0, top: (h - gridStart) * HOUR_HEIGHT + HOUR_HEIGHT / 2, borderTop: `1px dashed rgba(0,0,0,0.05)`, pointerEvents: 'none' }} />
                       ))}
                       {isToday && showNow && (
                         <div style={{ position: 'absolute', left: -1, right: 0, top: nowTop, zIndex: 10, pointerEvents: 'none' }}>
@@ -1097,7 +1132,7 @@ export default function CalendarScreen() {
                       {ghostInfo && (
                         <div style={{
                           position: 'absolute',
-                          top: minsToTop(ghostInfo.mins) + 1,
+                          top: minsToTop(ghostInfo.mins, gridStart) + 1,
                           left: 2, right: 2,
                           height: Math.max(ghostH - 2, 18),
                           background: tokens.accentDim,
@@ -1123,12 +1158,12 @@ export default function CalendarScreen() {
                       {laid.map((ev, ei) => {
                         const sMins = ev.start?.dateTime
                           ? new Date(ev.start.dateTime).getHours() * 60 + new Date(ev.start.dateTime).getMinutes()
-                          : GRID_START * 60;
+                          : gridStart * 60;
                         const eMins = ev.end?.dateTime
                           ? new Date(ev.end.dateTime).getHours() * 60 + new Date(ev.end.dateTime).getMinutes()
-                          : GRID_END * 60;
-                        const baseTop    = minsToTop(Math.max(sMins, GRID_START * 60));
-                        const height     = Math.max(((Math.min(eMins, GRID_END * 60) - Math.max(sMins, GRID_START * 60)) / 60) * HOUR_HEIGHT - 2, 18);
+                          : gridEnd * 60;
+                        const baseTop    = minsToTop(Math.max(sMins, gridStart * 60), gridStart);
+                        const height     = Math.max(((Math.min(eMins, gridEnd * 60) - Math.max(sMins, gridStart * 60)) / 60) * HOUR_HEIGHT - 2, 18);
                         const color      = eventColor(ev, ei);
                         const pct        = 100 / ev._totalCols;
                         const isDragging = dragState?.eventId === ev.id;
@@ -1218,6 +1253,7 @@ export default function CalendarScreen() {
         {editingTask && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <Input label="Title" value={editForm.title} onChange={v => setEditForm(p => ({ ...p, title: v }))} placeholder="Task title" />
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div>
                 <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Priority</label>
@@ -1227,6 +1263,16 @@ export default function CalendarScreen() {
                 </select>
               </div>
               <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Focus Type</label>
+                <select value={editForm.focusType} onChange={e => setEditForm(p => ({ ...p, focusType: e.target.value }))}
+                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                  {FOCUS_TYPES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
                 <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Project</label>
                 <select value={editForm.project} onChange={e => setEditForm(p => ({ ...p, project: e.target.value }))}
                   style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
@@ -1234,7 +1280,26 @@ export default function CalendarScreen() {
                   {(projects || []).filter(p => p.status === 'active').map(p => <option key={p.id} value={p.title}>{p.title}</option>)}
                 </select>
               </div>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Recurrence</label>
+                <select value={editForm.recurrence} onChange={e => setEditForm(p => ({ ...p, recurrence: e.target.value }))}
+                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                  {RECURRENCE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                </select>
+              </div>
             </div>
+
+            {(goals || []).filter(g => g.status === 'active').length > 0 && (
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Goal (optional)</label>
+                <select value={editForm.goalId} onChange={e => setEditForm(p => ({ ...p, goalId: e.target.value }))}
+                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                  <option value="">No goal linked</option>
+                  {(goals || []).filter(g => g.status === 'active').map(g => <option key={g.id} value={g.id}>{g.title}</option>)}
+                </select>
+              </div>
+            )}
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div>
                 <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
@@ -1250,7 +1315,16 @@ export default function CalendarScreen() {
                   style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
               </div>
             </div>
+
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Tags (comma separated)</label>
+              <input value={editForm.tags} onChange={e => setEditForm(p => ({ ...p, tags: e.target.value }))}
+                placeholder="e.g. design, client, research"
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
+            </div>
+
             <Input label="Notes" value={editForm.notes} onChange={v => setEditForm(p => ({ ...p, notes: v }))} placeholder="Context, links, details..." multiline rows={2} />
+
             {editingTask?.scheduledStart && (
               <div style={{ padding: '10px 14px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}`, fontSize: '12px', color: tokens.textSecondary }}>
                 <span style={{ color: tokens.textMuted }}>Scheduled: </span>
