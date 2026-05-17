@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { updateGoal, addTask, updateTask, getAICache, saveAICache } from '../../lib/db';
 import { generateGoalInsights, generateGoalExecutionPlan } from '../../lib/ai';
-import { fetchMonthlyCashFlow } from '../../lib/plaid';
+import { fetchMonthlyCashFlow, fetchAccounts } from '../../lib/plaid';
 import { Button, Modal, Input, Select, MomentumBar, Spinner } from '../ui';
 
 const GOAL_TYPE_CONFIG = {
@@ -71,6 +71,11 @@ export default function GoalDetailScreen() {
   const [newTaskTitle,   setNewTaskTitle]   = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState('high');
   const [addingTask,     setAddingTask]     = useState(false);
+
+  const [balanceOpen,     setBalanceOpen]     = useState(false);
+  const [newBalance,      setNewBalance]      = useState('');
+  const [plaidAccounts,   setPlaidAccounts]   = useState([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
 
   const loadInsights = useCallback(async (force = false) => {
     if (!goal || insightsLoading) return;
@@ -178,6 +183,54 @@ export default function GoalDetailScreen() {
     });
   };
 
+  const loadPlaidAccounts = useCallback(async () => {
+    if (!plaidItems?.length) return;
+    setLoadingAccounts(true);
+    try {
+      const all = await Promise.all(plaidItems.map(item => fetchAccounts(item.accessToken)));
+      setPlaidAccounts(all.flat().filter(a => a.balances?.current != null));
+    } catch (err) {
+      console.error('Failed to load Plaid accounts:', err);
+    } finally {
+      setLoadingAccounts(false);
+    }
+  }, [plaidItems]);
+
+  useEffect(() => {
+    if (balanceOpen && plaidItems?.length > 0 && plaidAccounts.length === 0) {
+      loadPlaidAccounts();
+    }
+  }, [balanceOpen]); // eslint-disable-line
+
+  // Auto-sync balance from Plaid on load if account is linked
+  useEffect(() => {
+    if (!goal || goal.goalType !== 'financial' || !goal.plaidAccountId || !plaidItems?.length) return;
+    const autoSync = async () => {
+      try {
+        const all = await Promise.all(plaidItems.map(item => fetchAccounts(item.accessToken)));
+        const accounts = all.flat();
+        const acct = accounts.find(a => a.accountId === goal.plaidAccountId);
+        if (acct?.balances?.current != null) {
+          await updateGoal(user.uid, goalId, { currentAmount: acct.balances.current });
+        }
+      } catch {}
+    };
+    autoSync();
+  }, [goalId]); // eslint-disable-line
+
+  const handleUpdateBalance = async () => {
+    const amount = parseFloat(newBalance);
+    if (isNaN(amount)) return;
+    await updateGoal(user.uid, goalId, { currentAmount: amount });
+    setBalanceOpen(false);
+    setNewBalance('');
+  };
+
+  const handleSyncFromPlaid = async (account) => {
+    setNewBalance(String(account.balances.current));
+    await updateGoal(user.uid, goalId, { plaidAccountId: account.accountId });
+  };
+
   if (!goal) {
     return (
       <div style={{ maxWidth: 720, margin: '60px auto', textAlign: 'center', padding: '0 20px' }}>
@@ -283,17 +336,32 @@ export default function GoalDetailScreen() {
           </div>
         </div>
 
-        {/* Financial progress bar */}
-        {hasMoney && (
-          <div style={{ marginBottom: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-              <span style={{ fontSize: '12px', color: tokens.textMuted }}>Financial Progress</span>
-              <span style={{ fontSize: '12px', fontWeight: 600, color: tokens.accent }}>
-                ${goal.currentAmount.toLocaleString()} / ${goal.targetAmount.toLocaleString()}
-              </span>
+        {/* Financial balance */}
+        {goal.goalType === 'financial' && (
+          <div style={{ marginBottom: '16px', padding: '12px 14px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: hasMoney ? '12px' : '0' }}>
+              <div>
+                <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: tokens.textMuted, marginBottom: '3px' }}>Current Balance</div>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: tokens.accent }}>
+                  {goal.currentAmount != null ? `$${goal.currentAmount.toLocaleString()}` : '—'}
+                </div>
+                {goal.targetAmount != null && (
+                  <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>
+                    of ${goal.targetAmount.toLocaleString()} target
+                    {goal.plaidAccountId && <span style={{ marginLeft: 6, color: tokens.green }}>· Plaid linked</span>}
+                  </div>
+                )}
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => { setNewBalance(goal.currentAmount != null ? String(goal.currentAmount) : ''); setBalanceOpen(true); }}>
+                Update
+              </Button>
             </div>
-            <MomentumBar value={moneyProgress} color={tokens.accent} height={6} />
-            <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '4px' }}>{moneyProgress}% of target</div>
+            {hasMoney && (
+              <>
+                <MomentumBar value={moneyProgress} color={tokens.accent} height={5} />
+                <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '4px' }}>{moneyProgress}% of target</div>
+              </>
+            )}
           </div>
         )}
 
@@ -509,7 +577,7 @@ export default function GoalDetailScreen() {
                     })}
                     style={{ display: 'flex', gap: '10px', padding: '9px', borderRadius: '7px', marginBottom: '4px', background: approvedTasks.has(i) ? tokens.accentDim : 'transparent', border: `1px solid ${approvedTasks.has(i) ? 'rgba(200,169,110,0.35)' : tokens.border}`, cursor: 'pointer', transition: 'all 0.12s' }}
                   >
-                    <div style={{ width: 16, height: 16, borderRadius: '3px', flexShrink: 0, marginTop: '2px', border: `1.5px solid ${approvedTasks.has(i) ? tokens.accent : tokens.border}`, background: approvedTasks.has(i) ? tokens.accent : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', color: '#fff', flexShrink: 0 }}>
+                    <div style={{ width: 16, height: 16, borderRadius: '3px', flexShrink: 0, marginTop: '2px', border: `1.5px solid ${approvedTasks.has(i) ? tokens.accent : tokens.border}`, background: approvedTasks.has(i) ? tokens.accent : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', color: '#fff' }}>
                       {approvedTasks.has(i) ? '✓' : ''}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -542,6 +610,63 @@ export default function GoalDetailScreen() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Balance Update Modal */}
+      <Modal open={balanceOpen} onClose={() => setBalanceOpen(false)} title="Update Balance">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Current Balance ($)</label>
+            <input
+              type="number"
+              value={newBalance}
+              onChange={e => setNewBalance(e.target.value)}
+              placeholder="e.g. 12500"
+              autoFocus
+              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }}
+              onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+              onBlur={e => e.target.style.borderColor = tokens.border}
+            />
+          </div>
+
+          {plaidItems?.length > 0 && (
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: tokens.textMuted, marginBottom: '8px' }}>
+                Sync from Plaid
+              </div>
+              {loadingAccounts && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: tokens.textMuted }}>
+                  <Spinner size={12} /> Loading accounts…
+                </div>
+              )}
+              {!loadingAccounts && plaidAccounts.length === 0 && (
+                <Button size="sm" variant="ghost" onClick={loadPlaidAccounts}>Load Accounts</Button>
+              )}
+              {plaidAccounts.map(acct => (
+                <div key={acct.accountId}
+                  onClick={() => handleSyncFromPlaid(acct)}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', borderRadius: '7px', border: `1px solid ${goal.plaidAccountId === acct.accountId ? tokens.accent : tokens.border}`, background: goal.plaidAccountId === acct.accountId ? tokens.accentDim : 'transparent', cursor: 'pointer', marginBottom: '4px', transition: 'all 0.12s' }}
+                  onMouseEnter={e => { if (goal.plaidAccountId !== acct.accountId) e.currentTarget.style.background = tokens.bgCardHover; }}
+                  onMouseLeave={e => { if (goal.plaidAccountId !== acct.accountId) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <div>
+                    <div style={{ fontSize: '13px', color: tokens.textPrimary, fontWeight: 500 }}>{acct.name}</div>
+                    <div style={{ fontSize: '11px', color: tokens.textMuted, textTransform: 'capitalize' }}>{acct.type} · {acct.subtype}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: tokens.accent }}>${acct.balances.current?.toLocaleString()}</div>
+                    {goal.plaidAccountId === acct.accountId && <div style={{ fontSize: '10px', color: tokens.green }}>linked</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button variant="ghost" onClick={() => setBalanceOpen(false)}>Cancel</Button>
+            <Button onClick={handleUpdateBalance} disabled={!newBalance || isNaN(parseFloat(newBalance))}>Save Balance</Button>
+          </div>
+        </div>
       </Modal>
 
       {/* Add Task Modal */}

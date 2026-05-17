@@ -29,7 +29,7 @@ const FOCUS_TYPE_COLORS = {
 
 const STATUS_FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'done'];
 
-const emptyForm = { title: '', priority: 'high', projectId: '', notes: '', estimatedMinutes: '', tags: '', recurrence: 'none', focusType: 'deep' };
+const emptyForm = { title: '', priority: 'high', projectId: '', goalId: '', notes: '', estimatedMinutes: '', tags: '', recurrence: 'none', focusType: 'deep' };
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -47,7 +47,7 @@ function parseTags(str) {
 
 export default function TasksScreen() {
   const { user }                        = useAuth();
-  const { tasks, projects, calendarIntegration } = useData();
+  const { tasks, projects, goals, calendarIntegration } = useData();
   const [filter,     setFilter]         = useState('all');
   const [filterTag,  setFilterTag]      = useState('');
   const [filterProject, setFilterProject] = useState('');
@@ -156,6 +156,7 @@ export default function TasksScreen() {
       title:            task.title            || '',
       priority:         task.priority         || 'high',
       projectId:        task.projectId        || '',
+      goalId:           task.goalId           || '',
       notes:            task.notes            || '',
       estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : '',
       tags:             task.tags?.join(', ') || '',
@@ -175,6 +176,7 @@ export default function TasksScreen() {
       title:            form.title.trim(),
       priority:         form.priority,
       projectId:        form.projectId || null,
+      goalId:           form.goalId || null,
       project:          linkedProject ? linkedProject.title : 'Inbox',
       notes:            form.notes,
       estimatedMinutes: parseInt(form.estimatedMinutes) || null,
@@ -434,6 +436,18 @@ export default function TasksScreen() {
             <Select label="Priority" value={form.priority} onChange={v => setForm(f => ({ ...f, priority: v }))} options={PRIORITIES} />
             <Select label="Project" value={form.projectId} onChange={v => setForm(f => ({ ...f, projectId: v }))} options={projectOptions} />
           </div>
+          {(goals || []).filter(g => g.status === 'active').length > 0 && (
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Goal (optional)</label>
+              <select value={form.goalId} onChange={e => setForm(f => ({ ...f, goalId: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                <option value="">No goal linked</option>
+                {(goals || []).filter(g => g.status === 'active').map(g => (
+                  <option key={g.id} value={g.id}>{g.title}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <Input label="Tags (comma-separated)" value={form.tags} onChange={v => setForm(f => ({ ...f, tags: v }))} placeholder="e.g. email, client, urgent" />
           <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Any context..." multiline rows={2} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>

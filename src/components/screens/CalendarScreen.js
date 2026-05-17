@@ -29,6 +29,7 @@ const EVENT_PALETTE = [
 ];
 
 function eventColor(ev, idx) {
+  if (ev._done) return { bg: 'rgba(109,191,158,0.28)', border: '#6DBF9E', text: 'rgba(255,255,255,0.75)' };
   if (ev._anchor) return { bg: 'rgba(200,169,110,0.88)', border: '#C8A96E', text: '#0C0E12' };
   const cid = parseInt(ev.colorId, 10);
   if (!isNaN(cid)) return EVENT_PALETTE[(cid - 1) % EVENT_PALETTE.length] || EVENT_PALETTE[0];
@@ -203,12 +204,12 @@ export default function CalendarScreen() {
   const taskCalEvents = useMemo(() => {
     const wsBase = weekStart(ws);
     const wsEnd  = new Date(wsBase); wsEnd.setDate(wsEnd.getDate() + 7);
-    // Only exclude if the task's GCal event was actually fetched (to avoid duplication).
-    // If GCal isn't connected or the event was deleted, always show the Anchor block.
+    // Active tasks: show Anchor block only if no fetched GCal event (dedup).
+    // Done tasks: always show the green Anchor block (GCal event hidden separately).
     const gcalIds = new Set(events.map(e => e.id));
     return tasks
-      .filter(t => !t.done && t.scheduledStart) // scheduledEnd optional — we default below
-      .filter(t => !t.calendarEventId || !gcalIds.has(t.calendarEventId))
+      .filter(t => t.scheduledStart)
+      .filter(t => t.done || !t.calendarEventId || !gcalIds.has(t.calendarEventId))
       .filter(t => {
         const s = new Date(t.scheduledStart);
         return s >= wsBase && s < wsEnd;
@@ -221,6 +222,7 @@ export default function CalendarScreen() {
           _taskId: t.id,
           _isTask: true,
           _anchor: true,
+          _done: !!t.done,
           summary: t.title,
           priority: t.priority,
           start: { dateTime: t.scheduledStart },
@@ -228,6 +230,12 @@ export default function CalendarScreen() {
         };
       });
   }, [tasks, ws, events]);
+
+  // GCal event IDs for done tasks — used to hide the GCal block so only the green Anchor block shows
+  const doneTaskCalEventIds = useMemo(() =>
+    new Set(tasks.filter(t => t.done && t.calendarEventId).map(t => t.calendarEventId)),
+    [tasks]
+  );
 
   // ── Drag-to-reschedule existing calendar events ────────────────────────────
   const onEventMouseDown = useCallback((e, ev) => {
@@ -394,14 +402,25 @@ export default function CalendarScreen() {
         updates.scheduledEnd = new Date(new Date(editingTask.scheduledStart).getTime() + newMins * 60000).toISOString();
       }
       await updateTask(user.uid, editingTask.id, updates);
-      // Update GCal event duration if linked
-      if (editingTask.calendarEventId && calendarIntegration?.connected && updates.scheduledEnd) {
-        try {
-          const token = await getValidAccessToken(user.uid, calendarIntegration);
-          if (token) await updateEvent(token, editingTask.calendarEventId, {
-            end: { dateTime: updates.scheduledEnd, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-          });
-        } catch (err) { console.warn('GCal duration update failed:', err); }
+      // Sync title and/or duration changes to linked GCal event
+      if (editingTask.calendarEventId && calendarIntegration?.connected) {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const gcalUpdates = {};
+        if (editForm.title.trim() !== editingTask.title) gcalUpdates.summary = editForm.title.trim();
+        if (updates.scheduledEnd) gcalUpdates.end = { dateTime: updates.scheduledEnd, timeZone: tz };
+        if (Object.keys(gcalUpdates).length > 0) {
+          try {
+            const token = await getValidAccessToken(user.uid, calendarIntegration);
+            if (token) {
+              await updateEvent(token, editingTask.calendarEventId, gcalUpdates);
+              if (gcalUpdates.summary) {
+                setEvents(prev => prev.map(e =>
+                  e.id === editingTask.calendarEventId ? { ...e, summary: gcalUpdates.summary } : e
+                ));
+              }
+            }
+          } catch (err) { console.warn('GCal update failed:', err); }
+        }
       }
       setEditingTask(null);
     } catch (err) {
@@ -648,7 +667,7 @@ export default function CalendarScreen() {
     days;
 
   const timedForDay = (day) => [
-    ...events.filter(e => e.start?.dateTime && sameDay(new Date(e.start.dateTime), day)),
+    ...events.filter(e => e.start?.dateTime && sameDay(new Date(e.start.dateTime), day) && !doneTaskCalEventIds.has(e.id)),
     ...taskCalEvents.filter(e => sameDay(new Date(e.start.dateTime), day)),
   ];
   const allDayForDay = (day) => events.filter(e => !e.start?.dateTime && e.start?.date && sameDay(new Date(e.start.date + 'T12:00:00'), day));
@@ -1129,20 +1148,25 @@ export default function CalendarScreen() {
                             }}
                             onMouseEnter={e => { if (!dragState) e.currentTarget.style.filter = 'brightness(1.18)'; }}
                             onMouseLeave={e => e.currentTarget.style.filter = 'none'}
-                            style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: ev._isTask ? 'pointer' : isDragging ? 'grabbing' : 'grab', zIndex: isDragging ? 20 : 5, boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: isDragging ? 0.9 : 1, transition: isDragging ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none' }}>
+                            style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: ev._isTask ? 'pointer' : isDragging ? 'grabbing' : 'grab', zIndex: isDragging ? 20 : 5, boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: ev._done ? 0.7 : isDragging ? 0.9 : 1, transition: isDragging ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none' }}>
                             <div style={{ fontSize: '11px', fontWeight: 700, color: color.text, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }}>
                               {ev._isTask && (
                                 <span
                                   onClick={e => {
                                     e.stopPropagation();
                                     const t = tasks.find(tk => tk.id === ev._taskId);
-                                    if (t) handleMarkComplete(t);
+                                    if (!t) return;
+                                    if (t.done) {
+                                      updateTask(user.uid, t.id, { done: false, status: 'pending', completedAt: null });
+                                    } else {
+                                      handleMarkComplete(t);
+                                    }
                                   }}
-                                  title="Mark complete"
+                                  title={ev._done ? 'Mark incomplete' : 'Mark complete'}
                                   style={{ opacity: 0.85, marginRight: 4, cursor: 'pointer', flexShrink: 0, fontSize: '13px', lineHeight: 1 }}
-                                >☐</span>
+                                >{ev._done ? '☑' : '☐'}</span>
                               )}
-                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</span>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: ev._done ? 'line-through' : 'none' }}>{ev.summary}</span>
                             </div>
                             {height > 32 && (
                               <div style={{ fontSize: '10px', color: color.text, opacity: 0.85, marginTop: '2px', whiteSpace: 'nowrap' }}>
