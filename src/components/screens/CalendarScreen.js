@@ -315,7 +315,8 @@ export default function CalendarScreen() {
 
     const detected = [];
     const anchorTasks = (tasksRef.current || []).filter(t => t.calendarEventId && t.scheduledStart && t.scheduledEnd);
-    for (const ev of fetchedEvents.filter(e => !e._anchor && e.start?.dateTime)) {
+    const anchorGcalIds = new Set(anchorTasks.map(t => t.calendarEventId));
+    for (const ev of fetchedEvents.filter(e => !e._anchor && e.start?.dateTime && !anchorGcalIds.has(e.id))) {
       const evStart = new Date(ev.start.dateTime).getTime();
       const evEnd   = new Date(ev.end?.dateTime || ev.start.dateTime).getTime();
       for (const task of anchorTasks) {
