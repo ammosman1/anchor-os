@@ -4,9 +4,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { addTask, updateTask, saveProfile, getAICache, saveAICache } from '../../lib/db';
+import { addTask, updateTask, updateProject, saveProfile, getAICache, saveAICache } from '../../lib/db';
 import { generateProjectAnalysis } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
+import { calculateMomentum, getMomentumBlurb } from '../../lib/momentum';
 import { RECURRENCE_OPTIONS } from '../../lib/tasks';
 import { Button, Modal, Input, MomentumBar, Spinner } from '../ui';
 
@@ -243,11 +244,14 @@ export default function ProjectDetailScreen() {
   };
 
   const handleToggleTask = async (task) => {
+    const isDone = !task.done;
     await updateTask(user.uid, task.id, {
-      done:        !task.done,
-      status:      !task.done ? 'completed' : 'pending',
-      completedAt: !task.done ? new Date().toISOString() : null,
+      done:        isDone,
+      status:      isDone ? 'completed' : 'pending',
+      completedAt: isDone ? new Date().toISOString() : null,
     });
+    // Bump project activity so stall detection and momentum recalculate correctly
+    await updateProject(user.uid, projectId, {});
   };
 
   if (!project) {
@@ -283,6 +287,9 @@ export default function ProjectDetailScreen() {
   const remainingActions = analysis?.thisWeekActions?.filter(a => !addedActions.has(a)) || [];
   const taskProgress = projectTasks.length > 0
     ? Math.round((doneTasks.length / projectTasks.length) * 100) : 0;
+
+  const { score: mScore, factors: mFactors } = calculateMomentum(project, projectTasks);
+  const mBlurb = getMomentumBlurb(mScore, mFactors);
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', paddingBottom: '40px' }}>
@@ -320,13 +327,32 @@ export default function ProjectDetailScreen() {
 
       {/* ── Momentum Card ── */}
       <Card>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <SectionLabel style={{ marginBottom: 0 }}>Momentum</SectionLabel>
-          <span style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: momentumColor(project.momentum || 0) }}>
-            {project.momentum || 0}%
+          <span style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: momentumColor(mScore) }}>
+            {mScore}%
           </span>
         </div>
-        <MomentumBar value={project.momentum || 0} color={momentumColor(project.momentum || 0)} height={5} />
+        <MomentumBar value={mScore} color={momentumColor(mScore)} height={5} />
+
+        {/* Blurb */}
+        <div style={{ fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.55, marginTop: '10px' }}>
+          {mBlurb}
+        </div>
+
+        {/* Factor breakdown */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px' }}>
+          {mFactors.map((f, i) => (
+            <span key={i} style={{
+              fontSize: '11px', fontWeight: 600, padding: '3px 9px', borderRadius: '99px',
+              background: f.delta > 0 ? tokens.greenDim : f.delta < 0 ? tokens.redDim : tokens.bgGlass,
+              color:      f.delta > 0 ? tokens.green   : f.delta < 0 ? tokens.red    : tokens.textMuted,
+              border:     `1px solid ${f.delta > 0 ? tokens.green + '30' : f.delta < 0 ? tokens.red + '30' : tokens.border}`,
+            }}>
+              {f.icon} {f.label}
+            </span>
+          ))}
+        </div>
 
         {(project.nextAction || project.blockers) && (
           <div style={{ display: 'grid', gridTemplateColumns: project.nextAction && project.blockers ? '1fr 1fr' : '1fr', gap: '8px', marginTop: '14px' }}>
@@ -346,7 +372,7 @@ export default function ProjectDetailScreen() {
         )}
 
         {projectTasks.length > 0 && (
-          <div style={{ marginTop: '14px' }}>
+          <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: `1px solid ${tokens.border}` }}>
             <MomentumBar value={taskProgress} color={tokens.green} height={4} />
             <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '4px' }}>
               {doneTasks.length}/{projectTasks.length} tasks complete

@@ -1,10 +1,11 @@
 // src/components/screens/ProjectsScreen.js
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addProject, updateProject, deleteProject } from '../../lib/db';
+import { calculateMomentum } from '../../lib/momentum';
 import { Button, Input, Select, MomentumBar, Tag, Modal, EmptyState, statusColors } from '../ui';
 
 // ─── Projects List View ───────────────────────────────────────────────────────
@@ -62,10 +63,26 @@ export default function ProjectsScreen() {
   const handleSave = async () => {
     if (!form.title.trim()) return;
     setSaving(true);
-    if (editing) { await updateProject(user.uid, editing, form); }
-    else          { await addProject(user.uid, form); }
-    setSaving(false);
-    setShowModal(false);
+    try {
+      const clean = {
+        title:      form.title.trim(),
+        category:   form.category || 'work',
+        status:     form.status   || 'active',
+        nextAction: form.nextAction || '',
+        blockers:   form.blockers   || '',
+        notes:      form.notes      || '',
+        sentiment:  form.sentiment  || 'focused',
+        goalId:     form.goalId     || null,
+      };
+      if (editing) { await updateProject(user.uid, editing, clean); }
+      else          { await addProject(user.uid, clean); }
+      setShowModal(false);
+    } catch (err) {
+      console.error('Save project error:', err);
+      alert('Failed to save. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (id, e) => {
@@ -74,11 +91,20 @@ export default function ProjectsScreen() {
     await deleteProject(user.uid, id);
   };
 
-  const stalledProjects = projects.filter(p => {
-    if (p.status !== 'active') return false;
-    const last = p.updatedAt?.toDate?.() || new Date(0);
-    return (Date.now() - last.getTime()) > 5 * 24 * 60 * 60 * 1000;
-  });
+  const stalledProjects = useMemo(() => projects.filter(p => {
+    if (p.status === 'complete' || p.status === 'paused') return false;
+    const projectTasks = tasks.filter(t => t.projectId === p.id);
+    // Check most recent activity across project edits and all linked tasks
+    let lastMs = p.updatedAt?.toMillis?.() ?? (p.updatedAt ? new Date(p.updatedAt).getTime() : 0);
+    for (const t of projectTasks) {
+      const tMs = Math.max(
+        t.completedAt  ? new Date(t.completedAt).getTime()                           : 0,
+        t.updatedAt?.toMillis?.() ?? (t.updatedAt ? new Date(t.updatedAt).getTime() : 0),
+      );
+      if (tMs > lastMs) lastMs = tMs;
+    }
+    return lastMs > 0 && (Date.now() - lastMs) > 5 * 24 * 60 * 60 * 1000;
+  }), [projects, tasks]);
 
   const filtered = filterStatus === 'all' ? projects : projects.filter(p => p.status === filterStatus);
 
@@ -116,11 +142,12 @@ export default function ProjectsScreen() {
           <EmptyState icon="◈" title="No projects yet" subtitle="Add your first project to start tracking." action={<Button onClick={openNew}>+ New Project</Button>} />
         ) : (
           filtered.map(p => {
-            const sc           = statusColors[p.status] || statusColors.paused;
-            const projectTasks = tasks.filter(t => t.projectId === p.id);
-            const doneCount    = projectTasks.filter(t => t.done).length;
-            const totalCount   = projectTasks.length;
-            const linkedGoal   = p.goalId ? goals.find(g => g.id === p.goalId) : null;
+            const sc              = statusColors[p.status] || statusColors.paused;
+            const projectTasks    = tasks.filter(t => t.projectId === p.id);
+            const doneCount       = projectTasks.filter(t => t.done).length;
+            const totalCount      = projectTasks.length;
+            const linkedGoal      = p.goalId ? goals.find(g => g.id === p.goalId) : null;
+            const { score: mScore } = calculateMomentum(p, projectTasks);
             return (
               <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
                 style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '12px', padding: '16px 18px', cursor: 'pointer', transition: 'all 0.18s ease' }}
@@ -140,10 +167,10 @@ export default function ProjectsScreen() {
                   </div>
                 )}
 
-                <MomentumBar value={p.momentum || 0} color={momentumColor(p.momentum || 0)} />
+                <MomentumBar value={mScore} color={momentumColor(mScore)} />
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px' }}>
-                  <span style={{ fontSize: '11px', color: tokens.textMuted }}>{p.momentum || 0}% momentum</span>
+                  <span style={{ fontSize: '11px', color: tokens.textMuted }}>{mScore}% momentum</span>
                   {totalCount > 0 && <span style={{ fontSize: '11px', color: tokens.textMuted }}>{doneCount}/{totalCount} tasks</span>}
                 </div>
 
@@ -170,10 +197,6 @@ export default function ProjectsScreen() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <Select label="Category" value={form.category} onChange={v => setForm(f => ({ ...f, category: v }))} options={CATEGORIES} />
             <Select label="Status"   value={form.status}   onChange={v => setForm(f => ({ ...f, status: v }))}   options={STATUSES} />
-          </div>
-          <div>
-            <div style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, marginBottom: '8px' }}>Momentum: {form.momentum}%</div>
-            <input type="range" min={0} max={100} value={form.momentum} onChange={e => setForm(f => ({ ...f, momentum: Number(e.target.value) }))} style={{ width: '100%', accentColor: tokens.accent }} />
           </div>
           <div>
             <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Linked Goal</label>

@@ -537,16 +537,17 @@ export async function generateProjectAnalysis({ project, linkedTasks, completedT
 
 PROJECT: "${project.title}"
 STATUS: ${project.status}
-MOMENTUM: ${project.momentum || 0}%
 NEXT ACTION: ${project.nextAction || 'none'}
 BLOCKER: ${project.blockers || 'none'}
 ${linkedGoal ? `LINKED GOAL: "${linkedGoal.title}" (${linkedGoal.likelihoodScore ?? 'unscored'}/100)` : 'LINKED GOAL: none'}
 ${project.description ? `DESCRIPTION: ${project.description}` : ''}
 
-LINKED TASKS:
+LINKED TASKS (only tasks explicitly assigned to this project):
 - Total: ${linkedTasks.length} | Completed: ${completedTasks.length}
 - Completion rate: ${taskCompletionRate ?? 'n/a'}%
 - Active: ${linkedTasks.filter(t => !t.done).slice(0, 5).map(t => t.title).join(', ') || 'none'}
+
+CRITICAL: Only suggest thisWeekActions that are directly relevant to THIS project based on the linked tasks and project description above. Do not reference tasks, people, or items from other projects or goals even if they appear in the broader context. Keep actions scoped strictly to what moves this specific project forward.
 
 Return ONLY valid JSON:
 {
