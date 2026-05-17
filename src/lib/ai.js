@@ -307,6 +307,83 @@ Return ONLY valid JSON:
   }
 }
 
+export async function buildScheduleForDays({ tasks, slotsMap, days, focusProfile }) {
+  if (process.env.NODE_ENV === 'production') {
+    try {
+      const res = await fetch('/api/schedule/build', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tasks, slotsMap, days, focusProfile }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      return data;
+    } catch (err) {
+      console.error('buildScheduleForDays error:', err);
+      return { schedule: [] };
+    }
+  }
+
+  // Dev: call Anthropic directly via callAI
+  const energyLevel = focusProfile?.recentEnergy ?? 70;
+  const energyNote =
+    energyLevel < 45 ? 'Low energy — schedule light, leave breathing room.' :
+    energyLevel > 75 ? 'High energy — can handle complex back-to-back blocks.' :
+    'Moderate energy — mix deep and lighter tasks.';
+
+  const daysJson = days.map(d => ({ date: d, slots: slotsMap[d] || [] }));
+
+  const content = `Build a realistic time-blocked schedule.
+
+SCHEDULING WINDOW: ${days[0]} through ${days[days.length - 1]} (${days.length} day${days.length > 1 ? 's' : ''})
+
+TASKS TO SCHEDULE (priority order):
+${JSON.stringify(tasks, null, 2)}
+
+FREE TIME SLOTS PER DAY:
+${JSON.stringify(daysJson, null, 2)}
+
+ENERGY CONTEXT: ${energyNote}
+
+RULES:
+- Critical/high priority tasks get earliest available slots
+- Add 10-minute buffers between consecutive blocks
+- Max 5 hours focused work per day
+- Roll tasks to next day if today is full; omit if nothing fits
+- Distribute tasks evenly — don't pile everything on day 1
+
+Return ONLY valid JSON:
+{
+  "schedule": [
+    {
+      "taskTitle": "exact task title",
+      "taskId": "firestore id or null",
+      "date": "YYYY-MM-DD",
+      "start": "ISO 8601 datetime",
+      "end": "ISO 8601 datetime",
+      "durationMinutes": 60,
+      "focusType": "deep|medium|quick",
+      "reason": "one brief sentence"
+    }
+  ]
+}`;
+
+  const raw = await callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 3000,
+    systemExtra: 'You are a precise scheduling engine. Return only valid JSON. No preamble, no markdown.',
+  });
+
+  try {
+    const stripped = (raw || '').replace(/```json|```/g, '').trim();
+    const match = stripped.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : { schedule: [] };
+  } catch (err) {
+    console.error('[buildScheduleForDays] parse error:', err);
+    return { schedule: [] };
+  }
+}
+
 export async function processSmartCapture({ text, projects }) {
   const projList = (projects || []).filter(p => p.status === 'active').map(p => p.title);
   const content = `Process this quick capture note and extract actionable tasks.

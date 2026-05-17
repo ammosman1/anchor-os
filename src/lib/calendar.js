@@ -32,6 +32,17 @@ export async function handleCalendarCallback(uid) {
     connectedAt:  Date.now(),
   });
 
+  // Register Google Calendar webhook for real-time bidirectional sync (Phase 4)
+  try {
+    await fetch('/api/calendar/register-watch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid, accessToken: at }),
+    });
+  } catch (err) {
+    console.warn('Webhook registration failed (non-critical):', err);
+  }
+
   return true;
 }
 

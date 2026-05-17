@@ -1,5 +1,5 @@
 // src/components/screens/HomeScreen.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
@@ -10,6 +10,7 @@ import {
   Card, AICard, SectionLabel, MomentumBar, Tag, Button,
   EmptyState, priorityColors,
 } from '../ui';
+import PlanScheduleFlow from './PlanScheduleFlow';
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -44,7 +45,7 @@ const QUOTES = [
 
 export default function HomeScreen() {
   const { user, profile, updateProfile } = useAuth();
-  const { tasks, activeProjects, totalDebt, goals } = useData();
+  const { tasks, activeProjects, totalDebt, goals, calendarIntegration } = useData();
   const navigate = useNavigate();
 
   const [energy,     setEnergy]     = useState(profile?.energyToday || 7);
@@ -52,10 +53,25 @@ export default function HomeScreen() {
   const [aiLoading,  setAiLoading]  = useState(false);
   const [quickTask,  setQuickTask]  = useState('');
   const [addingTask, setAddingTask] = useState(false);
+  const [planOpen,   setPlanOpen]   = useState(false);
   const [quote]                     = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
 
   const isAfter5pm = new Date().getHours() >= 17;
   const todayStr   = todayYMD();
+
+  // Yesterday's incomplete high-priority tasks (morning rework banner)
+  const yesterdayStr = useMemo(() => {
+    const d = new Date(); d.setDate(d.getDate() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }, []);
+
+  const reworkTasks = useMemo(() =>
+    tasks.filter(t =>
+      !t.done &&
+      t.scheduledDate === yesterdayStr &&
+      (t.priority === 'critical' || t.priority === 'high')
+    ),
+  [tasks, yesterdayStr]);
 
   // Today's scheduled tasks
   const scheduledToday = tasks.filter(t =>
@@ -135,16 +151,46 @@ export default function HomeScreen() {
 
       {/* Header */}
       <div className="fade-up" style={{ marginBottom: '16px' }}>
-        <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '4px', textTransform: 'uppercase' }}>
-          {getDateString()}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+          <div>
+            <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '4px', textTransform: 'uppercase' }}>
+              {getDateString()}
+            </div>
+            <h1 style={{ fontFamily: fonts.display, fontSize: '26px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>
+              {getGreeting()}, {profile?.firstName || 'Andrew'}.
+            </h1>
+            <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '4px' }}>
+              {doneTodayCount > 0 ? `${doneTodayCount} done today · ` : ''}{scheduledToday.length > 0 ? `${scheduledToday.length} scheduled · ` : ''}{top3.length} priorities on deck.
+            </p>
+          </div>
+          <button onClick={() => setPlanOpen(true)}
+            style={{ background: tokens.accentDim, color: tokens.accent, border: `1px solid ${tokens.accentDim}`, borderRadius: '10px', padding: '9px 14px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, whiteSpace: 'nowrap', marginTop: '4px', transition: 'all 0.15s' }}
+            onMouseEnter={e => { e.currentTarget.style.background = tokens.accent; e.currentTarget.style.color = tokens.bgCard; }}
+            onMouseLeave={e => { e.currentTarget.style.background = tokens.accentDim; e.currentTarget.style.color = tokens.accent; }}>
+            ✦ Plan My Day
+          </button>
         </div>
-        <h1 style={{ fontFamily: fonts.display, fontSize: '26px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>
-          {getGreeting()}, {profile?.firstName || 'Andrew'}.
-        </h1>
-        <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '4px' }}>
-          {doneTodayCount > 0 ? `${doneTodayCount} done today · ` : ''}{scheduledToday.length > 0 ? `${scheduledToday.length} scheduled · ` : ''}{top3.length} priorities on deck.
-        </p>
       </div>
+
+      {/* Morning rework banner — only when high-priority tasks weren't completed yesterday */}
+      {reworkTasks.length > 0 && (
+        <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: tokens.amberDim, border: `1px solid ${tokens.amber}`, borderRadius: '12px' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.amber, marginBottom: '2px' }}>
+                ⚑ {reworkTasks.length} high-priority task{reworkTasks.length > 1 ? 's' : ''} not completed yesterday
+              </div>
+              <div style={{ fontSize: '12px', color: tokens.textSecondary }}>
+                {reworkTasks.map(t => t.title).join(' · ')}
+              </div>
+            </div>
+            <button onClick={() => setPlanOpen(true)}
+              style={{ background: tokens.amber, color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
+              Rework Schedule
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Quick Capture */}
       <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
@@ -374,6 +420,13 @@ export default function HomeScreen() {
         </p>
         {quote.attr && <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '6px', letterSpacing: '0.08em' }}>— {quote.attr}</div>}
       </div>
+
+      {/* Plan Schedule Wizard */}
+      <PlanScheduleFlow
+        open={planOpen}
+        onClose={() => setPlanOpen(false)}
+        calendarIntegration={calendarIntegration}
+      />
     </div>
   );
 }

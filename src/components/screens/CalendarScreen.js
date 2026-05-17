@@ -1,5 +1,5 @@
 // src/components/screens/CalendarScreen.js
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -7,8 +7,9 @@ import {
   getValidAccessToken, getEvents, createEvent, deleteEvent, updateEvent,
   formatEventTime, initiateCalendarAuth,
 } from '../../lib/calendar';
-import { Button, Modal, Input, Spinner } from '../ui';
+import { Button, Modal, Input, Spinner, priorityColors } from '../ui';
 import { updateTask } from '../../lib/db';
+import PlanScheduleFlow from './PlanScheduleFlow';
 
 const HOUR_HEIGHT = 60;
 const GRID_START  = 6;
@@ -26,7 +27,6 @@ const EVENT_PALETTE = [
 
 function eventColor(ev, idx) {
   if (ev._anchor) return { bg: 'rgba(200,169,110,0.88)', border: '#C8A96E', text: '#0C0E12' };
-  // Use colorId if GCal provides one
   const cid = parseInt(ev.colorId, 10);
   if (!isNaN(cid)) return EVENT_PALETTE[(cid - 1) % EVENT_PALETTE.length] || EVENT_PALETTE[0];
   return EVENT_PALETTE[idx % EVENT_PALETTE.length];
@@ -41,9 +41,7 @@ function weekStart(date) {
 
 function weekDays(ws) {
   return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(ws);
-    d.setDate(d.getDate() + i);
-    return d;
+    const d = new Date(ws); d.setDate(d.getDate() + i); return d;
   });
 }
 
@@ -58,7 +56,7 @@ function minsToTop(totalMins) {
 }
 
 function fmtHour(h) {
-  if (h === 0) return '12am';
+  if (h === 0)  return '12am';
   if (h === 12) return '12pm';
   return h < 12 ? `${h}am` : `${h - 12}pm`;
 }
@@ -75,22 +73,14 @@ function layoutDay(events) {
     (a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime)
   );
   const cols = [];
-
   const assigned = sorted.map((ev) => {
     const s = new Date(ev.start.dateTime).getTime();
-    const e = new Date(ev.end.dateTime).getTime();
     let col = 0;
-    // Find first column where this event doesn't overlap the last event
-    while (
-      cols[col] &&
-      new Date(sorted[cols[col][cols[col].length - 1]].end.dateTime).getTime() > s
-    ) col++;
+    while (cols[col] && new Date(sorted[cols[col][cols[col].length - 1]].end.dateTime).getTime() > s) col++;
     if (!cols[col]) cols[col] = [];
     cols[col].push(sorted.indexOf(ev));
     return col;
   });
-
-  // Determine total concurrent columns for each event
   return sorted.map((ev, i) => {
     const s = new Date(ev.start.dateTime).getTime();
     const e = new Date(ev.end.dateTime).getTime();
@@ -104,52 +94,75 @@ function layoutDay(events) {
   });
 }
 
+function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export default function CalendarScreen() {
-  const { user }                          = useAuth();
-  const { calendarIntegration, tasks }    = useData();
-  const [ws, setWs]                       = useState(() => weekStart(new Date()));
-  const [events, setEvents]               = useState([]);
-  const [loading, setLoading]             = useState(false);
-  const [fetchError, setFetchError]       = useState('');
-  const [isMobile, setIsMobile]           = useState(window.innerWidth < 768);
-  const [mobileDay, setMobileDay]         = useState(new Date());
-  const [createOpen, setCreateOpen]       = useState(false);
-  const [newEv, setNewEv]                 = useState({ title: '', start: '', end: '', description: '' });
-  const [saving, setSaving]               = useState(false);
-  const [detail, setDetail]               = useState(null);
-  const [deleting, setDeleting]           = useState(false);
-  const scrollRef                         = useRef(null);
-  const fetched                           = useRef(new Set());
-  const dragRef                           = useRef(null);
-  const tasksRef                          = useRef(tasks);
-  const [dragState, setDragState]         = useState(null); // { eventId, deltaMins }
+  const { user }                       = useAuth();
+  const { calendarIntegration, tasks } = useData();
+  const [ws, setWs]                    = useState(() => weekStart(new Date()));
+  const [events, setEvents]            = useState([]);
+  const [loading, setLoading]          = useState(false);
+  const [fetchError, setFetchError]    = useState('');
+  const [isMobile, setIsMobile]        = useState(window.innerWidth < 768);
+  const [mobileDay, setMobileDay]      = useState(new Date());
+  const [createOpen, setCreateOpen]    = useState(false);
+  const [newEv, setNewEv]              = useState({ title: '', start: '', end: '', description: '' });
+  const [saving, setSaving]            = useState(false);
+  const [detail, setDetail]            = useState(null);
+  const [deleting, setDeleting]        = useState(false);
+  const [planOpen, setPlanOpen]        = useState(false);
+  const [sidebarOpen, setSidebarOpen]  = useState(true);
+  const [conflicts, setConflicts]      = useState([]);
+  const scrollRef                      = useRef(null);
+  const fetched                        = useRef(new Set());
+  const dragRef                        = useRef(null);
+  const tasksRef                       = useRef(tasks);
+  const [dragState, setDragState]      = useState(null);
 
   useEffect(() => {
-    const fn = () => setIsMobile(window.innerWidth < 768);
+    const fn = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) setSidebarOpen(false);
+    };
     window.addEventListener('resize', fn);
     return () => window.removeEventListener('resize', fn);
   }, []);
 
-  // Scroll to 8am on first render
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = (8 - GRID_START) * HOUR_HEIGHT;
-    }
+    if (window.innerWidth < 768) setSidebarOpen(false);
   }, []);
 
-  // Keep tasksRef current so the drag handler doesn't go stale
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = (8 - GRID_START) * HOUR_HEIGHT;
+  }, []);
+
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
-  // ── Drag-to-reschedule (desktop only) ─────────────────────────────────────
+  // ── Unscheduled tasks for sidebar ─────────────────────────────────────────
+  const yesterdayStr = ymd(new Date(Date.now() - 86400000));
+
+  const unscheduledTasks = useMemo(() => tasks
+    .filter(t => {
+      if (t.done) return false;
+      if (!t.scheduledDate) return true;
+      if (t.scheduledDate <= yesterdayStr) return true;
+      return false;
+    })
+    .sort((a, b) => {
+      const po = { critical: 0, high: 1, medium: 2, low: 3 };
+      return (po[a.priority] ?? 9) - (po[b.priority] ?? 9);
+    }),
+  [tasks, yesterdayStr]);
+
+  // ── Drag-to-reschedule ─────────────────────────────────────────────────────
   const onEventMouseDown = useCallback((e, ev) => {
     if (isMobile || !ev.start?.dateTime) return;
     e.preventDefault();
     e.stopPropagation();
-    dragRef.current = {
-      event:    ev,
-      startY:   e.clientY,
-      hasMoved: false,
-    };
+    dragRef.current = { event: ev, startY: e.clientY, hasMoved: false };
     setDragState({ eventId: ev.id, deltaMins: 0 });
   }, [isMobile]);
 
@@ -158,7 +171,6 @@ export default function CalendarScreen() {
       if (!dragRef.current) return;
       const deltaY = e.clientY - dragRef.current.startY;
       if (Math.abs(deltaY) > 4) dragRef.current.hasMoved = true;
-      // 1px = 1min (since HOUR_HEIGHT = 60), snap to 15 min
       const deltaMins = Math.round(deltaY / 15) * 15;
       setDragState(prev => prev ? { ...prev, deltaMins } : null);
     };
@@ -167,18 +179,15 @@ export default function CalendarScreen() {
       if (!dragRef.current) return;
       const ref = dragRef.current;
       dragRef.current = null;
-
-      const rawDelta = e.clientY - ref.startY;
+      const rawDelta  = e.clientY - ref.startY;
       const deltaMins = Math.round(rawDelta / 15) * 15;
       setDragState(null);
-
       if (!ref.hasMoved || deltaMins === 0) return;
 
       const ev       = ref.event;
       const newStart = new Date(new Date(ev.start.dateTime).getTime() + deltaMins * 60000);
       const newEnd   = new Date(new Date(ev.end.dateTime).getTime()   + deltaMins * 60000);
 
-      // Optimistic update
       setEvents(prev => prev.map(e =>
         e.id === ev.id
           ? { ...e, start: { dateTime: newStart.toISOString() }, end: { dateTime: newEnd.toISOString() } }
@@ -193,8 +202,6 @@ export default function CalendarScreen() {
             end:   { dateTime: newEnd.toISOString(),   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
           });
         }
-
-        // Sync matching Firestore task if one is linked to this calendar event
         const linkedTask = (tasksRef.current || []).find(t => t.calendarEventId === ev.id);
         if (linkedTask) {
           await updateTask(user.uid, linkedTask.id, {
@@ -205,7 +212,6 @@ export default function CalendarScreen() {
         }
       } catch (err) {
         console.error('Drag reschedule failed:', err);
-        // Revert on failure
         setEvents(prev => prev.map(e => e.id === ev.id ? ev : e));
       }
     };
@@ -218,6 +224,48 @@ export default function CalendarScreen() {
     };
   }, [user, calendarIntegration]);
 
+  // ── Phase 2: sync-on-open ──────────────────────────────────────────────────
+  const syncTasksWithEvents = useCallback(async (fetchedEvents) => {
+    const linked = (tasksRef.current || []).filter(t => t.calendarEventId && t.scheduledStart);
+    const detected = [];
+
+    for (const task of linked) {
+      const ev = fetchedEvents.find(e => e.id === task.calendarEventId);
+      if (!ev?.start?.dateTime) continue;
+
+      const newStart = ev.start.dateTime;
+      const newEnd   = ev.end?.dateTime;
+
+      // Event was moved — sync task
+      if (newStart !== task.scheduledStart || newEnd !== task.scheduledEnd) {
+        try {
+          await updateTask(user.uid, task.id, {
+            scheduledDate:  newStart.split('T')[0],
+            scheduledStart: newStart,
+            scheduledEnd:   newEnd,
+          });
+        } catch (err) {
+          console.error('Sync task error:', err);
+        }
+      }
+    }
+
+    // Detect conflicts: non-anchor calendar events overlapping anchor task blocks
+    const anchorTasks = (tasksRef.current || []).filter(t => t.calendarEventId && t.scheduledStart && t.scheduledEnd);
+    for (const ev of fetchedEvents.filter(e => !e._anchor && e.start?.dateTime)) {
+      const evStart = new Date(ev.start.dateTime).getTime();
+      const evEnd   = new Date(ev.end?.dateTime || ev.start.dateTime).getTime();
+      for (const task of anchorTasks) {
+        const tStart = new Date(task.scheduledStart).getTime();
+        const tEnd   = new Date(task.scheduledEnd).getTime();
+        if (evStart < tEnd && evEnd > tStart) {
+          detected.push({ event: ev, task });
+        }
+      }
+    }
+    if (detected.length > 0) setConflicts(detected);
+  }, [user]);
+
   const fetchWeek = useCallback(async (start) => {
     const key = start.toISOString();
     if (fetched.current.has(key) || !calendarIntegration?.connected) return;
@@ -226,8 +274,7 @@ export default function CalendarScreen() {
     try {
       const token = await getValidAccessToken(user.uid, calendarIntegration);
       if (!token) { setFetchError('Not connected'); return; }
-      const end = new Date(start);
-      end.setDate(end.getDate() + 7);
+      const end = new Date(start); end.setDate(end.getDate() + 7);
       const { events: raw } = await getEvents(token, start.toISOString(), end.toISOString());
       fetched.current.add(key);
       setEvents(prev => {
@@ -237,12 +284,14 @@ export default function CalendarScreen() {
         });
         return [...outside, ...(raw || [])];
       });
+      // Phase 2: sync tasks on calendar open
+      syncTasksWithEvents(raw || []);
     } catch {
       setFetchError('Could not load events');
     } finally {
       setLoading(false);
     }
-  }, [user, calendarIntegration]);
+  }, [user, calendarIntegration, syncTasksWithEvents]);
 
   useEffect(() => { fetchWeek(ws); }, [ws, fetchWeek]);
 
@@ -254,19 +303,13 @@ export default function CalendarScreen() {
   const allDayForDay = (day) => events.filter(e => !e.start?.dateTime && e.start?.date && sameDay(new Date(e.start.date + 'T12:00:00'), day));
 
   const prevPeriod = () => {
-    const d = new Date(ws);
-    d.setDate(d.getDate() - 7);
-    setWs(d);
+    const d = new Date(ws); d.setDate(d.getDate() - 7); setWs(d);
     if (isMobile) { const m = new Date(mobileDay); m.setDate(m.getDate() - 1); setMobileDay(m); }
   };
-
   const nextPeriod = () => {
-    const d = new Date(ws);
-    d.setDate(d.getDate() + 7);
-    setWs(d);
+    const d = new Date(ws); d.setDate(d.getDate() + 7); setWs(d);
     if (isMobile) { const m = new Date(mobileDay); m.setDate(m.getDate() + 1); setMobileDay(m); }
   };
-
   const goToday = () => { setWs(weekStart(new Date())); setMobileDay(new Date()); };
 
   const openCreate = (day, hour, minute = 0) => {
@@ -290,7 +333,6 @@ export default function CalendarScreen() {
       });
       setCreateOpen(false);
       setNewEv({ title: '', start: '', end: '', description: '' });
-      // Clear cache and re-fetch so the new event appears
       fetched.current.delete(ws.toISOString());
       fetchWeek(ws);
     } catch (err) {
@@ -316,10 +358,9 @@ export default function CalendarScreen() {
   };
 
   const gridHeight = (GRID_END - GRID_START) * HOUR_HEIGHT;
-
-  const nowMins = today.getHours() * 60 + today.getMinutes();
-  const nowTop  = minsToTop(nowMins);
-  const showNow = nowMins >= GRID_START * 60 && nowMins < GRID_END * 60;
+  const nowMins    = today.getHours() * 60 + today.getMinutes();
+  const nowTop     = minsToTop(nowMins);
+  const showNow    = nowMins >= GRID_START * 60 && nowMins < GRID_END * 60;
 
   const monthLabel = (() => {
     const a = days[0]; const b = days[6];
@@ -344,7 +385,6 @@ export default function CalendarScreen() {
     );
   }
 
-  // ── All-day strip ──────────────────────────────────────────────────────────
   const allDayEvs = visible.flatMap(d => allDayForDay(d));
 
   return (
@@ -352,7 +392,13 @@ export default function CalendarScreen() {
 
       {/* ── Toolbar ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', flexShrink: 0, gap: '8px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {!isMobile && (
+            <button onClick={() => setSidebarOpen(o => !o)}
+              style={{ background: sidebarOpen ? tokens.accentDim : tokens.bgCard, border: `1px solid ${sidebarOpen ? tokens.accent : tokens.border}`, color: sidebarOpen ? tokens.accent : tokens.textMuted, borderRadius: '7px', padding: '5px 9px', cursor: 'pointer', fontSize: '13px', fontFamily: fonts.body, lineHeight: 1, transition: 'all 0.15s' }}>
+              ☰
+            </button>
+          )}
           <h1 style={{ fontFamily: fonts.display, fontSize: isMobile ? '18px' : '22px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0, whiteSpace: 'nowrap' }}>
             {isMobile
               ? mobileDay.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
@@ -362,6 +408,7 @@ export default function CalendarScreen() {
           {fetchError && <span style={{ fontSize: '11px', color: tokens.red }}>{fetchError}</span>}
         </div>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <Button onClick={() => setPlanOpen(true)} variant="accent" size="sm">✦ Plan Schedule</Button>
           <Button onClick={goToday} variant="ghost" size="sm">Today</Button>
           <button onClick={prevPeriod}
             style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, color: tokens.textSecondary, borderRadius: '7px', padding: '5px 11px', cursor: 'pointer', fontSize: '13px', fontFamily: fonts.body, lineHeight: 1 }}>‹</button>
@@ -371,156 +418,223 @@ export default function CalendarScreen() {
         </div>
       </div>
 
-      {/* ── Mobile day pills ── */}
-      {isMobile && (
-        <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', overflowX: 'auto', flexShrink: 0, paddingBottom: '2px' }}>
-          {days.map((d, i) => {
-            const active  = sameDay(d, mobileDay);
-            const isToday = sameDay(d, today);
-            return (
-              <button key={i} onClick={() => setMobileDay(d)}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', padding: '5px 9px', borderRadius: '8px', border: `1px solid ${active ? 'rgba(200,169,110,0.3)' : tokens.border}`, background: active ? tokens.accentDim : 'transparent', cursor: 'pointer', flexShrink: 0 }}>
-                <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: active ? tokens.accent : tokens.textMuted }}>{DAY_SHORT[d.getDay()]}</span>
-                <span style={{ fontSize: '14px', fontWeight: 700, color: isToday ? tokens.accent : active ? tokens.textPrimary : tokens.textSecondary, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', background: isToday && !active ? tokens.accentDim : 'transparent' }}>
-                  {d.getDate()}
-                </span>
-              </button>
-            );
-          })}
+      {/* ── Conflict banner ── */}
+      {conflicts.length > 0 && (
+        <div style={{ background: tokens.amberDim, border: `1px solid ${tokens.amber}`, borderRadius: '8px', padding: '8px 14px', marginBottom: '8px', flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '12px', color: tokens.amber, fontWeight: 600 }}>
+            ⚑ {conflicts.length} scheduling conflict{conflicts.length > 1 ? 's' : ''} detected — calendar events overlap task blocks
+          </span>
+          <button onClick={() => setConflicts([])} style={{ background: 'none', border: 'none', color: tokens.amber, cursor: 'pointer', fontSize: '14px', padding: '0 4px' }}>×</button>
         </div>
       )}
 
-      {/* ── Desktop day headers ── */}
-      {!isMobile && (
-        <div style={{ display: 'flex', flexShrink: 0, borderBottom: `1px solid ${tokens.border}` }}>
-          <div style={{ width: 48, flexShrink: 0 }} />
-          {days.map((d, i) => {
-            const isToday = sameDay(d, today);
-            return (
-              <div key={i} style={{ flex: 1, textAlign: 'center', padding: '6px 2px 8px', borderLeft: i > 0 ? `1px solid ${tokens.border}` : 'none', background: isToday ? 'rgba(200,169,110,0.03)' : 'transparent' }}>
-                <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted }}>{DAY_SHORT[d.getDay()]}</div>
-                <div style={{ fontFamily: fonts.display, fontSize: '20px', fontWeight: 700, color: isToday ? tokens.accent : tokens.textPrimary, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', background: isToday ? tokens.accentDim : 'transparent', margin: '3px auto 0' }}>
-                  {d.getDate()}
+      {/* ── Main layout: sidebar + calendar ── */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', gap: 0 }}>
+
+        {/* ── Sidebar ── */}
+        {!isMobile && sidebarOpen && (
+          <div style={{
+            width: 240, flexShrink: 0, borderRight: `1px solid ${tokens.border}`,
+            display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            background: tokens.bgCard,
+          }}>
+            <div style={{ padding: '12px' }}>
+              <Button onClick={() => setPlanOpen(true)} style={{ width: '100%', justifyContent: 'center' }}>
+                ✦ Plan My Schedule
+              </Button>
+            </div>
+            <div style={{ padding: '4px 14px 8px', borderBottom: `1px solid ${tokens.border}` }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: tokens.textMuted }}>
+                Unscheduled · {unscheduledTasks.length}
+              </div>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              {unscheduledTasks.length === 0 && (
+                <div style={{ padding: '20px 14px', textAlign: 'center', color: tokens.textMuted, fontSize: '12px' }}>
+                  All tasks scheduled ✓
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ── All-day row ── */}
-      {allDayEvs.length > 0 && (
-        <div style={{ display: 'flex', flexShrink: 0, borderBottom: `1px solid ${tokens.border}`, background: tokens.bgCard }}>
-          <div style={{ width: isMobile ? 0 : 48, flexShrink: 0, display: 'flex', alignItems: 'center', paddingLeft: 4 }}>
-            {!isMobile && <span style={{ fontSize: '9px', color: tokens.textMuted, whiteSpace: 'nowrap' }}>all day</span>}
-          </div>
-          <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: '3px', padding: '4px 6px', alignItems: 'center', minHeight: 28 }}>
-            {allDayEvs.map((ev, i) => (
-              <div key={i} onClick={() => setDetail(ev)}
-                style={{ fontSize: '11px', fontWeight: 500, background: 'rgba(91,143,212,0.22)', color: tokens.blue, borderRadius: '4px', padding: '2px 10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                {ev.summary}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Scrollable time grid ── */}
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', position: 'relative' }}>
-        <div style={{ display: 'flex' }}>
-
-          {/* Hour labels */}
-          <div style={{ width: 48, flexShrink: 0, position: 'relative', height: gridHeight }}>
-            {HOURS.map(h => (
-              <div key={h} style={{ position: 'absolute', top: (h - GRID_START) * HOUR_HEIGHT - 8, right: 8, fontSize: '10px', color: tokens.textMuted, lineHeight: 1, userSelect: 'none', whiteSpace: 'nowrap' }}>
-                {fmtHour(h)}
-              </div>
-            ))}
-          </div>
-
-          {/* Day columns */}
-          <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `repeat(${visible.length}, 1fr)`, position: 'relative', borderLeft: `1px solid ${tokens.border}` }}>
-
-            {/* Horizontal hour lines */}
-            {HOURS.map(h => (
-              <div key={h} style={{ position: 'absolute', left: 0, right: 0, top: (h - GRID_START) * HOUR_HEIGHT, borderTop: `1px solid ${tokens.border}`, pointerEvents: 'none', zIndex: 1 }} />
-            ))}
-
-            {visible.map((day, di) => {
-              const laid    = layoutDay(timedForDay(day));
-              const isToday = sameDay(day, today);
-
-              return (
-                <div key={di} onClick={(e) => {
-                    if (e.target !== e.currentTarget) return;
-                    if (dragState) return; // skip if drag just finished
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const y    = e.clientY - rect.top;
-                    const hr   = Math.floor(y / HOUR_HEIGHT) + GRID_START;
-                    const min  = Math.floor((y % HOUR_HEIGHT) / HOUR_HEIGHT * 4) * 15;
-                    openCreate(day, hr, min);
-                  }}
-                  style={{ position: 'relative', height: gridHeight, borderLeft: di > 0 ? `1px solid ${tokens.border}` : 'none', cursor: 'crosshair', background: isToday ? 'rgba(200,169,110,0.015)' : 'transparent' }}
-                >
-                  {/* Half-hour dashed lines */}
-                  {HOURS.map(h => (
-                    <div key={h} style={{ position: 'absolute', left: 0, right: 0, top: (h - GRID_START) * HOUR_HEIGHT + HOUR_HEIGHT / 2, borderTop: `1px dashed rgba(0,0,0,0.05)`, pointerEvents: 'none' }} />
-                  ))}
-
-                  {/* Current time line */}
-                  {isToday && showNow && (
-                    <div style={{ position: 'absolute', left: -1, right: 0, top: nowTop, zIndex: 10, pointerEvents: 'none' }}>
-                      <div style={{ position: 'absolute', left: -4, top: -4, width: 8, height: 8, borderRadius: '50%', background: tokens.red }} />
-                      <div style={{ height: 2, background: tokens.red, opacity: 0.85 }} />
+              )}
+              {unscheduledTasks.slice(0, 50).map(task => {
+                const pc       = priorityColors[task.priority] || {};
+                const overdue  = task.scheduledDate && task.scheduledDate < yesterdayStr;
+                const yest     = task.scheduledDate === yesterdayStr;
+                return (
+                  <div key={task.id} style={{
+                    padding: '9px 14px', borderBottom: `1px solid ${tokens.border}`,
+                    cursor: 'default',
+                  }}>
+                    <div style={{ fontSize: '12px', color: tokens.textPrimary, fontWeight: 500, lineHeight: 1.3, marginBottom: '4px' }}>
+                      {task.title}
                     </div>
-                  )}
+                    <div style={{ display: 'flex', gap: '5px', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '3px', background: pc.bg || tokens.accentDim, color: pc.text || tokens.accent, fontWeight: 700, textTransform: 'uppercase' }}>
+                        {task.priority}
+                      </span>
+                      {yest  && <span style={{ fontSize: '9px', color: tokens.amber, fontWeight: 600 }}>⚡ yesterday</span>}
+                      {overdue && !yest && <span style={{ fontSize: '9px', color: tokens.red, fontWeight: 600 }}>overdue</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
-                  {/* Events */}
-                  {laid.map((ev, ei) => {
-                    const sMins = ev.start?.dateTime
-                      ? new Date(ev.start.dateTime).getHours() * 60 + new Date(ev.start.dateTime).getMinutes()
-                      : GRID_START * 60;
-                    const eMins = ev.end?.dateTime
-                      ? new Date(ev.end.dateTime).getHours() * 60 + new Date(ev.end.dateTime).getMinutes()
-                      : GRID_END * 60;
+        {/* ── Calendar column ── */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
-                    const baseTop    = minsToTop(Math.max(sMins, GRID_START * 60));
-                    const height = Math.max(((Math.min(eMins, GRID_END * 60) - Math.max(sMins, GRID_START * 60)) / 60) * HOUR_HEIGHT - 2, 18);
-                    const color  = eventColor(ev, ei);
-                    const pct    = 100 / ev._totalCols;
-                    const isDragging = dragState?.eventId === ev.id;
-                    const top = isDragging ? baseTop + dragState.deltaMins : baseTop;
+          {/* Mobile day pills */}
+          {isMobile && (
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', overflowX: 'auto', flexShrink: 0, paddingBottom: '2px' }}>
+              {days.map((d, i) => {
+                const active  = sameDay(d, mobileDay);
+                const isToday = sameDay(d, today);
+                return (
+                  <button key={i} onClick={() => setMobileDay(d)}
+                    style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', padding: '5px 9px', borderRadius: '8px', border: `1px solid ${active ? 'rgba(200,169,110,0.3)' : tokens.border}`, background: active ? tokens.accentDim : 'transparent', cursor: 'pointer', flexShrink: 0 }}>
+                    <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: active ? tokens.accent : tokens.textMuted }}>{DAY_SHORT[d.getDay()]}</span>
+                    <span style={{ fontSize: '14px', fontWeight: 700, color: isToday ? tokens.accent : active ? tokens.textPrimary : tokens.textSecondary, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', background: isToday && !active ? tokens.accentDim : 'transparent' }}>
+                      {d.getDate()}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
-                    return (
-                      <div key={ev.id}
-                        onMouseDown={(e) => { if (!isDragging) onEventMouseDown(e, ev); }}
-                        onClick={(e) => { e.stopPropagation(); if (!dragRef.current && !(dragState?.eventId === ev.id)) setDetail(ev); }}
-                        onMouseEnter={e => { if (!dragState) e.currentTarget.style.filter = 'brightness(1.18)'; }}
-                        onMouseLeave={e => e.currentTarget.style.filter = 'none'}
-                        style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: isDragging ? 'grabbing' : 'grab', zIndex: isDragging ? 20 : 5, boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: isDragging ? 0.9 : 1, transition: isDragging ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 700, color: color.text, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {ev.summary}
+          {/* Desktop day headers */}
+          {!isMobile && (
+            <div style={{ display: 'flex', flexShrink: 0, borderBottom: `1px solid ${tokens.border}` }}>
+              <div style={{ width: 48, flexShrink: 0 }} />
+              {days.map((d, i) => {
+                const isToday = sameDay(d, today);
+                return (
+                  <div key={i} style={{ flex: 1, textAlign: 'center', padding: '6px 2px 8px', borderLeft: i > 0 ? `1px solid ${tokens.border}` : 'none', background: isToday ? 'rgba(200,169,110,0.03)' : 'transparent' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted }}>{DAY_SHORT[d.getDay()]}</div>
+                    <div style={{ fontFamily: fonts.display, fontSize: '20px', fontWeight: 700, color: isToday ? tokens.accent : tokens.textPrimary, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', background: isToday ? tokens.accentDim : 'transparent', margin: '3px auto 0' }}>
+                      {d.getDate()}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* All-day row */}
+          {allDayEvs.length > 0 && (
+            <div style={{ display: 'flex', flexShrink: 0, borderBottom: `1px solid ${tokens.border}`, background: tokens.bgCard }}>
+              <div style={{ width: isMobile ? 0 : 48, flexShrink: 0, display: 'flex', alignItems: 'center', paddingLeft: 4 }}>
+                {!isMobile && <span style={{ fontSize: '9px', color: tokens.textMuted, whiteSpace: 'nowrap' }}>all day</span>}
+              </div>
+              <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: '3px', padding: '4px 6px', alignItems: 'center', minHeight: 28 }}>
+                {allDayEvs.map((ev, i) => (
+                  <div key={i} onClick={() => setDetail(ev)}
+                    style={{ fontSize: '11px', fontWeight: 500, background: 'rgba(91,143,212,0.22)', color: tokens.blue, borderRadius: '4px', padding: '2px 10px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    {ev.summary}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Scrollable time grid */}
+          <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', position: 'relative' }}>
+            <div style={{ display: 'flex' }}>
+              <div style={{ width: 48, flexShrink: 0, position: 'relative', height: gridHeight }}>
+                {HOURS.map(h => (
+                  <div key={h} style={{ position: 'absolute', top: (h - GRID_START) * HOUR_HEIGHT - 8, right: 8, fontSize: '10px', color: tokens.textMuted, lineHeight: 1, userSelect: 'none', whiteSpace: 'nowrap' }}>
+                    {fmtHour(h)}
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ flex: 1, display: 'grid', gridTemplateColumns: `repeat(${visible.length}, 1fr)`, position: 'relative', borderLeft: `1px solid ${tokens.border}` }}>
+                {HOURS.map(h => (
+                  <div key={h} style={{ position: 'absolute', left: 0, right: 0, top: (h - GRID_START) * HOUR_HEIGHT, borderTop: `1px solid ${tokens.border}`, pointerEvents: 'none', zIndex: 1 }} />
+                ))}
+
+                {visible.map((day, di) => {
+                  const laid    = layoutDay(timedForDay(day));
+                  const isToday = sameDay(day, today);
+                  return (
+                    <div key={di}
+                      onClick={(e) => {
+                        if (e.target !== e.currentTarget) return;
+                        if (dragState) return;
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const y    = e.clientY - rect.top;
+                        const hr   = Math.floor(y / HOUR_HEIGHT) + GRID_START;
+                        const min  = Math.floor((y % HOUR_HEIGHT) / HOUR_HEIGHT * 4) * 15;
+                        openCreate(day, hr, min);
+                      }}
+                      style={{ position: 'relative', height: gridHeight, borderLeft: di > 0 ? `1px solid ${tokens.border}` : 'none', cursor: 'crosshair', background: isToday ? 'rgba(200,169,110,0.015)' : 'transparent' }}
+                    >
+                      {HOURS.map(h => (
+                        <div key={h} style={{ position: 'absolute', left: 0, right: 0, top: (h - GRID_START) * HOUR_HEIGHT + HOUR_HEIGHT / 2, borderTop: `1px dashed rgba(0,0,0,0.05)`, pointerEvents: 'none' }} />
+                      ))}
+                      {isToday && showNow && (
+                        <div style={{ position: 'absolute', left: -1, right: 0, top: nowTop, zIndex: 10, pointerEvents: 'none' }}>
+                          <div style={{ position: 'absolute', left: -4, top: -4, width: 8, height: 8, borderRadius: '50%', background: tokens.red }} />
+                          <div style={{ height: 2, background: tokens.red, opacity: 0.85 }} />
                         </div>
-                        {height > 32 && (
-                          <div style={{ fontSize: '10px', color: color.text, opacity: 0.85, marginTop: '2px', whiteSpace: 'nowrap' }}>
-                            {formatEventTime(ev.start.dateTime)}
-                            {ev.end?.dateTime ? ` – ${formatEventTime(ev.end.dateTime)}` : ''}
+                      )}
+                      {laid.map((ev, ei) => {
+                        const sMins = ev.start?.dateTime
+                          ? new Date(ev.start.dateTime).getHours() * 60 + new Date(ev.start.dateTime).getMinutes()
+                          : GRID_START * 60;
+                        const eMins = ev.end?.dateTime
+                          ? new Date(ev.end.dateTime).getHours() * 60 + new Date(ev.end.dateTime).getMinutes()
+                          : GRID_END * 60;
+                        const baseTop    = minsToTop(Math.max(sMins, GRID_START * 60));
+                        const height     = Math.max(((Math.min(eMins, GRID_END * 60) - Math.max(sMins, GRID_START * 60)) / 60) * HOUR_HEIGHT - 2, 18);
+                        const color      = eventColor(ev, ei);
+                        const pct        = 100 / ev._totalCols;
+                        const isDragging = dragState?.eventId === ev.id;
+                        const top        = isDragging ? baseTop + dragState.deltaMins : baseTop;
+                        return (
+                          <div key={ev.id}
+                            onMouseDown={(e) => { if (!isDragging) onEventMouseDown(e, ev); }}
+                            onClick={(e) => { e.stopPropagation(); if (!dragRef.current && !(dragState?.eventId === ev.id)) setDetail(ev); }}
+                            onMouseEnter={e => { if (!dragState) e.currentTarget.style.filter = 'brightness(1.18)'; }}
+                            onMouseLeave={e => e.currentTarget.style.filter = 'none'}
+                            style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: isDragging ? 'grabbing' : 'grab', zIndex: isDragging ? 20 : 5, boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: isDragging ? 0.9 : 1, transition: isDragging ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none' }}>
+                            <div style={{ fontSize: '11px', fontWeight: 700, color: color.text, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {ev.summary}
+                            </div>
+                            {height > 32 && (
+                              <div style={{ fontSize: '10px', color: color.text, opacity: 0.85, marginTop: '2px', whiteSpace: 'nowrap' }}>
+                                {formatEventTime(ev.start.dateTime)}
+                                {ev.end?.dateTime ? ` – ${formatEventTime(ev.end.dateTime)}` : ''}
+                              </div>
+                            )}
+                            {height > 52 && ev.location && (
+                              <div style={{ fontSize: '10px', color: color.text, opacity: 0.7, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                📍 {ev.location}
+                              </div>
+                            )}
                           </div>
-                        )}
-                        {height > 52 && ev.location && (
-                          <div style={{ fontSize: '10px', color: color.text, opacity: 0.7, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            📍 {ev.location}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
       </div>
+
+      {/* ── Plan Schedule Wizard ── */}
+      <PlanScheduleFlow
+        open={planOpen}
+        onClose={() => {
+          setPlanOpen(false);
+          // Refresh calendar after committing
+          fetched.current.clear();
+          fetchWeek(ws);
+        }}
+        calendarIntegration={calendarIntegration}
+      />
 
       {/* ── Create Event Modal ── */}
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New Event">
@@ -567,25 +681,21 @@ export default function CalendarScreen() {
             ) : (
               <div style={{ fontSize: '13px', color: tokens.textSecondary }}>All-day event · {new Date(detail.start?.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
             )}
-
             {detail.location && (
               <div>
                 <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: tokens.textMuted, marginBottom: '4px' }}>Location</div>
                 <div style={{ fontSize: '13px', color: tokens.textPrimary }}>{detail.location}</div>
               </div>
             )}
-
             {detail.description && (
               <div>
                 <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: tokens.textMuted, marginBottom: '4px' }}>Description</div>
                 <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{detail.description}</div>
               </div>
             )}
-
             {detail.organizer?.displayName && (
               <div style={{ fontSize: '12px', color: tokens.textMuted }}>Organized by {detail.organizer.displayName}</div>
             )}
-
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', borderTop: `1px solid ${tokens.border}` }}>
               <Button onClick={handleDelete} variant="danger" size="sm" loading={deleting}>Delete Event</Button>
               <Button onClick={() => setDetail(null)} variant="ghost" size="sm">Close</Button>
