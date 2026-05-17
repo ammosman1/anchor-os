@@ -16,7 +16,8 @@ import ReviewScreen     from './components/screens/ReviewScreen';
 import TasksScreen      from './components/screens/TasksScreen';
 import LifeScreen       from './components/screens/LifeScreen';
 import GoalsScreen      from './components/screens/GoalsScreen';
-import GoalDetailScreen from './components/screens/GoalDetailScreen';
+import GoalDetailScreen     from './components/screens/GoalDetailScreen';
+import ProjectDetailScreen  from './components/screens/ProjectDetailScreen';
 import { IdeasScreen, DebtScreen } from './components/screens/OtherScreens';
 import ProfileScreen   from './components/screens/ProfileScreen';
 import CalendarScreen  from './components/screens/CalendarScreen';
@@ -56,7 +57,8 @@ function AppRoutes() {
         <Routes>
           <Route path="/"           element={<HomeScreen />}      />
           <Route path="/tasks"      element={<TasksScreen />}     />
-          <Route path="/projects"   element={<ProjectsScreen />}  />
+          <Route path="/projects"              element={<ProjectsScreen />}      />
+          <Route path="/projects/:projectId" element={<ProjectDetailScreen />} />
           <Route path="/brain-dump" element={<BrainDumpScreen />} />
           <Route path="/advisor"    element={<AdvisorScreen />}   />
           <Route path="/review"     element={<ReviewScreen />}    />

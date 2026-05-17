@@ -1,11 +1,13 @@
 // src/components/screens/ProjectsScreen.js
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { getProjectAdvice } from '../../lib/ai';
-import { addProject, updateProject, deleteProject, addTask, updateTask } from '../../lib/db';
-import { Card, Button, Input, Select, SectionLabel, MomentumBar, Tag, Modal, AICard, EmptyState, statusColors, priorityColors } from '../ui';
+import { addProject, updateProject, deleteProject } from '../../lib/db';
+import { Button, Input, Select, MomentumBar, Tag, Modal, EmptyState, statusColors } from '../ui';
+
+// ─── Projects List View ───────────────────────────────────────────────────────
 
 const CATEGORIES = [
   { value: 'work',     label: 'Work'     },
@@ -25,15 +27,7 @@ const STATUSES = [
   { value: 'complete', label: 'Complete' },
 ];
 
-const PRIORITIES = [
-  { value: 'critical', label: '🔴 Critical' },
-  { value: 'high',     label: '🟠 High'     },
-  { value: 'medium',   label: '🟡 Medium'   },
-  { value: 'low',      label: '⚪ Low'      },
-];
-
-const emptyForm = { title: '', category: 'work', status: 'active', momentum: 50, nextAction: '', blockers: '', notes: '', sentiment: 'focused' };
-const emptyTask = { title: '', priority: 'medium', dueDate: '', notes: '' };
+const emptyForm = { title: '', category: 'work', status: 'active', momentum: 50, nextAction: '', blockers: '', notes: '', sentiment: 'focused', goalId: '' };
 
 function momentumColor(m) { return m >= 65 ? tokens.green : m >= 35 ? tokens.accent : tokens.red; }
 
@@ -46,234 +40,21 @@ function daysSince(ts) {
   return `${diff}d ago`;
 }
 
-function formatDue(dateStr) {
-  if (!dateStr) return null;
-  const d = new Date(dateStr + 'T00:00:00');
-  const today = new Date(); today.setHours(0,0,0,0);
-  const diff = Math.floor((d - today) / (1000*60*60*24));
-  if (diff < 0)  return { label: `${Math.abs(diff)}d overdue`, color: tokens.red };
-  if (diff === 0) return { label: 'Due today', color: tokens.amber };
-  if (diff === 1) return { label: 'Due tomorrow', color: tokens.accent };
-  return { label: `Due ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, color: tokens.textMuted };
-}
-
-// ─── Project Detail View ──────────────────────────────────────────────────────
-function ProjectDetail({ project, onBack, tasks, userId }) {
-  const [aiRec,      setAiRec]      = useState(null);
-  const [aiLoading,  setAiLoading]  = useState(false);
-  const [newTask,    setNewTask]     = useState(emptyTask);
-  const [addingTask, setAddingTask]  = useState(false);
-  const [showTaskForm, setShowTaskForm] = useState(false);
-  const [editing,    setEditing]    = useState(null); // editing task id
-  const [editForm,   setEditForm]   = useState(emptyTask);
-
-  const projectTasks = tasks.filter(t => t.projectId === project.id);
-  const doneTasks    = projectTasks.filter(t => t.done);
-  const pendingTasks = projectTasks.filter(t => !t.done);
-  const sc = statusColors[project.status] || statusColors.paused;
-
-  const fetchAI = async () => {
-    setAiLoading(true);
-    const rec = await getProjectAdvice({ ...project, lastActive: daysSince(project.updatedAt) });
-    setAiRec(rec);
-    setAiLoading(false);
-  };
-
-  React.useEffect(() => { fetchAI(); }, []); // eslint-disable-line
-
-  const handleAddTask = async () => {
-    if (!newTask.title.trim()) return;
-    setAddingTask(true);
-    await addTask(userId, {
-      title:     newTask.title.trim(),
-      priority:  newTask.priority,
-      dueDate:   newTask.dueDate,
-      notes:     newTask.notes,
-      project:   project.title,
-      projectId: project.id,
-      source:    'project',
-    });
-    setNewTask(emptyTask);
-    setShowTaskForm(false);
-    setAddingTask(false);
-  };
-
-  const handleToggle = async (task) => {
-    await updateTask(userId, task.id, { done: !task.done });
-  };
-
-  const handleEditTask = async () => {
-    if (!editForm.title.trim() || !editing) return;
-    await updateTask(userId, editing, { title: editForm.title, priority: editForm.priority, dueDate: editForm.dueDate, notes: editForm.notes });
-    setEditing(null);
-  };
-
-  return (
-    <div style={{ maxWidth: 720, margin: '0 auto' }}>
-      {/* Back + header */}
-      <div className="fade-up" style={{ marginBottom: '20px' }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '13px', cursor: 'pointer', padding: '0 0 12px', display: 'flex', alignItems: 'center', gap: '6px', fontFamily: fonts.body }}>
-          ← All Projects
-        </button>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px' }}>
-          <div>
-            <h1 style={{ fontFamily: fonts.display, fontSize: '24px', fontWeight: 700, color: tokens.textPrimary, margin: 0, letterSpacing: '-0.02em' }}>{project.title}</h1>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '6px', flexWrap: 'wrap' }}>
-              <Tag label={project.status} color={sc.bg} textColor={sc.text} />
-              <span style={{ fontSize: '11px', color: tokens.textMuted }}>{project.category}</span>
-              <span style={{ fontSize: '11px', color: tokens.textMuted }}>· Updated {daysSince(project.updatedAt) || 'just now'}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Momentum */}
-      <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
-        <Card>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-            <SectionLabel style={{ marginBottom: 0 }}>Momentum</SectionLabel>
-            <span style={{ fontFamily: fonts.display, fontSize: '22px', fontWeight: 700, color: momentumColor(project.momentum || 0) }}>{project.momentum || 0}%</span>
-          </div>
-          <MomentumBar value={project.momentum || 0} color={momentumColor(project.momentum || 0)} height={5} />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '12px' }}>
-            {project.nextAction && (
-              <div style={{ padding: '10px 12px', background: tokens.accentGlow, borderRadius: '8px', borderLeft: `2px solid ${tokens.accent}` }}>
-                <div style={{ fontSize: '10px', color: tokens.accent, fontWeight: 700, marginBottom: '3px' }}>NEXT ACTION</div>
-                <div style={{ fontSize: '12px', color: tokens.textPrimary }}>{project.nextAction}</div>
-              </div>
-            )}
-            {project.blockers && (
-              <div style={{ padding: '10px 12px', background: tokens.redDim, borderRadius: '8px', borderLeft: `2px solid ${tokens.red}` }}>
-                <div style={{ fontSize: '10px', color: tokens.red, fontWeight: 700, marginBottom: '3px' }}>BLOCKER</div>
-                <div style={{ fontSize: '12px', color: tokens.textPrimary }}>{project.blockers}</div>
-              </div>
-            )}
-          </div>
-          {project.notes && <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6, marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${tokens.border}` }}>{project.notes}</div>}
-        </Card>
-      </div>
-
-      {/* AI */}
-      <div className="fade-up stagger-2" style={{ marginBottom: '14px' }}>
-        <AICard text={aiRec || ''} loading={aiLoading} onRefresh={fetchAI} label="ANCHOR ANALYSIS" />
-      </div>
-
-      {/* Tasks */}
-      <div className="fade-up stagger-3">
-        <Card>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <SectionLabel style={{ marginBottom: 0 }}>Tasks ({pendingTasks.length} pending · {doneTasks.length} done)</SectionLabel>
-            <Button onClick={() => setShowTaskForm(!showTaskForm)} variant="accent" size="sm">+ Add Task</Button>
-          </div>
-
-          {/* Add task form */}
-          {showTaskForm && (
-            <div style={{ marginBottom: '14px', padding: '14px', background: tokens.bgGlass, borderRadius: '10px', border: `1px solid ${tokens.border}` }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <Input value={newTask.title} onChange={v => setNewTask(t => ({ ...t, title: v }))} placeholder="Task title..." />
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <Select value={newTask.priority} onChange={v => setNewTask(t => ({ ...t, priority: v }))} options={PRIORITIES} label="Priority" />
-                  <Input label="Due Date" value={newTask.dueDate} onChange={v => setNewTask(t => ({ ...t, dueDate: v }))} type="date" />
-                </div>
-                <Input value={newTask.notes} onChange={v => setNewTask(t => ({ ...t, notes: v }))} placeholder="Notes (optional)" />
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <Button onClick={handleAddTask} loading={addingTask} disabled={!newTask.title.trim()} size="sm">Add Task</Button>
-                  <Button onClick={() => setShowTaskForm(false)} variant="ghost" size="sm">Cancel</Button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Pending tasks */}
-          {pendingTasks.length === 0 && doneTasks.length === 0 ? (
-            <div style={{ fontSize: '13px', color: tokens.textMuted, textAlign: 'center', padding: '20px 0' }}>No tasks yet. Add the first one above.</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {pendingTasks.map(task => {
-                const due = formatDue(task.dueDate);
-                const pc  = priorityColors[task.priority] || priorityColors.low;
-                const isEditing = editing === task.id;
-                return (
-                  <div key={task.id} style={{ padding: '10px 12px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
-                    {isEditing ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        <Input value={editForm.title} onChange={v => setEditForm(f => ({ ...f, title: v }))} />
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                          <Select value={editForm.priority} onChange={v => setEditForm(f => ({ ...f, priority: v }))} options={PRIORITIES} label="Priority" />
-                          <Input label="Due Date" value={editForm.dueDate} onChange={v => setEditForm(f => ({ ...f, dueDate: v }))} type="date" />
-                        </div>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <Button onClick={handleEditTask} size="sm">Save</Button>
-                          <Button onClick={() => setEditing(null)} variant="ghost" size="sm">Cancel</Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                        {/* Checkbox */}
-                        <div onClick={() => handleToggle(task)} style={{ width: 18, height: 18, borderRadius: '4px', flexShrink: 0, marginTop: '2px', border: `1.5px solid ${tokens.border}`, background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '10px', color: tokens.green }}>
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: '13px', fontWeight: 500, color: tokens.textPrimary }}>{task.title}</div>
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '4px', flexWrap: 'wrap' }}>
-                            <Tag label={task.priority} color={pc.bg} textColor={pc.text} />
-                            {due && <span style={{ fontSize: '10px', color: due.color, fontWeight: 600 }}>{due.label}</span>}
-                            {task.notes && <span style={{ fontSize: '11px', color: tokens.textMuted }}>{task.notes}</span>}
-                          </div>
-                        </div>
-                        <button onClick={() => { setEditing(task.id); setEditForm({ title: task.title, priority: task.priority || 'medium', dueDate: task.dueDate || '', notes: task.notes || '' }); }} style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', fontFamily: fonts.body }}>Edit</button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              {/* Done tasks */}
-              {doneTasks.length > 0 && (
-                <>
-                  <div style={{ fontSize: '10px', color: tokens.textMuted, fontWeight: 700, letterSpacing: '0.08em', marginTop: '8px', marginBottom: '4px' }}>COMPLETED</div>
-                  {doneTasks.map(task => (
-                    <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px', background: 'transparent', borderRadius: '8px', opacity: 0.5 }}>
-                      <div onClick={() => handleToggle(task)} style={{ width: 18, height: 18, borderRadius: '4px', flexShrink: 0, border: `1.5px solid ${tokens.green}`, background: tokens.greenDim, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '10px', color: tokens.green }}>✓</div>
-                      <div style={{ fontSize: '13px', color: tokens.textMuted, textDecoration: 'line-through' }}>{task.title}</div>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-          )}
-        </Card>
-      </div>
-    </div>
-  );
-}
-
 // ─── Projects List View ───────────────────────────────────────────────────────
 export default function ProjectsScreen() {
   const { user } = useAuth();
-  const { projects, tasks } = useData();
-  const [selected,     setSelected]     = useState(null);
+  const { projects, tasks, goals } = useData();
+  const navigate = useNavigate();
   const [showModal,    setShowModal]    = useState(false);
   const [form,         setForm]         = useState(emptyForm);
   const [editing,      setEditing]      = useState(null);
   const [saving,       setSaving]       = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
 
-  // If a project is selected show detail view
-  if (selected) {
-    return (
-      <ProjectDetail
-        project={selected}
-        tasks={tasks}
-        userId={user.uid}
-        onBack={() => setSelected(null)}
-      />
-    );
-  }
-
   const openNew  = () => { setForm(emptyForm); setEditing(null); setShowModal(true); };
   const openEdit = (p, e) => {
     e.stopPropagation();
-    setForm({ title: p.title || '', category: p.category || 'work', status: p.status || 'active', momentum: p.momentum || 50, nextAction: p.nextAction || '', blockers: p.blockers || '', notes: p.notes || '', sentiment: p.sentiment || 'focused' });
+    setForm({ title: p.title || '', category: p.category || 'work', status: p.status || 'active', momentum: p.momentum || 50, nextAction: p.nextAction || '', blockers: p.blockers || '', notes: p.notes || '', sentiment: p.sentiment || 'focused', goalId: p.goalId || '' });
     setEditing(p.id);
     setShowModal(true);
   };
@@ -339,8 +120,9 @@ export default function ProjectsScreen() {
             const projectTasks = tasks.filter(t => t.projectId === p.id);
             const doneCount    = projectTasks.filter(t => t.done).length;
             const totalCount   = projectTasks.length;
+            const linkedGoal   = p.goalId ? goals.find(g => g.id === p.goalId) : null;
             return (
-              <div key={p.id} onClick={() => setSelected(p)}
+              <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
                 style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '12px', padding: '16px 18px', cursor: 'pointer', transition: 'all 0.18s ease' }}
                 onMouseEnter={e => { e.currentTarget.style.background = tokens.bgCardHover; e.currentTarget.style.borderColor = tokens.borderHover; }}
                 onMouseLeave={e => { e.currentTarget.style.background = tokens.bgCard; e.currentTarget.style.borderColor = tokens.border; }}
@@ -352,6 +134,11 @@ export default function ProjectsScreen() {
                   </div>
                   <Tag label={p.status} color={sc.bg} textColor={sc.text} />
                 </div>
+                {linkedGoal && (
+                  <div style={{ fontSize: '10px', color: '#5B8FD4', marginBottom: '8px', fontWeight: 600 }}>
+                    ↗ {linkedGoal.title}
+                  </div>
+                )}
 
                 <MomentumBar value={p.momentum || 0} color={momentumColor(p.momentum || 0)} />
 
@@ -387,6 +174,16 @@ export default function ProjectsScreen() {
           <div>
             <div style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, marginBottom: '8px' }}>Momentum: {form.momentum}%</div>
             <input type="range" min={0} max={100} value={form.momentum} onChange={e => setForm(f => ({ ...f, momentum: Number(e.target.value) }))} style={{ width: '100%', accentColor: tokens.accent }} />
+          </div>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Linked Goal</label>
+            <select value={form.goalId} onChange={e => setForm(f => ({ ...f, goalId: e.target.value }))}
+              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+              <option value="">No linked goal</option>
+              {(goals || []).filter(g => g.status === 'active').map(g => (
+                <option key={g.id} value={g.id}>{g.title}</option>
+              ))}
+            </select>
           </div>
           <Input label="Next Action" value={form.nextAction} onChange={v => setForm(f => ({ ...f, nextAction: v }))} placeholder="What's the immediate next step?" />
           <Input label="Blockers"    value={form.blockers}   onChange={v => setForm(f => ({ ...f, blockers: v }))}   placeholder="What's in the way?" />

@@ -4,8 +4,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { updateGoal, addTask, updateTask, getAICache, saveAICache } from '../../lib/db';
+import { updateGoal, addTask, updateTask, getAICache, saveAICache, saveProfile } from '../../lib/db';
 import { generateGoalInsights, generateGoalExecutionPlan } from '../../lib/ai';
+import { buildHolisticContext } from '../../lib/aiContext';
 import { RECURRENCE_OPTIONS } from '../../lib/tasks';
 import { fetchMonthlyCashFlow, fetchAccounts } from '../../lib/plaid';
 import { Button, Modal, Input, MomentumBar, Spinner } from '../ui';
@@ -58,7 +59,7 @@ export default function GoalDetailScreen() {
   const { goalId }   = useParams();
   const navigate     = useNavigate();
   const { user }     = useAuth();
-  const { goals, tasks, weeklyReviews, projects, plaidItems } = useData();
+  const { goals, tasks, weeklyReviews, projects, plaidItems, brainDumps, userProfile } = useData();
 
   const goal            = goals.find(g => g.id === goalId);
   const linkedTasks     = tasks.filter(t => t.goalId === goalId);
@@ -82,6 +83,18 @@ export default function GoalDetailScreen() {
   };
   const [newTaskForm,    setNewTaskForm]    = useState(emptyTaskForm);
 
+  // AI feedback
+  const [feedbackOpen,   setFeedbackOpen]   = useState(false);
+  const [feedbackText,   setFeedbackText]    = useState('');
+  const [feedbackSaving, setFeedbackSaving]  = useState(false);
+
+  // Action → Task
+  const [actionModal,    setActionModal]    = useState(false);
+  const [actionTaskForm, setActionTaskForm] = useState(emptyTaskForm);
+  const [actionSaving,   setActionSaving]   = useState(false);
+  const [addedActions,   setAddedActions]   = useState(new Set());
+  const [bulkCreating,   setBulkCreating]   = useState(false);
+
   const [balanceOpen,     setBalanceOpen]     = useState(false);
   const [newBalance,      setNewBalance]      = useState('');
   const [plaidAccounts,   setPlaidAccounts]   = useState([]);
@@ -98,12 +111,22 @@ export default function GoalDetailScreen() {
     setInsightsLoading(true);
     try {
       const plaidData = await fetchMonthlyCashFlow(plaidItems).catch(() => null);
+      const holisticContext = buildHolisticContext({
+        goals,
+        tasks,
+        projects,
+        brainDumps:    brainDumps || [],
+        weeklyReviews: weeklyReviews || [],
+        userProfile:   userProfile,
+        plaidData,
+      });
       const result = await generateGoalInsights({
         goal,
         linkedTasks,
         completedTasks,
         weeklyReviews: weeklyReviews || [],
         plaidData,
+        holisticContext,
       });
       if (result) {
         setInsights(result);
@@ -114,7 +137,7 @@ export default function GoalDetailScreen() {
     } finally {
       setInsightsLoading(false);
     }
-  }, [goal, goalId, user, linkedTasks, completedTasks, weeklyReviews]); // eslint-disable-line
+  }, [goal, goalId, user, linkedTasks, completedTasks, weeklyReviews, brainDumps, goals, tasks, projects, userProfile]); // eslint-disable-line
 
   useEffect(() => {
     if (goal) loadInsights();
@@ -200,6 +223,78 @@ export default function GoalDetailScreen() {
       status:      !task.done ? 'completed' : 'pending',
       completedAt: !task.done ? new Date().toISOString() : null,
     });
+  };
+
+  const handleFeedbackSubmit = async () => {
+    if (!feedbackText.trim()) return;
+    setFeedbackSaving(true);
+    try {
+      const existing    = userProfile?.aiFeedback || {};
+      const newFeedback = { ...existing, [`goalInsight_${goalId}`]: feedbackText.trim() };
+      await saveProfile(user.uid, { aiFeedback: newFeedback });
+      setFeedbackOpen(false);
+      setFeedbackText('');
+      await loadInsights(true);
+    } catch (err) {
+      console.error('Feedback save error:', err);
+    } finally {
+      setFeedbackSaving(false);
+    }
+  };
+
+  const openActionModal = (action) => {
+    setActionTaskForm({ ...emptyTaskForm, title: action, project: goal.title || '' });
+    setActionModal(true);
+  };
+
+  const handleActionTaskSave = async () => {
+    if (!actionTaskForm.title.trim() || actionSaving) return;
+    setActionSaving(true);
+    try {
+      const tagsArr = actionTaskForm.tags
+        ? actionTaskForm.tags.split(',').map(t => t.trim()).filter(Boolean)
+        : [];
+      await addTask(user.uid, {
+        title:            actionTaskForm.title.trim(),
+        priority:         actionTaskForm.priority,
+        focusType:        actionTaskForm.focusType || null,
+        project:          actionTaskForm.project || goal.title || 'Inbox',
+        estimatedMinutes: actionTaskForm.estimatedMinutes ? Number(actionTaskForm.estimatedMinutes) : null,
+        dueDate:          actionTaskForm.dueDate || null,
+        notes:            actionTaskForm.notes || '',
+        tags:             tagsArr.length ? tagsArr : null,
+        recurrence:       actionTaskForm.recurrence !== 'none' ? actionTaskForm.recurrence : null,
+        goalId,
+        source: 'goal-action',
+        status: 'pending',
+      });
+      setAddedActions(prev => new Set([...prev, actionTaskForm.title]));
+      setActionModal(false);
+      setActionTaskForm(emptyTaskForm);
+    } finally {
+      setActionSaving(false);
+    }
+  };
+
+  const handleBulkCreate = async () => {
+    if (!insights?.thisWeekActions?.length || bulkCreating) return;
+    setBulkCreating(true);
+    try {
+      const remaining = insights.thisWeekActions.filter(a => !addedActions.has(a));
+      await Promise.all(remaining.map(action =>
+        addTask(user.uid, {
+          title:   action,
+          priority: 'high',
+          project: goal.title || 'Inbox',
+          goalId,
+          source:  'goal-action',
+          status:  'pending',
+        })
+      ));
+      setAddedActions(new Set(insights.thisWeekActions));
+    } finally {
+      setBulkCreating(false);
+    }
   };
 
   const loadPlaidAccounts = useCallback(async () => {
@@ -426,7 +521,15 @@ export default function GoalDetailScreen() {
       {/* ── This Week Card ── */}
       {(insightsLoading || insights) && (
         <Card>
-          <SectionLabel>This Week</SectionLabel>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+            <SectionLabel style={{ marginBottom: 0 }}>This Week</SectionLabel>
+            {insights && (
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button title="Accurate" style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👍</button>
+                <button title="Give feedback" onClick={() => setFeedbackOpen(true)} style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👎</button>
+              </div>
+            )}
+          </div>
 
           {insightsLoading && !insights && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: tokens.textMuted, fontSize: '13px' }}>
@@ -438,13 +541,32 @@ export default function GoalDetailScreen() {
             <>
               {insights.thisWeekActions?.length > 0 && (
                 <div style={{ marginBottom: '16px' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '10px' }}>Required Actions</div>
-                  {insights.thisWeekActions.map((action, i) => (
-                    <div key={i} style={{ display: 'flex', gap: '10px', padding: '8px 0', borderBottom: i < insights.thisWeekActions.length - 1 ? `1px solid ${tokens.border}` : 'none' }}>
-                      <span style={{ color: tokens.accent, fontWeight: 700, fontSize: '12px', flexShrink: 0, minWidth: '16px' }}>{i + 1}.</span>
-                      <span style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.5 }}>{action}</span>
-                    </div>
-                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary }}>Required Actions</div>
+                    {insights.thisWeekActions.filter(a => !addedActions.has(a)).length > 0 && (
+                      <Button size="sm" variant="ghost" onClick={handleBulkCreate} loading={bulkCreating}>
+                        + Create All ({insights.thisWeekActions.filter(a => !addedActions.has(a)).length})
+                      </Button>
+                    )}
+                  </div>
+                  {insights.thisWeekActions.map((action, i) => {
+                    const added = addedActions.has(action);
+                    return (
+                      <div key={i} style={{ display: 'flex', gap: '10px', padding: '8px 0', borderBottom: i < insights.thisWeekActions.length - 1 ? `1px solid ${tokens.border}` : 'none', alignItems: 'center' }}>
+                        <span style={{ color: added ? tokens.green : tokens.accent, fontWeight: 700, fontSize: '12px', flexShrink: 0, minWidth: '16px' }}>
+                          {added ? '✓' : `${i + 1}.`}
+                        </span>
+                        <span style={{ fontSize: '13px', color: added ? tokens.textMuted : tokens.textSecondary, lineHeight: 1.5, flex: 1, textDecoration: added ? 'line-through' : 'none' }}>{action}</span>
+                        {!added && (
+                          <button
+                            onClick={() => openActionModal(action)}
+                            style={{ background: tokens.accentDim, border: `1px solid rgba(200,169,110,0.2)`, borderRadius: '5px', padding: '3px 10px', fontSize: '11px', fontWeight: 600, color: tokens.accent, cursor: 'pointer', flexShrink: 0, fontFamily: fonts.body }}>
+                            + Task
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 
@@ -684,6 +806,69 @@ export default function GoalDetailScreen() {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
             <Button variant="ghost" onClick={() => setBalanceOpen(false)}>Cancel</Button>
             <Button onClick={handleUpdateBalance} disabled={!newBalance || isNaN(parseFloat(newBalance))}>Save Balance</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Action → Task Modal */}
+      <Modal open={actionModal} onClose={() => { setActionModal(false); setActionTaskForm(emptyTaskForm); }} title="Create Task from Action">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <Input label="Title" value={actionTaskForm.title} onChange={v => setActionTaskForm(f => ({ ...f, title: v }))} placeholder="What needs to happen?" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Priority</label>
+              <select value={actionTaskForm.priority} onChange={e => setActionTaskForm(f => ({ ...f, priority: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Focus Type</label>
+              <select value={actionTaskForm.focusType} onChange={e => setActionTaskForm(f => ({ ...f, focusType: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                {FOCUS_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
+              <input type="date" value={actionTaskForm.dueDate} onChange={e => setActionTaskForm(f => ({ ...f, dueDate: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, colorScheme: 'light', boxSizing: 'border-box' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Est. Minutes</label>
+              <input type="number" min="5" max="480" value={actionTaskForm.estimatedMinutes} onChange={e => setActionTaskForm(f => ({ ...f, estimatedMinutes: e.target.value }))} placeholder="45"
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
+            </div>
+          </div>
+          <Input label="Notes" value={actionTaskForm.notes} onChange={v => setActionTaskForm(f => ({ ...f, notes: v }))} placeholder="Context..." multiline rows={2} />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button variant="ghost" onClick={() => { setActionModal(false); setActionTaskForm(emptyTaskForm); }}>Cancel</Button>
+            <Button onClick={handleActionTaskSave} loading={actionSaving} disabled={!actionTaskForm.title.trim()}>Create Task</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* AI Feedback Modal */}
+      <Modal open={feedbackOpen} onClose={() => { setFeedbackOpen(false); setFeedbackText(''); }} title="Give AI Feedback">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6 }}>
+            What's wrong with this analysis? Be specific — this correction will be saved and the analysis will regenerate.
+          </div>
+          <textarea
+            value={feedbackText}
+            onChange={e => setFeedbackText(e.target.value)}
+            placeholder="e.g. I can't file the 1040s until all 1120s are done, so that can't be the required action..."
+            autoFocus
+            rows={4}
+            style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '10px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, resize: 'vertical', boxSizing: 'border-box' }}
+            onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+            onBlur={e => e.target.style.borderColor = tokens.border}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button variant="ghost" onClick={() => { setFeedbackOpen(false); setFeedbackText(''); }}>Cancel</Button>
+            <Button onClick={handleFeedbackSubmit} loading={feedbackSaving} disabled={!feedbackText.trim()}>Save & Regenerate</Button>
           </div>
         </div>
       </Modal>

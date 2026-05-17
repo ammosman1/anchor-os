@@ -84,13 +84,17 @@ export async function callAI({ messages, systemExtra = '', maxTokens = 500 }) {
 
 // ─── Specific AI workflows ────────────────────────────────────────────────────
 
-export async function getAIFocusRecommendation({ energy, topTasks, projects }) {
+export async function getAIFocusRecommendation({ energy, topTasks, projects, holisticContext }) {
   const content = `Energy today: ${energy}/10.
 Top tasks: ${topTasks.map(t => t.title).join(', ')}.
 Active projects: ${projects.map(p => `${p.title} (${p.momentum}% momentum, ${p.status})`).join(', ')}.
-What should I focus on right now? 2-3 sentences max.`;
+What should I focus on right now? 2-3 sentences max. Factor in ALL active goals and projects, not just one area.`;
 
-  return callAI({ messages: [{ role: 'user', content }], maxTokens: 200 });
+  return callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 250,
+    systemExtra: holisticContext ? `FULL USER CONTEXT:\n${holisticContext}` : '',
+  });
 }
 
 export async function processBrainDump(rawText) {
@@ -424,7 +428,7 @@ Rules:
   }
 }
 
-export async function getWeeklyFocusStatement({ goals, tasks, weeklyReviews }) {
+export async function getWeeklyFocusStatement({ goals, tasks, weeklyReviews, holisticContext }) {
   const activeGoals     = (goals || []).filter(g => g.status === 'active');
   const atRiskGoals     = activeGoals.filter(g => g.likelihoodScore != null && g.likelihoodScore < 50);
   const highPriorityTasks = tasks.filter(t => !t.done && (t.priority === 'critical' || t.priority === 'high')).slice(0, 8);
@@ -453,7 +457,7 @@ Return ONLY valid JSON:
   const raw = await callAI({
     messages: [{ role: 'user', content }],
     maxTokens: 400,
-    systemExtra: 'Return ONLY valid JSON. No markdown. No explanation.',
+    systemExtra: (holisticContext ? `FULL USER CONTEXT:\n${holisticContext}\n\n` : '') + 'Return ONLY valid JSON. No markdown. No explanation.',
   });
 
   try {
@@ -465,7 +469,7 @@ Return ONLY valid JSON:
   }
 }
 
-export async function generateGoalInsights({ goal, linkedTasks, completedTasks, weeklyReviews, plaidData }) {
+export async function generateGoalInsights({ goal, linkedTasks, completedTasks, weeklyReviews, plaidData, holisticContext }) {
   const taskCompletionRate = linkedTasks.length > 0
     ? Math.round((completedTasks.length / linkedTasks.length) * 100) : null;
 
@@ -513,7 +517,51 @@ Return ONLY valid JSON:
   const raw = await callAI({
     messages: [{ role: 'user', content }],
     maxTokens: 700,
-    systemExtra: 'Return ONLY valid JSON. No markdown. No explanation.',
+    systemExtra: (holisticContext ? `FULL USER CONTEXT:\n${holisticContext}\n\n` : '') + 'Return ONLY valid JSON. No markdown. No explanation.',
+  });
+
+  try {
+    const clean = (raw || '{}').replace(/```json|```/g, '').trim();
+    const match = clean.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function generateProjectAnalysis({ project, linkedTasks, completedTasks, linkedGoal, holisticContext }) {
+  const taskCompletionRate = linkedTasks.length > 0
+    ? Math.round((completedTasks.length / linkedTasks.length) * 100) : null;
+
+  const content = `Analyze this project for Andrew and provide strategic guidance.
+
+PROJECT: "${project.title}"
+STATUS: ${project.status}
+MOMENTUM: ${project.momentum || 0}%
+NEXT ACTION: ${project.nextAction || 'none'}
+BLOCKER: ${project.blockers || 'none'}
+${linkedGoal ? `LINKED GOAL: "${linkedGoal.title}" (${linkedGoal.likelihoodScore ?? 'unscored'}/100)` : 'LINKED GOAL: none'}
+${project.description ? `DESCRIPTION: ${project.description}` : ''}
+
+LINKED TASKS:
+- Total: ${linkedTasks.length} | Completed: ${completedTasks.length}
+- Completion rate: ${taskCompletionRate ?? 'n/a'}%
+- Active: ${linkedTasks.filter(t => !t.done).slice(0, 5).map(t => t.title).join(', ') || 'none'}
+
+Return ONLY valid JSON:
+{
+  "onTrack": true,
+  "statusStatement": "One direct sentence on where this project stands",
+  "topRisks": ["Risk 1", "Risk 2"],
+  "thisWeekActions": ["Action 1", "Action 2", "Action 3"],
+  "momentumAdvice": "One sentence on how to increase or maintain momentum",
+  "whatToIgnore": "One specific thing to deprioritize right now for this project"
+}`;
+
+  const raw = await callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 600,
+    systemExtra: (holisticContext ? `FULL USER CONTEXT:\n${holisticContext}\n\n` : '') + 'Return ONLY valid JSON. No markdown. No explanation.',
   });
 
   try {

@@ -5,7 +5,8 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { getAIFocusRecommendation, getWeeklyFocusStatement } from '../../lib/ai';
-import { updateTask, addTask } from '../../lib/db';
+import { buildHolisticContext } from '../../lib/aiContext';
+import { updateTask, addTask, saveProfile } from '../../lib/db';
 import {
   Card, AICard, SectionLabel, MomentumBar, Tag, Button,
   EmptyState, priorityColors, Modal, Input,
@@ -45,7 +46,7 @@ const QUOTES = [
 
 export default function HomeScreen() {
   const { user, profile, updateProfile } = useAuth();
-  const { tasks, activeProjects, totalDebt, goals, calendarIntegration, projects, weeklyReviews } = useData();
+  const { tasks, activeProjects, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile } = useData();
   const navigate = useNavigate();
 
   const [energy,      setEnergy]      = useState(profile?.energyToday || 7);
@@ -60,6 +61,12 @@ export default function HomeScreen() {
   const [weekFocus,     setWeekFocus]     = useState(null);
   const [weekFocusLoading, setWeekFocusLoading] = useState(false);
   const [quote]                         = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
+
+  // AI feedback state
+  const [feedbackOpen,   setFeedbackOpen]   = useState(false);
+  const [feedbackKey,    setFeedbackKey]     = useState('');
+  const [feedbackText,   setFeedbackText]    = useState('');
+  const [feedbackSaving, setFeedbackSaving]  = useState(false);
 
   const isAfter5pm = new Date().getHours() >= 17;
   const todayStr   = todayYMD();
@@ -123,12 +130,22 @@ export default function HomeScreen() {
   const possibleGoals = scoredGoals.filter(g => g.likelihoodScore >= 50 && g.likelihoodScore < 70);
   const atRiskGoals   = scoredGoals.filter(g => g.likelihoodScore < 50).sort((a, b) => a.likelihoodScore - b.likelihoodScore);
 
+  const getHolisticContext = () => buildHolisticContext({
+    goals:         goals || [],
+    tasks,
+    projects:      projects || [],
+    brainDumps:    brainDumps || [],
+    weeklyReviews: weeklyReviews || [],
+    userProfile:   userProfile || profile,
+  });
+
   const fetchAI = async () => {
     setAiLoading(true);
     const text = await getAIFocusRecommendation({
       energy,
-      topTasks: top3,
-      projects: activeProjects,
+      topTasks:         top3,
+      projects:         activeProjects,
+      holisticContext:  getHolisticContext(),
     });
     setAiText(text || 'Focus on your single highest-leverage task. Everything else can wait.');
     setAiLoading(false);
@@ -142,12 +159,37 @@ export default function HomeScreen() {
       return;
     }
     setWeekFocusLoading(true);
-    const data = await getWeeklyFocusStatement({ goals: goals || [], tasks, weeklyReviews: weeklyReviews || [] });
+    const data = await getWeeklyFocusStatement({
+      goals:           goals || [],
+      tasks,
+      weeklyReviews:   weeklyReviews || [],
+      holisticContext: getHolisticContext(),
+    });
     if (data) {
       setWeekFocus(data);
       localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() }));
     }
     setWeekFocusLoading(false);
+  };
+
+  const handleFeedbackSubmit = async () => {
+    if (!feedbackText.trim()) return;
+    setFeedbackSaving(true);
+    try {
+      const existing    = userProfile?.aiFeedback || profile?.aiFeedback || {};
+      const newFeedback = { ...existing, [feedbackKey]: feedbackText.trim() };
+      await saveProfile(user.uid, { aiFeedback: newFeedback });
+      await updateProfile({ aiFeedback: newFeedback });
+      setFeedbackOpen(false);
+      setFeedbackText('');
+      // Re-generate the relevant content
+      if (feedbackKey === 'briefing') fetchAI();
+      else if (feedbackKey === 'weekFocus') { localStorage.removeItem('weeklyFocusCache'); setWeekFocus(null); fetchWeekFocus(); }
+    } catch (err) {
+      console.error('Feedback save error:', err);
+    } finally {
+      setFeedbackSaving(false);
+    }
   };
 
   useEffect(() => {
@@ -343,6 +385,12 @@ export default function HomeScreen() {
           loading={aiLoading}
           onRefresh={fetchAI}
           label="DAILY BRIEFING"
+          feedbackButtons={!aiLoading && aiText ? (
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button title="Accurate" style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👍</button>
+              <button title="Give feedback" onClick={() => { setFeedbackKey('briefing'); setFeedbackOpen(true); }} style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👎</button>
+            </div>
+          ) : null}
         />
       </div>
 
@@ -542,11 +590,19 @@ export default function HomeScreen() {
         <Card>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <SectionLabel style={{ marginBottom: 0 }}>This Week's Focus</SectionLabel>
-            <button onClick={() => { localStorage.removeItem('weeklyFocusCache'); setWeekFocus(null); fetchWeekFocus(); }}
-              disabled={weekFocusLoading}
-              style={{ background: 'none', border: 'none', fontSize: '13px', color: weekFocusLoading ? tokens.textMuted : tokens.accent, cursor: weekFocusLoading ? 'default' : 'pointer', opacity: weekFocusLoading ? 0.5 : 1 }}>
-              {weekFocusLoading ? '...' : '↻'}
-            </button>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              {weekFocus && !weekFocusLoading && (
+                <>
+                  <button title="Accurate" style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👍</button>
+                  <button title="Give feedback" onClick={() => { setFeedbackKey('weekFocus'); setFeedbackOpen(true); }} style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👎</button>
+                </>
+              )}
+              <button onClick={() => { localStorage.removeItem('weeklyFocusCache'); setWeekFocus(null); fetchWeekFocus(); }}
+                disabled={weekFocusLoading}
+                style={{ background: 'none', border: 'none', fontSize: '13px', color: weekFocusLoading ? tokens.textMuted : tokens.accent, cursor: weekFocusLoading ? 'default' : 'pointer', opacity: weekFocusLoading ? 0.5 : 1 }}>
+                {weekFocusLoading ? '...' : '↻'}
+              </button>
+            </div>
           </div>
 
           {weekFocusLoading && !weekFocus && (
@@ -662,6 +718,29 @@ export default function HomeScreen() {
         onClose={() => setPlanOpen(false)}
         calendarIntegration={calendarIntegration}
       />
+
+      {/* AI Feedback Modal */}
+      <Modal open={feedbackOpen} onClose={() => { setFeedbackOpen(false); setFeedbackText(''); }} title="Give AI Feedback">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6 }}>
+            What's wrong with this? Your correction will be saved as a hard constraint and the content will regenerate.
+          </div>
+          <textarea
+            value={feedbackText}
+            onChange={e => setFeedbackText(e.target.value)}
+            placeholder="e.g. The must-win should focus on Wells Fargo work first, not tax prep..."
+            autoFocus
+            rows={4}
+            style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '10px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, resize: 'vertical', boxSizing: 'border-box' }}
+            onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+            onBlur={e => e.target.style.borderColor = tokens.border}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button variant="ghost" onClick={() => { setFeedbackOpen(false); setFeedbackText(''); }}>Cancel</Button>
+            <Button onClick={handleFeedbackSubmit} loading={feedbackSaving} disabled={!feedbackText.trim()}>Save & Regenerate</Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Task Edit Modal */}
       <Modal open={!!editingTask} onClose={() => setEditingTask(null)} title="Edit Task">

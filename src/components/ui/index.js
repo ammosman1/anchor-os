@@ -274,7 +274,7 @@ export function Modal({ open, onClose, title, children, width = 480 }) {
 }
 
 // ─── AICard ───────────────────────────────────────────────────────────────────
-export function AICard({ text, loading, onRefresh, label = 'ANCHOR' }) {
+export function AICard({ text, loading, onRefresh, label = 'ANCHOR', feedbackButtons }) {
   return (
     <div style={{
       background: `linear-gradient(135deg, ${tokens.accentGlow} 0%, transparent 100%)`,
@@ -299,10 +299,15 @@ export function AICard({ text, loading, onRefresh, label = 'ANCHOR' }) {
           )}
         </div>
       </div>
-      {onRefresh && !loading && (
-        <button onClick={onRefresh} style={{ marginTop: '12px', fontSize: '11px', color: tokens.accent, background: tokens.accentDim, border: 'none', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontWeight: 600 }}>
-          ↻ Refresh
-        </button>
+      {(!loading) && (onRefresh || feedbackButtons) && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+          <div>{feedbackButtons}</div>
+          {onRefresh && (
+            <button onClick={onRefresh} style={{ fontSize: '11px', color: tokens.accent, background: tokens.accentDim, border: 'none', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontWeight: 600 }}>
+              ↻ Refresh
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
