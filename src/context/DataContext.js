@@ -5,7 +5,7 @@ import {
   subscribeProjects, subscribeTasks, subscribeDebtAccounts,
   subscribeIdeas, subscribeDecisions, subscribeBrainDumps,
   subscribeWeeklyReviews, subscribeGoals, subscribeCalendarIntegration,
-  subscribePlaidItems, subscribeProfile,
+  subscribePlaidItems, subscribeProfile, updateProject,
 } from '../lib/db';
 import { setUserPersona } from '../lib/ai';
 
@@ -54,6 +54,19 @@ export function DataProvider({ children }) {
     setLoaded(true);
     return () => unsubs.forEach(u => u());
   }, [user]);
+
+  // Auto-stall active projects that haven't been updated in 5+ days
+  useEffect(() => {
+    if (!user || !projects.length) return;
+    const FIVE_DAYS = 5 * 24 * 60 * 60 * 1000;
+    projects
+      .filter(p => {
+        if (p.status !== 'active') return false;
+        const last = p.updatedAt?.toDate?.() || (p.updatedAt ? new Date(p.updatedAt) : new Date(0));
+        return (Date.now() - last.getTime()) > FIVE_DAYS;
+      })
+      .forEach(p => updateProject(user.uid, p.id, { status: 'stalled' }));
+  }, [projects, user]); // eslint-disable-line
 
   // Derived data
   const activeProjects  = projects.filter(p => p.status === 'active');

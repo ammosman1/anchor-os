@@ -70,17 +70,11 @@ export default function AdvisorScreen() {
       });
     }
 
-    const FIVE_DAYS = 5 * 24 * 60 * 60 * 1000;
-    const stalled = projects.filter(p => {
-      if (p.status === 'stalled') return true;
-      if (p.status !== 'active') return false;
-      const last = p.updatedAt?.toDate?.() || (p.updatedAt ? new Date(p.updatedAt) : new Date(0));
-      return (Date.now() - last.getTime()) > FIVE_DAYS;
-    });
+    const stalled = projects.filter(p => p.status === 'stalled');
     if (stalled.length > 0) {
       insights.push({
-        label: `${stalled.length > 1 ? `${stalled.length} projects` : stalled[0].title} stalled 5+ days`,
-        prompt: `My "${stalled[0].title}" project hasn't moved in 5+ days. What's the right move — push, pause, or kill it?`,
+        label: `${stalled.length > 1 ? `${stalled.length} projects` : stalled[0].title} stalled`,
+        prompt: `My "${stalled[0].title}" project is stalled. What's the right move — push, pause, or kill it?`,
       });
     }
 

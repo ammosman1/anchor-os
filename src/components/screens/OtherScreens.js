@@ -897,13 +897,7 @@ export function LifeScreen() {
   const activeGoals    = (goals || []).filter(g => g.status === 'active').slice(0, 4);
   const activeCount    = projects.filter(p => p.status === 'active').length;
   const pendingCount   = tasks.filter(t => !t.done).length;
-  const FIVE_DAYS = 5 * 24 * 60 * 60 * 1000;
-  const stalledProjs = projects.filter(p => {
-    if (p.status === 'stalled') return true;
-    if (p.status !== 'active') return false;
-    const last = p.updatedAt?.toDate?.() || (p.updatedAt ? new Date(p.updatedAt) : new Date(0));
-    return (Date.now() - last.getTime()) > FIVE_DAYS;
-  });
+  const stalledProjs = projects.filter(p => p.status === 'stalled');
   const overdueTasks   = tasks.filter(t => !t.done && t.scheduledDate && t.scheduledDate < today);
 
   return (
