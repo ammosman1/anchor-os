@@ -167,12 +167,14 @@ export default function AppLayout({ children }) {
       {/* ── Top Bar ───────────────────────────────────────────────────────────── */}
       <header style={{
         position: 'fixed', top: 0, left: 0, right: 0,
-        height: 52,
+        height: 'calc(52px + env(safe-area-inset-top, 0px))',
+        paddingTop: 'env(safe-area-inset-top, 0px)',
         background: tokens.bgNav,
         borderBottom: `1px solid ${tokens.border}`,
         boxShadow: tokens.shadowNav,
         display: 'flex', alignItems: 'center',
-        padding: '0 16px', gap: '10px',
+        padding: 'env(safe-area-inset-top, 0px) 16px 0',
+        gap: '10px',
         zIndex: 200,
       }}>
 
@@ -338,7 +340,7 @@ export default function AppLayout({ children }) {
             {/* Drawer header */}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '14px 16px',
+              padding: 'calc(14px + env(safe-area-inset-top, 0px)) 16px 14px',
               borderBottom: `1px solid ${tokens.border}`,
               flexShrink: 0,
             }}>
@@ -505,7 +507,7 @@ export default function AppLayout({ children }) {
 
       {/* ── Main Content ──────────────────────────────────────────────────────── */}
       <main style={{
-        paddingTop: '76px',   // 52px topbar + 24px breathing room
+        paddingTop: 'calc(52px + env(safe-area-inset-top, 0px) + 24px)',
         paddingLeft: location.pathname.startsWith('/calendar') ? '16px' : 'max(16px, env(safe-area-inset-left, 16px))',
         paddingRight: location.pathname.startsWith('/calendar') ? '16px' : 'max(16px, env(safe-area-inset-right, 16px))',
         paddingBottom: 'max(40px, env(safe-area-inset-bottom, 40px))',

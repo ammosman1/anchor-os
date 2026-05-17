@@ -11,6 +11,7 @@ import { getValidAccessToken, getEvents } from '../../lib/calendar';
 import { calculateMomentum } from '../../lib/momentum';
 import { calculateUrgency } from '../../lib/tasks';
 import { fetchMonthlyCashFlow } from '../../lib/plaid';
+import { fetchWeeklyWeather, isOutdoorTask } from '../../lib/weather';
 import {
   Card, AICard, SectionLabel, MomentumBar, Tag, Button,
   EmptyState, priorityColors, Modal, Input,
@@ -78,8 +79,9 @@ export default function HomeScreen() {
   const [feedbackKey,     setFeedbackKey]     = useState('');
   const [feedbackText,    setFeedbackText]    = useState('');
   const [feedbackSaving,  setFeedbackSaving]  = useState(false);
-  const [calendarDensity, setCalendarDensity] = useState(null);
-  const [plaidData,       setPlaidData]       = useState(null);
+  const [calendarDensity,  setCalendarDensity]  = useState(null);
+  const [plaidData,        setPlaidData]        = useState(null);
+  const [weatherForecast,  setWeatherForecast]  = useState(null);
 
   const isAfter5pm = new Date().getHours() >= 17;
   const todayStr   = todayYMD();
@@ -157,15 +159,20 @@ export default function HomeScreen() {
     return (Date.now() - lastMs) > 7 * 24 * 60 * 60 * 1000;
   }, [weeklyReviews]);
 
-  // Pre-compute momentum for active projects
-  const activeProjectsMomentum = useMemo(() => {
-    const map = {};
-    (activeProjects || []).forEach(p => {
-      const pts = tasks.filter(t => t.projectId === p.id);
-      map[p.id] = calculateMomentum(p, pts).score;
-    });
-    return map;
-  }, [activeProjects, tasks]);
+  // Compute display-active projects: includes stalled projects with momentum > 50
+  // (same displayStatus logic as ProjectsScreen, avoids DataContext auto-stall hiding real activity)
+  const displayActiveProjects = useMemo(() => {
+    return (projects || [])
+      .map(p => {
+        const pts = tasks.filter(t => t.projectId === p.id);
+        return { ...p, _mScore: calculateMomentum(p, pts).score };
+      })
+      .filter(p => {
+        if (p.status === 'complete' || p.status === 'paused' || p.status === 'planning') return false;
+        return p.status === 'active' || (p.status === 'stalled' && p._mScore > 50);
+      })
+      .sort((a, b) => b._mScore - a._mScore);
+  }, [projects, tasks]);
 
   // Goal trajectory
   const activeGoals   = (goals || []).filter(g => g.status === 'active');
@@ -183,6 +190,7 @@ export default function HomeScreen() {
     userProfile:    userProfile || profile,
     calendarDensity,
     plaidData,
+    weatherForecast,
   });
 
   const fetchAI = async () => {
@@ -278,6 +286,14 @@ export default function HomeScreen() {
     loadPlaid();
     // eslint-disable-next-line
   }, [plaidItems]);
+
+  useEffect(() => {
+    async function loadWeather() {
+      const data = await fetchWeeklyWeather('50063');
+      if (data) setWeatherForecast(data);
+    }
+    loadWeather();
+  }, []);
 
   const handleEnergyChange = async (val) => {
     setEnergy(val);
@@ -458,6 +474,36 @@ export default function HomeScreen() {
           </div>
         </div>
       )}
+
+      {/* Outdoor task weather warning */}
+      {weatherForecast && (() => {
+        const tomorrow = weatherForecast.forecast?.[1];
+        const outdoorTasksScheduled = tasks.filter(t => !t.done && isOutdoorTask(t) && (t.scheduledDate === todayStr || t.scheduledDate === (tomorrow?.date)));
+        const badDayTasks = outdoorTasksScheduled.filter(t => {
+          const dayForecast = weatherForecast.forecast?.find(d => d.date === t.scheduledDate);
+          return dayForecast && !dayForecast.outdoorFriendly;
+        });
+        if (badDayTasks.length === 0) return null;
+        const badDay = weatherForecast.forecast?.find(d => d.date === badDayTasks[0].scheduledDate);
+        return (
+          <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '12px 18px', background: tokens.blueDim, border: `1px solid ${tokens.blue}30`, borderRadius: '12px' }}>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.blue, marginBottom: '2px' }}>
+                  🌧 Weather alert — outdoor tasks may need rescheduling
+                </div>
+                <div style={{ fontSize: '12px', color: tokens.textSecondary }}>
+                  {badDay?.label}, {badDay?.maxTemp}°F, {badDay?.precipProbability}% rain on {badDay?.date} · {badDayTasks.map(t => t.title).join(', ')}
+                </div>
+              </div>
+              <button onClick={() => setPlanOpen(true)}
+                style={{ background: tokens.blue, color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
+                Reschedule →
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Deadline Risk Banner */}
       {deadlineRiskTasks.length > 0 && (
@@ -780,23 +826,20 @@ export default function HomeScreen() {
               Manage →
             </button>
           </div>
-          {activeProjects.length === 0 ? (
+          {displayActiveProjects.length === 0 ? (
             <EmptyState icon="◈" title="No active projects" subtitle="Add your first project." action={<Button onClick={() => navigate('/projects')} size="sm">New Project</Button>} />
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px' }}>
-              {activeProjects.slice(0, 6).map(p => {
-                const mScore = activeProjectsMomentum[p.id] ?? 0;
-                return (
-                  <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
-                    style={{ padding: '12px 14px', borderRadius: '8px', background: tokens.bgGlass, border: `1px solid ${tokens.border}`, cursor: 'pointer', transition: 'all 0.15s' }}
-                    onMouseEnter={e => e.currentTarget.style.borderColor = tokens.borderHover}
-                    onMouseLeave={e => e.currentTarget.style.borderColor = tokens.border}>
-                    <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</div>
-                    <MomentumBar value={mScore} color={momentumColor(mScore)} />
-                    <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '5px' }}>{mScore}% momentum</div>
-                  </div>
-                );
-              })}
+              {displayActiveProjects.slice(0, 6).map(p => (
+                <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
+                  style={{ padding: '12px 14px', borderRadius: '8px', background: tokens.bgGlass, border: `1px solid ${tokens.border}`, cursor: 'pointer', transition: 'all 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = tokens.borderHover}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = tokens.border}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</div>
+                  <MomentumBar value={p._mScore} color={momentumColor(p._mScore)} />
+                  <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '5px' }}>{p._mScore}% momentum</div>
+                </div>
+              ))}
             </div>
           )}
         </Card>
@@ -846,6 +889,7 @@ export default function HomeScreen() {
         open={planOpen}
         onClose={() => setPlanOpen(false)}
         calendarIntegration={calendarIntegration}
+        weatherForecast={weatherForecast}
       />
 
       {/* AI Feedback Modal */}

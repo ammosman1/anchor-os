@@ -12,6 +12,7 @@ import { updateTask } from '../../lib/db';
 import { RECURRENCE_OPTIONS } from '../../lib/tasks';
 import PlanScheduleFlow from './PlanScheduleFlow';
 import WorkScheduleImportModal from './WorkScheduleImportModal';
+import { fetchWeeklyWeather } from '../../lib/weather';
 
 const HOUR_HEIGHT = 60;
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -136,6 +137,7 @@ export default function CalendarScreen() {
   const [detail, setDetail]            = useState(null);
   const [deleting, setDeleting]        = useState(false);
   const [planOpen, setPlanOpen]        = useState(false);
+  const [weatherForecast, setWeatherForecast] = useState(null);
   const [importOpen, setImportOpen]    = useState(false);
   const [sidebarOpen, setSidebarOpen]   = useState(true);
   const [sidebarFilter, setSidebarFilter] = useState('unscheduled'); // 'unscheduled' | 'all'
@@ -182,6 +184,10 @@ export default function CalendarScreen() {
   }, [gridStart]); // re-scroll when user changes grid start hour
 
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+
+  useEffect(() => {
+    fetchWeeklyWeather('50063').then(data => { if (data) setWeatherForecast(data); }).catch(() => {});
+  }, []);
 
   // ── Unscheduled tasks for sidebar ─────────────────────────────────────────
   // Show tasks that have no time slot yet (no scheduledStart), regardless of whether
@@ -1235,6 +1241,7 @@ export default function CalendarScreen() {
           fetchWeek(ws);
         }}
         calendarIntegration={calendarIntegration}
+        weatherForecast={weatherForecast}
       />
 
       {/* ── Work Schedule Import ── */}

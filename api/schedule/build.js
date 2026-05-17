@@ -5,7 +5,7 @@
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { tasks, slotsMap, days, focusProfile } = req.body;
+  const { tasks, slotsMap, days, focusProfile, weatherForecast } = req.body;
   if (!tasks?.length) return res.status(400).json({ error: 'tasks required' });
   if (!slotsMap || !days?.length) return res.status(400).json({ error: 'slotsMap and days required' });
 
@@ -17,12 +17,38 @@ export default async function handler(req, res) {
 
   const daysJson = days.map(d => ({ date: d, slots: slotsMap[d] || [] }));
 
+  // Build due date urgency notes
+  const today = new Date(); today.setHours(0,0,0,0);
+  const tasksWithUrgency = tasks.map(t => {
+    const notes = [];
+    if (t.dueDate) {
+      const diff = Math.floor((new Date(t.dueDate + 'T00:00:00') - today) / (1000 * 60 * 60 * 24));
+      if (diff < 0) notes.push(`OVERDUE by ${Math.abs(diff)}d`);
+      else if (diff === 0) notes.push('DUE TODAY');
+      else if (diff <= 2) notes.push(`due in ${diff}d`);
+      else notes.push(`due ${t.dueDate}`);
+    }
+    if (t.pushCount >= 2) notes.push(`pushed ${t.pushCount}x — must be scheduled`);
+    if (t.outdoor) notes.push('OUTDOOR TASK');
+    return { ...t, urgencyNotes: notes.join(' | ') };
+  });
+
+  // Weather context for outdoor tasks
+  let weatherNote = '';
+  if (weatherForecast?.length > 0) {
+    const badDays = weatherForecast.filter(d => !d.outdoorFriendly).map(d => d.date);
+    const goodDays = weatherForecast.filter(d => d.outdoorFriendly).map(d => `${d.date} (${d.label}, ${d.maxTemp}°F)`);
+    if (badDays.length > 0) {
+      weatherNote = `\nWEATHER CONSTRAINTS:\n- Outdoor tasks NOT suitable on: ${badDays.join(', ')}\n- Good outdoor days: ${goodDays.slice(0, 3).join(', ')}\n- Always schedule outdoor tasks on good-weather days only`;
+    }
+  }
+
   const prompt = `Build a realistic time-blocked schedule for Andrew.
 
 SCHEDULING WINDOW: ${days[0]} through ${days[days.length - 1]} (${days.length} day${days.length > 1 ? 's' : ''})
 
-TASKS TO SCHEDULE (sorted by priority — schedule critical/high earlier in the day/week):
-${JSON.stringify(tasks, null, 2)}
+TASKS TO SCHEDULE (sorted by urgency — schedule high-urgency items first):
+${JSON.stringify(tasksWithUrgency, null, 2)}
 
 FREE TIME SLOTS PER DAY:
 ${JSON.stringify(daysJson, null, 2)}
@@ -31,11 +57,15 @@ FOCUS WINDOWS:
 - Morning 8am–12pm → deep work (financial review, planning, drafting, strategic decisions)
 - Early afternoon 1pm–3pm → medium tasks (calls, research, follow-ups)
 - Late afternoon 3pm–6pm → quick tasks (emails, admin, short actions)
+${weatherNote}
 
 ENERGY CONTEXT: ${energyNote}
 
 RULES:
+- Tasks marked OVERDUE or pushed 2+ times must be scheduled first, today if possible
+- Tasks with due dates within 2 days get top priority in the schedule
 - Critical and high priority tasks get the earliest, best available slots
+- OUTDOOR tasks must only be placed on weather-suitable days
 - Never schedule deep work in an afternoon low-focus slot if a morning slot is available
 - Add 10-minute buffers between consecutive blocks — don't stack them back-to-back
 - Do not schedule more than 5 hours of focused work per day

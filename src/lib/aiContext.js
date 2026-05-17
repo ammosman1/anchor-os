@@ -7,7 +7,7 @@ export function buildHolisticContext({
   goals = [], tasks = [], projects = [],
   brainDumps = [], weeklyReviews = [],
   userProfile = null, plaidData = null,
-  calendarDensity = null,
+  calendarDensity = null, weatherForecast = null,
 }) {
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -19,6 +19,19 @@ export function buildHolisticContext({
 
   if (userProfile?.persona) {
     lines.push(`\nUSER PERSONA (Andrew's self-described working style — treat as non-negotiable preferences):\n${userProfile.persona}`);
+  }
+
+  // Weather forecast
+  if (weatherForecast?.forecast?.length > 0) {
+    lines.push(`\nWEATHER FORECAST (${weatherForecast.location || 'local'}):`);
+    weatherForecast.forecast.slice(0, 5).forEach(day => {
+      const outdoor = day.outdoorFriendly ? '✓ outdoor-ok' : '✗ no-outdoor';
+      lines.push(`  ${day.date}: ${day.label}, ${day.maxTemp}°F, ${day.precipProbability}% precip, wind ${day.windSpeed}mph — ${outdoor}`);
+    });
+    const badDays = weatherForecast.forecast.slice(0, 5).filter(d => !d.outdoorFriendly);
+    if (badDays.length > 0) {
+      lines.push(`  ⚠ Avoid scheduling outdoor tasks on: ${badDays.map(d => d.date).join(', ')}`);
+    }
   }
 
   // Calendar density

@@ -10,8 +10,8 @@ import {
 import { buildScheduleForDays } from '../../lib/ai';
 import { updateTask } from '../../lib/db';
 import { Button, Spinner, priorityColors } from '../ui';
-
-const PRIORITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
+import { calculateUrgency } from '../../lib/tasks';
+import { isOutdoorTask } from '../../lib/weather';
 const STEPS = ['scope', 'triage', 'building', 'review', 'commit', 'done'];
 
 function ymd(d) {
@@ -41,7 +41,7 @@ function yesterdayYMD() {
   return ymd(d);
 }
 
-export default function PlanScheduleFlow({ open, onClose, calendarIntegration }) {
+export default function PlanScheduleFlow({ open, onClose, calendarIntegration, weatherForecast }) {
   const { user } = useAuth();
   const { tasks, userProfile } = useData();
 
@@ -62,10 +62,10 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration })
     .filter(t => {
       if (t.done) return false;
       if (!t.scheduledDate) return true;
-      if (t.scheduledDate <= yesterdayStr) return true; // overdue or not done yesterday
+      if (t.scheduledDate <= yesterdayStr) return true;
       return false;
     })
-    .sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9)),
+    .sort((a, b) => calculateUrgency(b) - calculateUrgency(a)),
   [tasks, yesterdayStr]);
 
   const reset = useCallback(() => {
@@ -102,11 +102,15 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration })
     const selected = candidateTasks
       .filter(t => selectedIds.has(t.id))
       .map(t => ({
-        id: t.id,
-        title: t.title,
-        priority: t.priority,
+        id:               t.id,
+        title:            t.title,
+        priority:         t.priority,
         estimatedMinutes: t.estimatedMinutes || 45,
-        project: t.project || 'Inbox',
+        project:          t.project || 'Inbox',
+        dueDate:          t.dueDate || null,
+        pushCount:        t.pushCount || 0,
+        outdoor:          isOutdoorTask(t),
+        tags:             t.tags || [],
       }));
 
     try {
@@ -145,6 +149,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration })
         slotsMap,
         days,
         focusProfile: { recentEnergy: userProfile?.energyToday ? userProfile.energyToday * 10 : 70 },
+        weatherForecast: weatherForecast?.forecast || null,
       });
 
       const scheduledIds = new Set((result?.schedule || []).map(s => s.taskId).filter(Boolean));
