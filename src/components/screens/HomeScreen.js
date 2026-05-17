@@ -11,7 +11,7 @@ import { getValidAccessToken, getEvents } from '../../lib/calendar';
 import { calculateMomentum } from '../../lib/momentum';
 import { calculateUrgency } from '../../lib/tasks';
 import { fetchMonthlyCashFlow } from '../../lib/plaid';
-import { fetchWeeklyWeather, isOutdoorTask } from '../../lib/weather';
+import { fetchWeeklyWeather, isOutdoorTask, weatherCodeToEmoji } from '../../lib/weather';
 import {
   Card, AICard, SectionLabel, MomentumBar, Tag, Button,
   EmptyState, priorityColors, Modal, Input,
@@ -289,11 +289,12 @@ export default function HomeScreen() {
 
   useEffect(() => {
     async function loadWeather() {
-      const data = await fetchWeeklyWeather('50063');
+      const zip = userProfile?.zip || '50063';
+      const data = await fetchWeeklyWeather(zip);
       if (data) setWeatherForecast(data);
     }
     loadWeather();
-  }, []);
+  }, [userProfile?.zip]); // eslint-disable-line
 
   const handleEnergyChange = async (val) => {
     setEnergy(val);
@@ -404,6 +405,14 @@ export default function HomeScreen() {
             <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '4px' }}>
               {doneTodayCount > 0 ? `${doneTodayCount} done today · ` : ''}{scheduledToday.length > 0 ? `${scheduledToday.length} scheduled · ` : ''}{top3.length} priorities on deck.
             </p>
+            {weatherForecast?.forecast?.[0] && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', marginTop: '8px', padding: '4px 12px 4px 8px', background: tokens.bgGlass, border: `1px solid ${tokens.border}`, borderRadius: '20px', fontSize: '12px' }}>
+                <span style={{ fontSize: '18px', lineHeight: 1 }}>{weatherCodeToEmoji(weatherForecast.forecast[0].code)}</span>
+                <span style={{ fontWeight: 700, color: tokens.textPrimary }}>{weatherForecast.forecast[0].maxTemp}°F</span>
+                <span style={{ color: tokens.textSecondary }}>{weatherForecast.forecast[0].label}</span>
+                {weatherForecast.location && <span style={{ color: tokens.textMuted }}>· {weatherForecast.location}</span>}
+              </div>
+            )}
           </div>
           <button onClick={() => setPlanOpen(true)}
             style={{ background: tokens.accentDim, color: tokens.accent, border: `1px solid ${tokens.accentDim}`, borderRadius: '10px', padding: '9px 14px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, whiteSpace: 'nowrap', marginTop: '4px', transition: 'all 0.15s' }}

@@ -358,6 +358,7 @@ RULES:
 
 Return ONLY valid JSON:
 {
+  "summary": "2-3 sentences explaining key scheduling decisions: why certain tasks got priority, how energy/urgency shaped the plan, and anything left unscheduled and why",
   "schedule": [
     {
       "taskTitle": "exact task title",

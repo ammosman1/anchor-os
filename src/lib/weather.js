@@ -28,6 +28,19 @@ export function weatherCodeToLabel(code) {
   return 'Unknown';
 }
 
+export function weatherCodeToEmoji(code) {
+  if (code === 0) return '☀️';
+  if (code <= 2) return '⛅';
+  if (code <= 3) return '☁️';
+  if (code <= 48) return '🌫️';
+  if (code <= 57) return '🌦️';
+  if (code <= 67) return '🌧️';
+  if (code <= 77) return '❄️';
+  if (code <= 82) return '🌦️';
+  if (code <= 99) return '⛈️';
+  return '🌡️';
+}
+
 function isOutdoorFriendly(code, precipProb, windKmh) {
   if (code >= 51) return false;
   if (precipProb > 40) return false;

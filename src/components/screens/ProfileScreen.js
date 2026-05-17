@@ -38,6 +38,7 @@ export default function ProfileScreen() {
 
   const [displayName,    setDisplayName]    = useState('');
   const [photoURL,       setPhotoURL]       = useState('');
+  const [zip,            setZip]            = useState('');
   const [persona,        setPersona]        = useState('');
   const [workHours,      setWorkHours]      = useState(DEFAULT_WORK_HOURS);
   const [currentTheme]                      = useState(() => { try { return localStorage.getItem('anchorTheme') || 'warmCream'; } catch { return 'warmCream'; } });
@@ -69,6 +70,7 @@ export default function ProfileScreen() {
   useEffect(() => {
     if (userProfile) {
       setPersona(userProfile.persona || '');
+      setZip(userProfile.zip || '');
       if (userProfile.workHours) setWorkHours(userProfile.workHours);
       if (userProfile.calGridStart != null) setCalGridStart(userProfile.calGridStart);
       if (userProfile.calGridEnd   != null) setCalGridEnd(userProfile.calGridEnd);
@@ -105,7 +107,7 @@ export default function ProfileScreen() {
     setSavingProfile(true);
     try {
       await updateProfile(auth.currentUser, { displayName: displayName.trim() });
-      await saveProfile(user.uid, { displayName: displayName.trim() });
+      await saveProfile(user.uid, { displayName: displayName.trim(), zip: zip.trim() || null });
       showSaved('profile');
     } catch (err) {
       console.error('Save profile error:', err);
@@ -216,6 +218,17 @@ export default function ProfileScreen() {
                 onFocus={e => e.target.style.borderColor = tokens.borderFocus}
                 onBlur={e => e.target.style.borderColor = tokens.border}
               />
+              <div style={{ fontSize: '11px', fontWeight: 600, color: tokens.textMuted, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '12px 0 6px' }}>Location (Zip Code)</div>
+              <input
+                value={zip}
+                onChange={e => setZip(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                placeholder="e.g. 50063"
+                maxLength={5}
+                style={{ ...inputStyle, width: '120px' }}
+                onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+                onBlur={e => e.target.style.borderColor = tokens.border}
+              />
+              <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '4px' }}>Used for local weather forecasts</div>
               <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '6px' }}>{user?.email}</div>
             </div>
           </div>

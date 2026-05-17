@@ -12,7 +12,7 @@ import { updateTask } from '../../lib/db';
 import { RECURRENCE_OPTIONS } from '../../lib/tasks';
 import PlanScheduleFlow from './PlanScheduleFlow';
 import WorkScheduleImportModal from './WorkScheduleImportModal';
-import { fetchWeeklyWeather } from '../../lib/weather';
+import { fetchWeeklyWeather, weatherCodeToEmoji } from '../../lib/weather';
 
 const HOUR_HEIGHT = 60;
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -186,8 +186,9 @@ export default function CalendarScreen() {
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
   useEffect(() => {
-    fetchWeeklyWeather('50063').then(data => { if (data) setWeatherForecast(data); }).catch(() => {});
-  }, []);
+    const zip = userProfile?.zip || '50063';
+    fetchWeeklyWeather(zip).then(data => { if (data) setWeatherForecast(data); }).catch(() => {});
+  }, [userProfile?.zip]); // eslint-disable-line
 
   // ── Unscheduled tasks for sidebar ─────────────────────────────────────────
   // Show tasks that have no time slot yet (no scheduledStart), regardless of whether
@@ -1028,15 +1029,19 @@ export default function CalendarScreen() {
           {isMobile && (
             <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', overflowX: 'auto', flexShrink: 0, paddingBottom: '2px' }}>
               {days.map((d, i) => {
-                const active  = sameDay(d, mobileDay);
-                const isToday = sameDay(d, today);
+                const active       = sameDay(d, mobileDay);
+                const isToday      = sameDay(d, today);
+                const dayFc        = weatherForecast?.forecast?.find(f => f.date === ymd(d));
+                const tooltipText  = dayFc ? `${dayFc.label} · ${dayFc.maxTemp}°/${dayFc.minTemp}°F · ${dayFc.precipProbability}% rain · ${dayFc.windSpeed}mph · ${dayFc.outdoorFriendly ? '✓ outdoor ok' : '✗ no outdoor'}` : '';
                 return (
                   <button key={i} onClick={() => setMobileDay(d)}
+                    title={tooltipText}
                     style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', padding: '5px 9px', borderRadius: '8px', border: `1px solid ${active ? 'rgba(200,169,110,0.3)' : tokens.border}`, background: active ? tokens.accentDim : 'transparent', cursor: 'pointer', flexShrink: 0 }}>
                     <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: active ? tokens.accent : tokens.textMuted }}>{DAY_SHORT[d.getDay()]}</span>
                     <span style={{ fontSize: '14px', fontWeight: 700, color: isToday ? tokens.accent : active ? tokens.textPrimary : tokens.textSecondary, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', background: isToday && !active ? tokens.accentDim : 'transparent' }}>
                       {d.getDate()}
                     </span>
+                    {dayFc && <span style={{ fontSize: '11px', lineHeight: 1 }}>{weatherCodeToEmoji(dayFc.code)}</span>}
                   </button>
                 );
               })}
@@ -1050,12 +1055,26 @@ export default function CalendarScreen() {
               {visible.map((d, i) => {
                 const isToday    = sameDay(d, today);
                 const isNonWork  = userProfile?.workHours && !isWorkDay(d, userProfile.workHours);
+                const dayFc      = weatherForecast?.forecast?.find(f => f.date === ymd(d));
+                const tooltipText = dayFc
+                  ? `${dayFc.label} · High ${dayFc.maxTemp}°F / Low ${dayFc.minTemp}°F · ${dayFc.precipProbability}% chance of rain · Wind ${dayFc.windSpeed}mph · ${dayFc.outdoorFriendly ? '✓ Outdoor ok' : '✗ Not ideal for outdoor tasks'}`
+                  : '';
                 return (
                   <div key={i} style={{ flex: 1, textAlign: 'center', padding: '6px 2px 8px', borderLeft: i > 0 ? `1px solid ${tokens.border}` : 'none', background: isNonWork ? 'rgba(0,0,0,0.02)' : isToday ? 'rgba(200,169,110,0.03)' : 'transparent' }}>
                     <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: isNonWork ? tokens.textDisabled : tokens.textMuted }}>{DAY_SHORT[d.getDay()]}</div>
                     <div style={{ fontFamily: fonts.display, fontSize: '20px', fontWeight: 700, color: isToday ? tokens.accent : isNonWork ? tokens.textDisabled : tokens.textPrimary, width: 34, height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', background: isToday ? tokens.accentDim : 'transparent', margin: '3px auto 0' }}>
                       {d.getDate()}
                     </div>
+                    {dayFc && (
+                      <div title={tooltipText} style={{ fontSize: '13px', marginTop: '4px', cursor: 'help', lineHeight: 1, opacity: 0.9 }}>
+                        {weatherCodeToEmoji(dayFc.code)}
+                      </div>
+                    )}
+                    {dayFc && (
+                      <div style={{ fontSize: '9px', color: isNonWork ? tokens.textDisabled : tokens.textMuted, marginTop: '2px', whiteSpace: 'nowrap' }}>
+                        {dayFc.maxTemp}°
+                      </div>
+                    )}
                   </div>
                 );
               })}

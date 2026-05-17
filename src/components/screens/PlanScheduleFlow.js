@@ -49,6 +49,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
   const [scope, setScope]                 = useState('today');
   const [selectedIds, setSelectedIds]     = useState(new Set());
   const [schedule, setSchedule]           = useState([]);
+  const [scheduleSummary, setScheduleSummary] = useState('');
   const [unschedulable, setUnschedulable] = useState([]);
   const [commitMode, setCommitMode]       = useState('anchor');
   const [committing, setCommitting]       = useState(false);
@@ -73,6 +74,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
     setScope('today');
     setSelectedIds(new Set(candidateTasks.map(t => t.id)));
     setSchedule([]);
+    setScheduleSummary('');
     setUnschedulable([]);
     setCommitMode('anchor');
     setError('');
@@ -154,6 +156,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
 
       const scheduledIds = new Set((result?.schedule || []).map(s => s.taskId).filter(Boolean));
       setSchedule(result?.schedule || []);
+      setScheduleSummary(result?.summary || '');
       setUnschedulable(selected.filter(t => !scheduledIds.has(t.id)));
       setStep('review');
     } catch (err) {
@@ -354,6 +357,12 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
           {/* ── REVIEW ── */}
           {step === 'review' && (
             <div>
+              {scheduleSummary && (
+                <div style={{ padding: '12px 16px', background: tokens.accentDim, border: `1px solid rgba(200,169,110,0.25)`, borderRadius: '10px', marginBottom: '18px' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: tokens.accent, marginBottom: '6px' }}>Why this schedule</div>
+                  <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6 }}>{scheduleSummary}</div>
+                </div>
+              )}
               {schedule.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '24px 0', color: tokens.textMuted }}>
                   No tasks could be scheduled. Expand scope or reduce tasks.
