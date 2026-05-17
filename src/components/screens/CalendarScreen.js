@@ -199,24 +199,30 @@ export default function CalendarScreen() {
   // ── Task-derived calendar blocks (tasks with a scheduled time slot) ────────
   const taskCalEvents = useMemo(() => {
     const wsEnd = new Date(ws); wsEnd.setDate(wsEnd.getDate() + 7);
+    // Only exclude if the task's GCal event was actually fetched (to avoid duplication).
+    // If GCal isn't connected or the event was deleted, always show the Anchor block.
     const gcalIds = new Set(events.map(e => e.id));
     return tasks
-      .filter(t => !t.done && t.scheduledStart && t.scheduledEnd)
+      .filter(t => !t.done && t.scheduledStart) // scheduledEnd optional — we default below
       .filter(t => !t.calendarEventId || !gcalIds.has(t.calendarEventId))
       .filter(t => {
         const s = new Date(t.scheduledStart);
         return s >= ws && s < wsEnd;
       })
-      .map(t => ({
-        id: `task-${t.id}`,
-        _taskId: t.id,
-        _isTask: true,
-        _anchor: true,
-        summary: t.title,
-        priority: t.priority,
-        start: { dateTime: t.scheduledStart },
-        end:   { dateTime: t.scheduledEnd },
-      }));
+      .map(t => {
+        const startMs = new Date(t.scheduledStart).getTime();
+        const endIso  = t.scheduledEnd || new Date(startMs + (t.estimatedMinutes || 45) * 60000).toISOString();
+        return {
+          id: `task-${t.id}`,
+          _taskId: t.id,
+          _isTask: true,
+          _anchor: true,
+          summary: t.title,
+          priority: t.priority,
+          start: { dateTime: t.scheduledStart },
+          end:   { dateTime: endIso },
+        };
+      });
   }, [tasks, ws, events]);
 
   // ── Drag-to-reschedule existing calendar events ────────────────────────────
@@ -368,18 +374,61 @@ export default function CalendarScreen() {
     setEditSaving(true);
     const linked = (projects || []).find(p => p.title === editForm.project);
     try {
-      await updateTask(user.uid, editingTask.id, {
+      const newMins = editForm.estimatedMinutes ? Number(editForm.estimatedMinutes) : null;
+      const updates = {
         title:            editForm.title.trim(),
         priority:         editForm.priority,
         dueDate:          editForm.dueDate || null,
-        estimatedMinutes: editForm.estimatedMinutes ? Number(editForm.estimatedMinutes) : null,
+        estimatedMinutes: newMins,
         notes:            editForm.notes,
         project:          editForm.project,
         projectId:        linked?.id || editForm.projectId || null,
-      });
+      };
+      // Recalculate end time when duration changes and task has a time slot
+      if (editingTask.scheduledStart && newMins) {
+        updates.scheduledEnd = new Date(new Date(editingTask.scheduledStart).getTime() + newMins * 60000).toISOString();
+      }
+      await updateTask(user.uid, editingTask.id, updates);
+      // Update GCal event duration if linked
+      if (editingTask.calendarEventId && calendarIntegration?.connected && updates.scheduledEnd) {
+        try {
+          const token = await getValidAccessToken(user.uid, calendarIntegration);
+          if (token) await updateEvent(token, editingTask.calendarEventId, {
+            end: { dateTime: updates.scheduledEnd, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+          });
+        } catch (err) { console.warn('GCal duration update failed:', err); }
+      }
       setEditingTask(null);
     } catch (err) {
       console.error('Edit save error:', err);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleUnschedule = async () => {
+    if (!editingTask) return;
+    setEditSaving(true);
+    try {
+      // Delete GCal event if linked
+      if (editingTask.calendarEventId && calendarIntegration?.connected) {
+        try {
+          const token = await getValidAccessToken(user.uid, calendarIntegration);
+          if (token) await deleteEvent(token, editingTask.calendarEventId);
+        } catch (err) { console.warn('GCal delete failed:', err); }
+        // Remove from local events state
+        setEvents(prev => prev.filter(e => e.id !== editingTask.calendarEventId));
+      }
+      await updateTask(user.uid, editingTask.id, {
+        status:          'pending',
+        scheduledDate:   null,
+        scheduledStart:  null,
+        scheduledEnd:    null,
+        calendarEventId: null,
+      });
+      setEditingTask(null);
+    } catch (err) {
+      console.error('Unschedule error:', err);
     } finally {
       setEditSaving(false);
     }
@@ -412,13 +461,34 @@ export default function CalendarScreen() {
 
       const start = new Date(slot.start);
       const end   = new Date(start.getTime() + needed * 60000);
+      const tz    = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-      await updateTask(user.uid, task.id, {
+      const updates = {
         status:         'scheduled',
         scheduledDate:  ymd(start),
         scheduledStart: start.toISOString(),
         scheduledEnd:   end.toISOString(),
-      });
+      };
+
+      if (calendarIntegration?.connected) {
+        try {
+          const token = await getValidAccessToken(user.uid, calendarIntegration);
+          if (token) {
+            const created = await createEvent(token, {
+              summary:     task.title,
+              description: task.notes || '',
+              start: { dateTime: start.toISOString(), timeZone: tz },
+              end:   { dateTime: end.toISOString(),   timeZone: tz },
+              colorId: '5',
+            });
+            updates.calendarEventId = created.id;
+            fetched.current.delete(ws.toISOString());
+            fetchWeek(ws);
+          }
+        } catch (err) { console.warn('GCal auto-schedule create failed:', err); }
+      }
+
+      await updateTask(user.uid, task.id, updates);
     } finally {
       setAutoScheduling(prev => { const n = new Set(prev); n.delete(task.id); return n; });
     }
@@ -477,14 +547,36 @@ export default function CalendarScreen() {
   const scheduleTaskAtSlot = async (task, day, mins) => {
     const start = new Date(day);
     start.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
-    const end = new Date(start.getTime() + (task.estimatedMinutes || 45) * 60000);
+    const end   = new Date(start.getTime() + (task.estimatedMinutes || 45) * 60000);
+    const tz    = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-    await updateTask(user.uid, task.id, {
+    const updates = {
       status:         'scheduled',
       scheduledDate:  ymd(start),
       scheduledStart: start.toISOString(),
       scheduledEnd:   end.toISOString(),
-    });
+    };
+
+    // Auto-create Google Calendar event if connected
+    if (calendarIntegration?.connected) {
+      try {
+        const token = await getValidAccessToken(user.uid, calendarIntegration);
+        if (token) {
+          const created = await createEvent(token, {
+            summary:     task.title,
+            description: task.notes || '',
+            start: { dateTime: start.toISOString(), timeZone: tz },
+            end:   { dateTime: end.toISOString(),   timeZone: tz },
+            colorId: '5',
+          });
+          updates.calendarEventId = created.id;
+          fetched.current.delete(ws.toISOString());
+          fetchWeek(ws);
+        }
+      } catch (err) { console.warn('GCal event create failed:', err); }
+    }
+
+    await updateTask(user.uid, task.id, updates);
   };
 
   const confirmWorkHoursOverride = async () => {
@@ -739,8 +831,17 @@ export default function CalendarScreen() {
                         </span>
                       )}
                       {isScheduled && (
-                        <span style={{ fontSize: '9px', color: tokens.accent, fontWeight: 600 }}>
-                          {formatEventTime(task.scheduledStart)}{task.scheduledDate ? ` · ${new Date(task.scheduledDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                        <span style={{ fontSize: '9px', color: tokens.accent, fontWeight: 600, cursor: 'pointer' }}
+                          onClick={e => {
+                            e.stopPropagation();
+                            // Navigate to the week containing this task
+                            const taskDay = new Date(task.scheduledStart);
+                            const targetWs = weekStart(taskDay);
+                            setWs(targetWs);
+                            if (isMobile) setMobileDay(taskDay);
+                          }}
+                          title="Click to navigate to this date">
+                          {new Date(task.scheduledStart).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {formatEventTime(task.scheduledStart)}
                         </span>
                       )}
                       {yest    && !isScheduled && <span style={{ fontSize: '9px', color: tokens.amber, fontWeight: 600 }}>⚡ yesterday</span>}
@@ -998,9 +1099,27 @@ export default function CalendarScreen() {
               </div>
             </div>
             <Input label="Notes" value={editForm.notes} onChange={v => setEditForm(p => ({ ...p, notes: v }))} placeholder="Context, links, details..." multiline rows={2} />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <Button onClick={() => setEditingTask(null)} variant="ghost">Cancel</Button>
-              <Button onClick={handleEditSave} loading={editSaving} disabled={!editForm.title.trim()}>Save Task</Button>
+            {editingTask?.scheduledStart && (
+              <div style={{ padding: '10px 14px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}`, fontSize: '12px', color: tokens.textSecondary }}>
+                <span style={{ color: tokens.textMuted }}>Scheduled: </span>
+                <span style={{ color: tokens.accent, fontWeight: 600 }}>
+                  {new Date(editingTask.scheduledStart).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {formatEventTime(editingTask.scheduledStart)} – {formatEventTime(editingTask.scheduledEnd || new Date(new Date(editingTask.scheduledStart).getTime() + (editingTask.estimatedMinutes || 45) * 60000).toISOString())}
+                </span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+              <div>
+                {editingTask?.scheduledStart && (
+                  <Button onClick={handleUnschedule} variant="ghost" loading={editSaving}
+                    style={{ color: tokens.red, borderColor: tokens.red }}>
+                    Remove from Schedule
+                  </Button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <Button onClick={() => setEditingTask(null)} variant="ghost">Cancel</Button>
+                <Button onClick={handleEditSave} loading={editSaving} disabled={!editForm.title.trim()}>Save Task</Button>
+              </div>
             </div>
           </div>
         )}

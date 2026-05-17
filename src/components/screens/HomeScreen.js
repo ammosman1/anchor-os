@@ -170,18 +170,43 @@ export default function HomeScreen() {
     setEditSaving(true);
     const linked = (projects || []).find(p => p.title === editForm.project);
     try {
-      await updateTask(user.uid, editingTask.id, {
+      const newMins = editForm.estimatedMinutes ? Number(editForm.estimatedMinutes) : null;
+      const updates = {
         title:            editForm.title.trim(),
         priority:         editForm.priority,
         dueDate:          editForm.dueDate || null,
-        estimatedMinutes: editForm.estimatedMinutes ? Number(editForm.estimatedMinutes) : null,
+        estimatedMinutes: newMins,
         notes:            editForm.notes,
         project:          editForm.project,
         projectId:        linked?.id || editingTask.projectId || null,
-      });
+      };
+      // Recalculate end time when duration changes and task has a time slot
+      if (editingTask.scheduledStart && newMins) {
+        updates.scheduledEnd = new Date(new Date(editingTask.scheduledStart).getTime() + newMins * 60000).toISOString();
+      }
+      await updateTask(user.uid, editingTask.id, updates);
       setEditingTask(null);
     } catch (err) {
       console.error('Edit save error:', err);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleUnschedule = async () => {
+    if (!editingTask) return;
+    setEditSaving(true);
+    try {
+      await updateTask(user.uid, editingTask.id, {
+        status:         'pending',
+        scheduledDate:  null,
+        scheduledStart: null,
+        scheduledEnd:   null,
+        calendarEventId: null,
+      });
+      setEditingTask(null);
+    } catch (err) {
+      console.error('Unschedule error:', err);
     } finally {
       setEditSaving(false);
     }
@@ -503,9 +528,27 @@ export default function HomeScreen() {
                 style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
             </div>
             <Input label="Notes" value={editForm.notes} onChange={v => setEditForm(p => ({ ...p, notes: v }))} placeholder="Notes..." />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', paddingTop: '4px' }}>
-              <Button variant="ghost" onClick={() => setEditingTask(null)}>Cancel</Button>
-              <Button onClick={handleEditSave} loading={editSaving}>Save</Button>
+            {editingTask?.scheduledStart && (
+              <div style={{ padding: '10px 14px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}`, fontSize: '12px' }}>
+                <span style={{ color: tokens.textMuted }}>Scheduled: </span>
+                <span style={{ color: tokens.accent, fontWeight: 600 }}>
+                  {new Date(editingTask.scheduledStart).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {formatTime(editingTask.scheduledStart)} – {formatTime(editingTask.scheduledEnd || new Date(new Date(editingTask.scheduledStart).getTime() + (editingTask.estimatedMinutes || 45) * 60000).toISOString())}
+                </span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', paddingTop: '4px' }}>
+              <div>
+                {editingTask?.scheduledStart && (
+                  <Button variant="ghost" onClick={handleUnschedule} loading={editSaving}
+                    style={{ color: tokens.red }}>
+                    Remove from Schedule
+                  </Button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <Button variant="ghost" onClick={() => setEditingTask(null)}>Cancel</Button>
+                <Button onClick={handleEditSave} loading={editSaving}>Save</Button>
+              </div>
             </div>
           </div>
         )}
