@@ -168,18 +168,42 @@ export default function CalendarScreen() {
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
   // ── Unscheduled tasks for sidebar ─────────────────────────────────────────
+  // Show tasks that have no time slot yet (no scheduledStart), regardless of whether
+  // they have a date. A task with a date but no time needs to be dragged onto the grid.
   const unscheduledTasks = useMemo(() => tasks
     .filter(t => {
       if (t.done) return false;
-      if (!t.scheduledDate) return true;
-      if (t.scheduledDate <= yesterdayStr) return true;
-      return false;
+      if (t.scheduledStart) return false; // has a time → shows on grid
+      return true;
     })
     .sort((a, b) => {
       const po = { critical: 0, high: 1, medium: 2, low: 3 };
       return (po[a.priority] ?? 9) - (po[b.priority] ?? 9);
     }),
-  [tasks, yesterdayStr]);
+  [tasks]);
+
+  // ── Task-derived calendar blocks (tasks with a scheduled time slot) ────────
+  const taskCalEvents = useMemo(() => {
+    const wsEnd = new Date(ws); wsEnd.setDate(wsEnd.getDate() + 7);
+    const gcalIds = new Set(events.map(e => e.id));
+    return tasks
+      .filter(t => !t.done && t.scheduledStart && t.scheduledEnd)
+      .filter(t => !t.calendarEventId || !gcalIds.has(t.calendarEventId))
+      .filter(t => {
+        const s = new Date(t.scheduledStart);
+        return s >= ws && s < wsEnd;
+      })
+      .map(t => ({
+        id: `task-${t.id}`,
+        _taskId: t.id,
+        _isTask: true,
+        _anchor: true,
+        summary: t.title,
+        priority: t.priority,
+        start: { dateTime: t.scheduledStart },
+        end:   { dateTime: t.scheduledEnd },
+      }));
+  }, [tasks, ws, events]);
 
   // ── Drag-to-reschedule existing calendar events ────────────────────────────
   const onEventMouseDown = useCallback((e, ev) => {
@@ -460,7 +484,10 @@ export default function CalendarScreen() {
   const today   = new Date();
   const visible = isMobile ? [mobileDay] : days;
 
-  const timedForDay  = (day) => events.filter(e => e.start?.dateTime && sameDay(new Date(e.start.dateTime), day));
+  const timedForDay = (day) => [
+    ...events.filter(e => e.start?.dateTime && sameDay(new Date(e.start.dateTime), day)),
+    ...taskCalEvents.filter(e => sameDay(new Date(e.start.dateTime), day)),
+  ];
   const allDayForDay = (day) => events.filter(e => !e.start?.dateTime && e.start?.date && sameDay(new Date(e.start.date + 'T12:00:00'), day));
 
   const prevPeriod = () => {
@@ -829,7 +856,7 @@ export default function CalendarScreen() {
                         </div>
                       )}
 
-                      {/* Calendar events */}
+                      {/* Calendar events + task blocks */}
                       {laid.map((ev, ei) => {
                         const sMins = ev.start?.dateTime
                           ? new Date(ev.start.dateTime).getHours() * 60 + new Date(ev.start.dateTime).getMinutes()
@@ -845,12 +872,22 @@ export default function CalendarScreen() {
                         const top        = isDragging ? baseTop + dragState.deltaMins : baseTop;
                         return (
                           <div key={ev.id}
-                            onMouseDown={(e) => { if (!isDragging) onEventMouseDown(e, ev); }}
-                            onClick={(e) => { e.stopPropagation(); if (!dragRef.current && !(dragState?.eventId === ev.id)) setDetail(ev); }}
+                            onMouseDown={(e) => { if (!isDragging && !ev._isTask) onEventMouseDown(e, ev); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (dragRef.current || dragState?.eventId === ev.id) return;
+                              if (ev._isTask) {
+                                const t = tasks.find(tk => tk.id === ev._taskId);
+                                if (t) openEdit(t);
+                              } else {
+                                setDetail(ev);
+                              }
+                            }}
                             onMouseEnter={e => { if (!dragState) e.currentTarget.style.filter = 'brightness(1.18)'; }}
                             onMouseLeave={e => e.currentTarget.style.filter = 'none'}
-                            style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: isDragging ? 'grabbing' : 'grab', zIndex: isDragging ? 20 : 5, boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: isDragging ? 0.9 : 1, transition: isDragging ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none' }}>
+                            style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: ev._isTask ? 'pointer' : isDragging ? 'grabbing' : 'grab', zIndex: isDragging ? 20 : 5, boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: isDragging ? 0.9 : 1, transition: isDragging ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none' }}>
                             <div style={{ fontSize: '11px', fontWeight: 700, color: color.text, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {ev._isTask && <span style={{ opacity: 0.7, marginRight: 3 }}>☐</span>}
                               {ev.summary}
                             </div>
                             {height > 32 && (
