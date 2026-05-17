@@ -4,6 +4,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addTask, updateTask, deleteTask } from '../../lib/db';
+import { RECURRENCE_OPTIONS, scheduleNextRecurrence } from '../../lib/tasks';
 import { getValidAccessToken, deleteEvent } from '../../lib/calendar';
 import { Card, Button, Input, Select, SectionLabel, Tag, Modal, EmptyState, priorityColors } from '../ui';
 
@@ -16,7 +17,7 @@ const PRIORITIES = [
 
 const STATUS_FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'done'];
 
-const emptyForm = { title: '', priority: 'high', projectId: '', notes: '', estimatedMinutes: '', tags: '' };
+const emptyForm = { title: '', priority: 'high', projectId: '', notes: '', estimatedMinutes: '', tags: '', recurrence: 'none' };
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -85,6 +86,7 @@ export default function TasksScreen() {
         status: 'completed',
         completedAt: new Date().toISOString(),
       });
+      await scheduleNextRecurrence(user.uid, task);
     } else {
       await updateTask(user.uid, task.id, { done: false, status: 'pending', completedAt: null });
     }
@@ -116,6 +118,7 @@ export default function TasksScreen() {
       notes:            task.notes            || '',
       estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : '',
       tags:             task.tags?.join(', ') || '',
+      recurrence:       task.recurrence       || 'none',
     });
     setEditing(task.id);
     setShowModal(true);
@@ -134,6 +137,7 @@ export default function TasksScreen() {
       notes:            form.notes,
       estimatedMinutes: parseInt(form.estimatedMinutes) || null,
       tags:             parseTags(form.tags),
+      recurrence:       form.recurrence || 'none',
     };
 
     if (editing) {
@@ -267,6 +271,7 @@ export default function TasksScreen() {
                       </span>
                     )}
                     {task.status === 'scheduled' && <span style={{ fontSize: '10px', color: tokens.blue, fontWeight: 600 }}>· Scheduled</span>}
+                    {task.recurrence && task.recurrence !== 'none' && <span style={{ fontSize: '10px', color: tokens.green, fontWeight: 600 }}>· ↻ {task.recurrence}</span>}
                   </div>
                   {/* Tags */}
                   {task.tags?.length > 0 && (
@@ -306,7 +311,10 @@ export default function TasksScreen() {
           </div>
           <Input label="Tags (comma-separated)" value={form.tags} onChange={v => setForm(f => ({ ...f, tags: v }))} placeholder="e.g. email, client, urgent" />
           <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Any context..." multiline rows={2} />
-          <Input label="Estimated Time (minutes)" value={form.estimatedMinutes} onChange={v => setForm(f => ({ ...f, estimatedMinutes: v }))} placeholder="e.g. 30, 60, 90" type="number" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <Input label="Estimated Time (minutes)" value={form.estimatedMinutes} onChange={v => setForm(f => ({ ...f, estimatedMinutes: v }))} placeholder="30, 60, 90..." type="number" />
+            <Select label="Repeat" value={form.recurrence} onChange={v => setForm(f => ({ ...f, recurrence: v }))} options={RECURRENCE_OPTIONS} />
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
             <Button onClick={() => setShowModal(false)} variant="ghost">Cancel</Button>
             <Button onClick={handleSave} loading={saving} disabled={!form.title.trim()}>{editing ? 'Save' : 'Add Task'}</Button>

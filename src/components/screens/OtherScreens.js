@@ -8,6 +8,149 @@ import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, de
 import { openPlaidLink, fetchAccounts, fetchTransactions, calcCashFlow, formatTxAmount, formatTxDate } from '../../lib/plaid';
 import { Card, Button, Input, Select, SectionLabel, MomentumBar, Modal, AICard, EmptyState } from '../ui';
 
+// ─── Payoff simulation math ───────────────────────────────────────────────────
+function simulatePayoff(accounts, extraPayment, strategy) {
+  if (!accounts.length) return { months: 0, totalInterest: 0 };
+  let accts = accounts
+    .filter(a => (a.balance || 0) > 0)
+    .map(a => ({ ...a, balance: a.balance || 0 }));
+
+  // Sort by strategy
+  if (strategy === 'avalanche') {
+    accts.sort((a, b) => (b.interestRate || 0) - (a.interestRate || 0));
+  } else {
+    accts.sort((a, b) => (a.balance || 0) - (b.balance || 0));
+  }
+
+  const totalMin     = accts.reduce((s, a) => s + (a.minimumPayment || 0), 0);
+  const totalMonthly = totalMin + extraPayment;
+
+  let months = 0;
+  let totalInterest = 0;
+
+  while (accts.some(a => a.balance > 0.01) && months < 600) {
+    months++;
+    let remaining = totalMonthly;
+
+    // Apply interest and minimums
+    for (const a of accts) {
+      if (a.balance <= 0.01) continue;
+      const interest = a.balance * ((a.interestRate || 0) / 100 / 12);
+      totalInterest += interest;
+      a.balance += interest;
+      const minPay = Math.min(a.minimumPayment || 0, a.balance);
+      a.balance -= minPay;
+      remaining  -= (a.minimumPayment || 0);
+    }
+
+    // Apply extra to priority account
+    for (const a of accts) {
+      if (a.balance <= 0.01 || remaining <= 0) continue;
+      const pay   = Math.min(remaining, a.balance);
+      a.balance  -= pay;
+      remaining  -= pay;
+    }
+  }
+
+  return { months, totalInterest: Math.round(totalInterest) };
+}
+
+function monthsToLabel(months) {
+  if (months >= 600) return 'Over 50 years';
+  const yrs  = Math.floor(months / 12);
+  const mos  = months % 12;
+  if (yrs === 0) return `${mos} mo`;
+  if (mos === 0) return `${yrs} yr`;
+  return `${yrs} yr ${mos} mo`;
+}
+
+function PayoffSimulator({ accounts }) {
+  const [extra, setExtra] = useState(500);
+
+  const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0);
+  const hasAccounts  = accounts.length > 0 && totalBalance > 0;
+
+  const avalanche = hasAccounts ? simulatePayoff(accounts, extra, 'avalanche') : null;
+  const snowball  = hasAccounts ? simulatePayoff(accounts, extra, 'snowball')  : null;
+
+  const interestSaved = avalanche && snowball
+    ? snowball.totalInterest - avalanche.totalInterest
+    : 0;
+
+  const monthsFaster = avalanche && snowball
+    ? snowball.months - avalanche.months
+    : 0;
+
+  if (!hasAccounts) return null;
+
+  return (
+    <div style={{ marginBottom: '16px' }}>
+      <Card>
+        <SectionLabel>Payoff Simulator</SectionLabel>
+        <p style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '-4px', marginBottom: '16px' }}>
+          How fast can you pay this off? Avalanche (highest rate first) vs Snowball (lowest balance first).
+        </p>
+
+        {/* Extra payment slider */}
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+            <span style={{ fontSize: '12px', color: tokens.textSecondary, fontWeight: 600 }}>Extra monthly payment</span>
+            <span style={{ fontFamily: fonts.display, fontSize: '18px', fontWeight: 700, color: tokens.accent }}>${extra.toLocaleString()}</span>
+          </div>
+          <input
+            type="range" min={0} max={5000} step={50} value={extra}
+            onChange={e => setExtra(Number(e.target.value))}
+            style={{ width: '100%', accentColor: tokens.accent }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: tokens.textMuted, marginTop: '4px' }}>
+            <span>$0</span><span>$5,000/mo extra</span>
+          </div>
+        </div>
+
+        {/* Side by side comparison */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+          {[
+            { label: 'Avalanche', sublabel: 'Highest rate first', result: avalanche, color: tokens.green, icon: '▲' },
+            { label: 'Snowball',  sublabel: 'Lowest balance first', result: snowball, color: tokens.blue,  icon: '●' },
+          ].map(({ label, sublabel, result, color, icon }) => (
+            <div key={label} style={{ padding: '14px', background: tokens.bgCardHover, borderRadius: '10px', border: `1px solid ${tokens.border}` }}>
+              <div style={{ fontSize: '11px', fontWeight: 700, color, letterSpacing: '0.06em', marginBottom: '4px' }}>{icon} {label}</div>
+              <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '12px' }}>{sublabel}</div>
+              <div style={{ marginBottom: '8px' }}>
+                <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '2px' }}>Payoff in</div>
+                <div style={{ fontFamily: fonts.display, fontSize: '22px', fontWeight: 700, color }}>{monthsToLabel(result.months)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '2px' }}>Total interest</div>
+                <div style={{ fontFamily: fonts.display, fontSize: '16px', fontWeight: 700, color: tokens.red }}>${result.totalInterest.toLocaleString()}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Avalanche advantage callout */}
+        {interestSaved > 0 && (
+          <div style={{ padding: '10px 14px', background: tokens.greenDim, borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: tokens.green }}>Avalanche saves you ${interestSaved.toLocaleString()}</div>
+              <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>
+                {monthsFaster > 0 ? `${monthsToLabel(monthsFaster)} faster than snowball` : 'Same timeline, less interest'}
+              </div>
+            </div>
+            <span style={{ fontSize: '20px' }}>▲</span>
+          </div>
+        )}
+
+        {interestSaved === 0 && avalanche && (
+          <div style={{ padding: '10px 14px', background: tokens.accentDim, borderRadius: '8px', fontSize: '12px', color: tokens.textMuted }}>
+            Both strategies payoff at the same rate with these accounts.
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 const DEBT_TYPES = [
   { value: 'tax',      label: 'Tax Debt'      },
   { value: 'business', label: 'Business Debt' },
@@ -303,6 +446,12 @@ export function DebtScreen() {
       {debtAccounts.length > 0 && (
         <div className="fade-up stagger-5" style={{ marginBottom: '16px' }}>
           <AICard text={aiText} loading={aiLoading} onRefresh={fetchAI} label="PAYOFF STRATEGY" />
+        </div>
+      )}
+
+      {debtAccounts.length > 0 && (
+        <div className="fade-up stagger-5">
+          <PayoffSimulator accounts={debtAccounts} />
         </div>
       )}
 

@@ -8,6 +8,7 @@ import {
   formatEventTime, initiateCalendarAuth,
 } from '../../lib/calendar';
 import { Button, Modal, Input, Spinner } from '../ui';
+import { updateTask } from '../../lib/db';
 
 const HOUR_HEIGHT = 60;
 const GRID_START  = 6;
@@ -105,7 +106,7 @@ function layoutDay(events) {
 
 export default function CalendarScreen() {
   const { user }                          = useAuth();
-  const { calendarIntegration }           = useData();
+  const { calendarIntegration, tasks }    = useData();
   const [ws, setWs]                       = useState(() => weekStart(new Date()));
   const [events, setEvents]               = useState([]);
   const [loading, setLoading]             = useState(false);
@@ -120,6 +121,7 @@ export default function CalendarScreen() {
   const scrollRef                         = useRef(null);
   const fetched                           = useRef(new Set());
   const dragRef                           = useRef(null);
+  const tasksRef                          = useRef(tasks);
   const [dragState, setDragState]         = useState(null); // { eventId, deltaMins }
 
   useEffect(() => {
@@ -134,6 +136,9 @@ export default function CalendarScreen() {
       scrollRef.current.scrollTop = (8 - GRID_START) * HOUR_HEIGHT;
     }
   }, []);
+
+  // Keep tasksRef current so the drag handler doesn't go stale
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
   // ── Drag-to-reschedule (desktop only) ─────────────────────────────────────
   const onEventMouseDown = useCallback((e, ev) => {
@@ -186,6 +191,16 @@ export default function CalendarScreen() {
           await updateEvent(token, ev.id, {
             start: { dateTime: newStart.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
             end:   { dateTime: newEnd.toISOString(),   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+          });
+        }
+
+        // Sync matching Firestore task if one is linked to this calendar event
+        const linkedTask = (tasksRef.current || []).find(t => t.calendarEventId === ev.id);
+        if (linkedTask) {
+          await updateTask(user.uid, linkedTask.id, {
+            scheduledDate:  newStart.toISOString().split('T')[0],
+            scheduledStart: newStart.toISOString(),
+            scheduledEnd:   newEnd.toISOString(),
           });
         }
       } catch (err) {

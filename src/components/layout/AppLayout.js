@@ -1,8 +1,10 @@
 // src/components/layout/AppLayout.js
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
+import { useData } from '../../context/DataContext';
+import { addTask } from '../../lib/db';
 
 const NAV_GROUPS = [
   {
@@ -63,10 +65,16 @@ function getPageTitle(pathname) {
 
 export default function AppLayout({ children }) {
   const { user, logout }              = useAuth();
+  const { projects }                  = useData();
   const navigate                      = useNavigate();
   const location                      = useLocation();
   const [drawerOpen, setDrawerOpen]   = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [captureText, setCaptureText] = useState('');
+  const [captureProj, setCaptureProj] = useState('Inbox');
+  const [captureSaving, setCaptureSaving] = useState(false);
+  const captureInputRef               = useRef(null);
 
   const photoURL    = user?.photoURL;
   const displayName = user?.displayName || user?.email || 'A';
@@ -81,6 +89,41 @@ export default function AppLayout({ children }) {
     setDrawerOpen(false);
     setProfileOpen(false);
   };
+
+  const openCapture = () => {
+    setCaptureText('');
+    setCaptureProj('Inbox');
+    setCaptureOpen(true);
+    setTimeout(() => captureInputRef.current?.focus(), 80);
+  };
+
+  const closeCapture = () => { setCaptureOpen(false); setCaptureText(''); };
+
+  const handleCaptureSave = async () => {
+    if (!captureText.trim() || captureSaving) return;
+    setCaptureSaving(true);
+    const linkedProject = projects?.find(p => p.title === captureProj);
+    await addTask(user.uid, {
+      title:     captureText.trim(),
+      project:   captureProj,
+      projectId: linkedProject?.id || null,
+      priority:  'medium',
+      status:    'pending',
+      tags:      [],
+      source:    'capture',
+    });
+    setCaptureSaving(false);
+    closeCapture();
+  };
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape' && captureOpen) closeCapture();
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && !captureOpen) { e.preventDefault(); openCapture(); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [captureOpen]); // eslint-disable-line
 
   const navItemStyle = (active) => ({
     width: '100%',
@@ -330,6 +373,113 @@ export default function AppLayout({ children }) {
             <div style={{ padding: '12px 16px', borderTop: `1px solid ${tokens.border}`, flexShrink: 0 }}>
               <div style={{ fontSize: '11px', color: tokens.textMuted }}>
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Floating Quick Capture Button ─────────────────────────────────────── */}
+      <button
+        onClick={openCapture}
+        title="Quick capture (⌘K)"
+        style={{
+          position: 'fixed',
+          bottom: 'max(28px, calc(env(safe-area-inset-bottom, 0px) + 20px))',
+          right: 'max(20px, env(safe-area-inset-right, 20px))',
+          width: 52, height: 52,
+          borderRadius: '50%',
+          background: `linear-gradient(135deg, ${tokens.accent} 0%, #C8A050 100%)`,
+          border: 'none',
+          boxShadow: `0 4px 16px rgba(154,120,48,0.4)`,
+          cursor: 'pointer',
+          zIndex: 190,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: '24px', fontWeight: 700,
+          color: '#0C0E12',
+          lineHeight: 1,
+          transition: 'transform 0.15s, box-shadow 0.15s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.08)'; e.currentTarget.style.boxShadow = `0 6px 24px rgba(154,120,48,0.5)`; }}
+        onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)';    e.currentTarget.style.boxShadow = `0 4px 16px rgba(154,120,48,0.4)`; }}
+      >
+        +
+      </button>
+
+      {/* ── Quick Capture Sheet ────────────────────────────────────────────────── */}
+      {captureOpen && (
+        <>
+          <div
+            onClick={closeCapture}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', backdropFilter: 'blur(2px)', zIndex: 395 }}
+          />
+          <div className="fade-up" style={{
+            position: 'fixed', bottom: 0, left: 0, right: 0,
+            background: tokens.bgCard,
+            borderTop: `1px solid ${tokens.border}`,
+            borderRadius: '16px 16px 0 0',
+            padding: `20px 20px max(24px, calc(env(safe-area-inset-bottom, 0px) + 16px))`,
+            zIndex: 396,
+            boxShadow: '0 -8px 32px rgba(0,0,0,0.12)',
+          }}>
+            <div style={{ maxWidth: 640, margin: '0 auto' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: tokens.accent, flexShrink: 0 }} />
+                <span style={{ fontSize: '12px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Quick Capture</span>
+                <span style={{ fontSize: '10px', color: tokens.textMuted, marginLeft: 'auto' }}>⌘↵ to save · Esc to close</span>
+              </div>
+
+              <textarea
+                ref={captureInputRef}
+                value={captureText}
+                onChange={e => setCaptureText(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleCaptureSave(); }
+                  if (e.key === 'Escape') closeCapture();
+                }}
+                placeholder="What needs to get done?"
+                rows={3}
+                style={{
+                  width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.borderFocus}`,
+                  borderRadius: '10px', padding: '12px 14px', color: tokens.textPrimary, fontSize: '15px',
+                  lineHeight: 1.6, resize: 'none', outline: 'none', fontFamily: fonts.body,
+                  boxSizing: 'border-box', marginBottom: '12px',
+                }}
+              />
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <select
+                  value={captureProj}
+                  onChange={e => setCaptureProj(e.target.value)}
+                  style={{
+                    flex: 1, background: tokens.bgInput, border: `1px solid ${tokens.border}`,
+                    borderRadius: '8px', padding: '8px 10px', color: tokens.textPrimary,
+                    fontSize: '13px', outline: 'none', fontFamily: fonts.body,
+                    colorScheme: tokens.colorScheme,
+                  }}
+                >
+                  <option value="Inbox">Inbox</option>
+                  {(projects || []).filter(p => p.status === 'active').map(p => (
+                    <option key={p.id} value={p.title}>{p.title}</option>
+                  ))}
+                </select>
+                <button onClick={closeCapture}
+                  style={{ background: 'none', border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '8px 14px', color: tokens.textMuted, fontSize: '13px', cursor: 'pointer', fontFamily: fonts.body }}>
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCaptureSave}
+                  disabled={!captureText.trim() || captureSaving}
+                  style={{
+                    background: tokens.accent, border: 'none', borderRadius: '8px',
+                    padding: '8px 18px', color: '#0C0E12', fontSize: '13px', fontWeight: 700,
+                    cursor: captureText.trim() ? 'pointer' : 'not-allowed',
+                    fontFamily: fonts.body, opacity: captureText.trim() ? 1 : 0.4,
+                    transition: 'opacity 0.15s',
+                  }}
+                >
+                  {captureSaving ? '…' : 'Add Task'}
+                </button>
               </div>
             </div>
           </div>

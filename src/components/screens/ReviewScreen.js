@@ -4,7 +4,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { callAI, getWeeklyReviewInsight } from '../../lib/ai';
-import { saveWeeklyReview, saveProfile, getProfile, addTask } from '../../lib/db';
+import { saveWeeklyReview, saveProfile, getProfile, addTask, updateTask } from '../../lib/db';
 import { Card, Button, Input, SectionLabel, AICard } from '../ui';
 
 const weekKey  = (() => { const d = new Date(); const s = new Date(d.setDate(d.getDate() - d.getDay())); return s.toISOString().split('T')[0]; })();
@@ -148,6 +148,102 @@ function MorningReview({ tasks, projects, totalDebt, onSave }) {
   );
 }
 
+// ─── Task Triage (unfinished scheduled tasks) ─────────────────────────────────
+function TaskTriage({ tasks, uid }) {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; })();
+
+  const unfinished = tasks.filter(t =>
+    !t.done && t.status === 'scheduled' && t.scheduledDate === todayStr
+  );
+
+  const [decisions, setDecisions] = useState({}); // { taskId: 'rolled' | 'dropped' }
+
+  if (unfinished.length === 0) return null;
+
+  const pending = unfinished.filter(t => !decisions[t.id]);
+
+  const handleRoll = async (task) => {
+    await updateTask(uid, task.id, {
+      status: 'rolled_over',
+      scheduledDate: tomorrow,
+      scheduledStart: null,
+      scheduledEnd: null,
+    });
+    setDecisions(d => ({ ...d, [task.id]: 'rolled' }));
+  };
+
+  const handleDrop = async (task) => {
+    await updateTask(uid, task.id, { status: 'dropped' });
+    setDecisions(d => ({ ...d, [task.id]: 'dropped' }));
+  };
+
+  const rolledCount  = Object.values(decisions).filter(v => v === 'rolled').length;
+  const droppedCount = Object.values(decisions).filter(v => v === 'dropped').length;
+
+  return (
+    <div style={{ marginTop: '14px', padding: '14px 16px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '10px' }}>
+      <div style={{ fontSize: '11px', fontWeight: 700, color: tokens.amber, letterSpacing: '0.08em', marginBottom: '10px' }}>
+        ⚡ TASK TRIAGE — {unfinished.length} unfinished {unfinished.length === 1 ? 'task' : 'tasks'}
+        {(rolledCount + droppedCount) > 0 && (
+          <span style={{ fontWeight: 400, color: tokens.textMuted, marginLeft: '8px' }}>
+            · {rolledCount} rolled, {droppedCount} dropped
+          </span>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {unfinished.map(task => {
+          const decision = decisions[task.id];
+          return (
+            <div key={task.id} style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '10px 12px', borderRadius: '8px', gap: '12px',
+              background: decision === 'rolled' ? tokens.blueDim :
+                          decision === 'dropped' ? tokens.redDim : tokens.bgCardHover,
+              border: `1px solid ${decision === 'rolled' ? tokens.blue + '40' :
+                                   decision === 'dropped' ? tokens.red + '40' : tokens.border}`,
+              transition: 'all 0.2s',
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '13px', color: tokens.textPrimary, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {task.title}
+                </div>
+                {task.project && task.project !== 'Inbox' && (
+                  <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>{task.project}</div>
+                )}
+              </div>
+
+              {decision ? (
+                <span style={{ fontSize: '11px', fontWeight: 700, color: decision === 'rolled' ? tokens.blue : tokens.red, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  {decision === 'rolled' ? '→ Tomorrow' : '✕ Dropped'}
+                </span>
+              ) : (
+                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                  <button
+                    onClick={() => handleRoll(task)}
+                    style={{ fontSize: '11px', fontWeight: 600, color: tokens.blue, background: tokens.blueDim, border: 'none', borderRadius: '5px', padding: '4px 10px', cursor: 'pointer', fontFamily: fonts.body, whiteSpace: 'nowrap' }}
+                  >→ Tomorrow</button>
+                  <button
+                    onClick={() => handleDrop(task)}
+                    style={{ fontSize: '11px', fontWeight: 600, color: tokens.red, background: tokens.redDim, border: 'none', borderRadius: '5px', padding: '4px 10px', cursor: 'pointer', fontFamily: fonts.body }}
+                  >✕ Drop</button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {pending.length === 0 && unfinished.length > 0 && (
+        <div style={{ marginTop: '10px', fontSize: '12px', color: tokens.green, textAlign: 'center' }}>
+          ✓ All tasks triaged — good discipline.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── EOD Review ───────────────────────────────────────────────────────────────
 function EODReview({ tasks, projects, onSave }) {
   const { user }  = useAuth();
@@ -205,6 +301,7 @@ function EODReview({ tasks, projects, onSave }) {
         </div>
       </div>
       {answers.unfinished && <div style={{ marginTop: '10px', padding: '10px 14px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '8px', fontSize: '13px', color: tokens.textSecondary }}><span style={{ color: tokens.amber }}>Carries forward: </span>{answers.unfinished}</div>}
+      <TaskTriage tasks={tasks} uid={user?.uid} />
       {suggestedTasks.length > 0 && (
         <div style={{ marginTop: '12px', padding: '14px 16px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '10px' }}>
           <div style={{ fontSize: '11px', color: tokens.accent, fontWeight: 700, letterSpacing: '0.08em', marginBottom: '10px' }}>✦ TASKS FROM THIS REVIEW</div>
