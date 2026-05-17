@@ -127,6 +127,7 @@ export default function CalendarScreen() {
   const [importOpen, setImportOpen]    = useState(false);
   const [sidebarOpen, setSidebarOpen]   = useState(true);
   const [sidebarFilter, setSidebarFilter] = useState('unscheduled'); // 'unscheduled' | 'all'
+  const [calView, setCalView]          = useState('week'); // 'day' | '3day' | 'week'
   const [conflicts, setConflicts]      = useState([]);
   // Task edit modal
   const [editingTask, setEditingTask]  = useState(null);
@@ -200,7 +201,8 @@ export default function CalendarScreen() {
 
   // ── Task-derived calendar blocks (tasks with a scheduled time slot) ────────
   const taskCalEvents = useMemo(() => {
-    const wsEnd = new Date(ws); wsEnd.setDate(wsEnd.getDate() + 7);
+    const wsBase = weekStart(ws);
+    const wsEnd  = new Date(wsBase); wsEnd.setDate(wsEnd.getDate() + 7);
     // Only exclude if the task's GCal event was actually fetched (to avoid duplication).
     // If GCal isn't connected or the event was deleted, always show the Anchor block.
     const gcalIds = new Set(events.map(e => e.id));
@@ -209,7 +211,7 @@ export default function CalendarScreen() {
       .filter(t => !t.calendarEventId || !gcalIds.has(t.calendarEventId))
       .filter(t => {
         const s = new Date(t.scheduledStart);
-        return s >= ws && s < wsEnd;
+        return s >= wsBase && s < wsEnd;
       })
       .map(t => {
         const startMs = new Date(t.scheduledStart).getTime();
@@ -356,7 +358,7 @@ export default function CalendarScreen() {
     }
   }, [user, calendarIntegration, syncTasksWithEvents]);
 
-  useEffect(() => { fetchWeek(ws); }, [ws, fetchWeek]);
+  useEffect(() => { fetchWeek(weekStart(ws)); }, [ws, fetchWeek]);
 
   // ── Task edit ─────────────────────────────────────────────────────────────
   const openEdit = (task) => {
@@ -532,7 +534,7 @@ export default function CalendarScreen() {
               colorId: '5',
             });
             updates.calendarEventId = created.id;
-            fetched.current.delete(ws.toISOString());
+            fetched.current.delete(weekStart(ws).toISOString());
             fetchWeek(ws);
           }
         } catch (err) { console.warn('GCal auto-schedule create failed:', err); }
@@ -620,7 +622,7 @@ export default function CalendarScreen() {
             colorId: '5',
           });
           updates.calendarEventId = created.id;
-          fetched.current.delete(ws.toISOString());
+          fetched.current.delete(weekStart(ws).toISOString());
           fetchWeek(ws);
         }
       } catch (err) { console.warn('GCal event create failed:', err); }
@@ -636,9 +638,14 @@ export default function CalendarScreen() {
     await scheduleTaskAtSlot(task, day, mins);
   };
 
-  const days    = weekDays(ws);
+  const days    = weekDays(weekStart(ws));
   const today   = new Date();
-  const visible = isMobile ? [mobileDay] : days;
+
+  // Visible day columns — changes with calView
+  const visible = isMobile ? [mobileDay] :
+    calView === 'day'  ? [ws] :
+    calView === '3day' ? Array.from({ length: 3 }, (_, i) => { const d = new Date(ws); d.setDate(d.getDate() + i); return d; }) :
+    days;
 
   const timedForDay = (day) => [
     ...events.filter(e => e.start?.dateTime && sameDay(new Date(e.start.dateTime), day)),
@@ -646,15 +653,26 @@ export default function CalendarScreen() {
   ];
   const allDayForDay = (day) => events.filter(e => !e.start?.dateTime && e.start?.date && sameDay(new Date(e.start.date + 'T12:00:00'), day));
 
+  const stepDays = isMobile ? 1 : calView === 'day' ? 1 : calView === '3day' ? 3 : 7;
   const prevPeriod = () => {
-    const d = new Date(ws); d.setDate(d.getDate() - 7); setWs(d);
+    const d = new Date(ws); d.setDate(d.getDate() - stepDays);
+    setWs(calView === 'week' ? weekStart(d) : d);
     if (isMobile) { const m = new Date(mobileDay); m.setDate(m.getDate() - 1); setMobileDay(m); }
   };
   const nextPeriod = () => {
-    const d = new Date(ws); d.setDate(d.getDate() + 7); setWs(d);
+    const d = new Date(ws); d.setDate(d.getDate() + stepDays);
+    setWs(calView === 'week' ? weekStart(d) : d);
     if (isMobile) { const m = new Date(mobileDay); m.setDate(m.getDate() + 1); setMobileDay(m); }
   };
-  const goToday = () => { setWs(weekStart(new Date())); setMobileDay(new Date()); };
+  const goToday = () => {
+    setWs(calView === 'week' ? weekStart(new Date()) : new Date());
+    setMobileDay(new Date());
+  };
+  const switchView = (view) => {
+    setCalView(view);
+    if (view === 'week') setWs(weekStart(ws));
+    else setWs(new Date()); // go to today when entering day/3day
+  };
 
   const openCreate = (day, hour, minute = 0) => {
     const s = new Date(day); s.setHours(hour, minute, 0, 0);
@@ -677,7 +695,7 @@ export default function CalendarScreen() {
       });
       setCreateOpen(false);
       setNewEv({ title: '', start: '', end: '', description: '' });
-      fetched.current.delete(ws.toISOString());
+      fetched.current.delete(weekStart(ws).toISOString());
       fetchWeek(ws);
     } catch (err) {
       console.error('Create event error:', err);
@@ -715,6 +733,13 @@ export default function CalendarScreen() {
   const showNow    = nowMins >= GRID_START * 60 && nowMins < GRID_END * 60;
 
   const monthLabel = (() => {
+    if (calView === 'day') {
+      return ws.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    }
+    if (calView === '3day') {
+      const end = new Date(ws); end.setDate(end.getDate() + 2);
+      return `${ws.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    }
     const a = days[0]; const b = days[6];
     if (a.getMonth() === b.getMonth())
       return a.toLocaleString('en-US', { month: 'long', year: 'numeric' });
@@ -759,7 +784,17 @@ export default function CalendarScreen() {
           {loading && <Spinner size={13} />}
           {fetchError && <span style={{ fontSize: '11px', color: tokens.red }}>{fetchError}</span>}
         </div>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {!isMobile && (
+            <div style={{ display: 'flex', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '8px', overflow: 'hidden' }}>
+              {[['day', 'Day'], ['3day', '3 Day'], ['week', 'Week']].map(([v, label]) => (
+                <button key={v} onClick={() => switchView(v)}
+                  style={{ padding: '5px 11px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em', background: calView === v ? tokens.accentDim : 'transparent', color: calView === v ? tokens.accent : tokens.textMuted, border: 'none', borderRight: v !== 'week' ? `1px solid ${tokens.border}` : 'none', cursor: 'pointer', fontFamily: fonts.body, transition: 'all 0.12s' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           <Button onClick={() => setPlanOpen(true)} variant="accent" size="sm">✦ Plan Schedule</Button>
           <Button onClick={goToday} variant="ghost" size="sm">Today</Button>
           <button onClick={prevPeriod}
@@ -952,7 +987,7 @@ export default function CalendarScreen() {
           {!isMobile && (
             <div style={{ display: 'flex', flexShrink: 0, borderBottom: `1px solid ${tokens.border}` }}>
               <div style={{ width: 48, flexShrink: 0 }} />
-              {days.map((d, i) => {
+              {visible.map((d, i) => {
                 const isToday    = sameDay(d, today);
                 const isNonWork  = userProfile?.workHours && !isWorkDay(d, userProfile.workHours);
                 return (
