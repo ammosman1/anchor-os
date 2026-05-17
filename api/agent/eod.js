@@ -1,13 +1,13 @@
 // api/agent/eod.js
 // Cron: 9:00pm CST (02:00 UTC next day) daily
-// Sends an end-of-day check-in push reminding the user to do an EOD review.
+// Sends an end-of-day check-in with task execution breakdown and tomorrow preview.
 
 import { getAdminDb, getAdminMessaging } from '../_firebase-admin.js';
 
-const ANDREW_CONTEXT = `You are Anchor — Andrew Mosman's personal AI operating system.
+const SYSTEM = `You are Anchor — Andrew Mosman's personal AI operating system.
 Be brief, direct, strategic. No fluff.`;
 
-async function callAI(prompt) {
+async function callAI(prompt, maxTokens = 200) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -17,8 +17,8 @@ async function callAI(prompt) {
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 150,
-      system: ANDREW_CONTEXT,
+      max_tokens: maxTokens,
+      system: SYSTEM,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
@@ -26,7 +26,7 @@ async function callAI(prompt) {
   return data?.content?.[0]?.text || '';
 }
 
-async function sendPush(fcmToken, title, body) {
+async function sendPush(fcmToken, title, body, link = '/review') {
   if (!fcmToken) return;
   const messaging = getAdminMessaging();
   try {
@@ -35,12 +35,16 @@ async function sendPush(fcmToken, title, body) {
       notification: { title, body },
       webpush: {
         notification: { title, body, icon: '/logo192.png' },
-        fcmOptions: { link: '/review' },
+        fcmOptions: { link },
       },
     });
   } catch (err) {
     console.error('FCM send error:', err.message);
   }
+}
+
+function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
 export default async function handler(req, res) {
@@ -50,37 +54,90 @@ export default async function handler(req, res) {
   }
 
   try {
-    const db = getAdminDb();
+    const db        = getAdminDb();
     const usersSnap = await db.collection('users').get();
-
-    const results = [];
+    const results   = [];
 
     for (const userDoc of usersSnap.docs) {
       const uid  = userDoc.id;
       const user = userDoc.data();
 
-      const today = new Date().toISOString().split('T')[0];
+      const today    = new Date();
+      const todayStr = ymd(today);
+      const tom      = new Date(today); tom.setDate(tom.getDate() + 1);
+      const tomStr   = ymd(tom);
 
-      // Count completed vs unfinished tasks today
-      const tasksSnap = await db.collection('users').doc(uid).collection('tasks')
-        .where('scheduledDate', '==', today)
+      // ── Today's tasks ─────────────────────────────────────────────────────
+      const todayTasksSnap = await db.collection('users').doc(uid).collection('tasks')
+        .where('scheduledDate', '==', todayStr)
+        .limit(30)
+        .get();
+      const todayTasks  = todayTasksSnap.docs.map(d => d.data());
+      const completed   = todayTasks.filter(t => t.done);
+      const unfinished  = todayTasks.filter(t => !t.done);
+
+      // Also grab tasks completed today by completedAt (catch tasks without scheduledDate)
+      const completedSnap = await db.collection('users').doc(uid).collection('tasks')
+        .where('done', '==', true)
+        .orderBy('completedAt', 'desc')
         .limit(20)
         .get();
-      const tasks     = tasksSnap.docs.map(d => d.data());
-      const completed = tasks.filter(t => t.done).length;
-      const total     = tasks.length;
-      const unfinished = tasks.filter(t => !t.done).map(t => t.title).slice(0, 3);
+      const completedToday = completedSnap.docs.map(d => d.data())
+        .filter(t => t.completedAt?.startsWith(todayStr));
+
+      // Breakdown by focusType
+      const deepDone    = completedToday.filter(t => !t.focusType || t.focusType === 'deep').length;
+      const shallowDone = completedToday.filter(t => t.focusType === 'shallow').length;
+      const adminDone   = completedToday.filter(t => t.focusType === 'admin').length;
+
+      // ── Tomorrow's schedule ───────────────────────────────────────────────
+      const tomTasksSnap = await db.collection('users').doc(uid).collection('tasks')
+        .where('scheduledDate', '==', tomStr)
+        .where('done', '==', false)
+        .limit(10)
+        .get();
+      const tomTasks = tomTasksSnap.docs.map(d => d.data())
+        .sort((a, b) => (a.scheduledStart || '').localeCompare(b.scheduledStart || ''));
+
+      // ── Goals with recent task activity ───────────────────────────────────
+      const goalsSnap = await db.collection('users').doc(uid).collection('goals')
+        .where('status', '==', 'active')
+        .limit(8)
+        .get();
+      const goals = goalsSnap.docs.map(d => d.data());
+      const atRiskGoals = goals.filter(g => g.likelihoodScore != null && g.likelihoodScore < 50);
 
       const prompt = `EOD check-in for ${user.displayName || 'Andrew'}.
-Today ${today}: ${completed}/${total} scheduled tasks done.
-${unfinished.length ? `Unfinished: ${unfinished.join(', ')}` : 'All tasks complete.'}
+TODAY: ${today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
 
-One sharp sentence for an end-of-day push notification. Acknowledge progress, prompt review. Under 100 chars.`;
+EXECUTION TODAY:
+- ${completed.length}/${todayTasks.length} scheduled tasks completed
+- Deep work done: ${deepDone} | Shallow: ${shallowDone} | Admin: ${adminDone}
+- Completed: ${completedToday.slice(0,5).map(t => t.title).join(', ') || 'none tracked'}
+${unfinished.length > 0 ? `- Left unfinished: ${unfinished.map(t => t.title).join(', ')}` : '- All scheduled tasks complete'}
 
-      const msg = (await callAI(prompt)).split('\n')[0].slice(0, 100);
-      await sendPush(user.fcmToken, '◷ EOD Check-In', msg || 'Time to review your day. Tap to open.');
+TOMORROW PREVIEW (${tomTasks.length} scheduled):
+${tomTasks.slice(0,3).map(t => `- ${t.title}`).join('\n') || '- Nothing scheduled yet'}
 
-      results.push({ uid, completed, total, sent: !!user.fcmToken });
+GOALS (${atRiskGoals.length} at risk):
+${atRiskGoals.map(g => `- ${g.title}: ${g.likelihoodScore}%`).join('\n') || '- All on track'}
+
+Write a sharp 1-sentence EOD push notification. Acknowledge today's output, note what's ahead. Under 120 chars.`;
+
+      const msg = (await callAI(prompt)).split('\n').filter(Boolean)[0]?.slice(0, 120) || 'Day done. Tap to review and set tomorrow's intentions.';
+      await sendPush(user.fcmToken, '◷ EOD Check-In', msg);
+
+      // Store EOD summary for the app to use in review screen
+      await db.collection('users').doc(uid).collection('aiCache').doc('eod-briefing').set({
+        text:           msg,
+        completedCount: completedToday.length,
+        unfinishedCount: unfinished.length,
+        deepDone, shallowDone, adminDone,
+        cachedAt:      new Date(),
+        cachedAtMs:    Date.now(),
+      });
+
+      results.push({ uid, completed: completedToday.length, unfinished: unfinished.length, sent: !!user.fcmToken });
     }
 
     return res.status(200).json({ ok: true, results });

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { getAIFocusRecommendation } from '../../lib/ai';
+import { getAIFocusRecommendation, getWeeklyFocusStatement } from '../../lib/ai';
 import { updateTask, addTask } from '../../lib/db';
 import {
   Card, AICard, SectionLabel, MomentumBar, Tag, Button,
@@ -45,7 +45,7 @@ const QUOTES = [
 
 export default function HomeScreen() {
   const { user, profile, updateProfile } = useAuth();
-  const { tasks, activeProjects, totalDebt, goals, calendarIntegration, projects } = useData();
+  const { tasks, activeProjects, totalDebt, goals, calendarIntegration, projects, weeklyReviews } = useData();
   const navigate = useNavigate();
 
   const [energy,      setEnergy]      = useState(profile?.energyToday || 7);
@@ -56,8 +56,10 @@ export default function HomeScreen() {
   const [planOpen,    setPlanOpen]    = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [editForm,    setEditForm]    = useState({});
-  const [editSaving,  setEditSaving]  = useState(false);
-  const [quote]                     = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
+  const [editSaving,    setEditSaving]    = useState(false);
+  const [weekFocus,     setWeekFocus]     = useState(null);
+  const [weekFocusLoading, setWeekFocusLoading] = useState(false);
+  const [quote]                         = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
 
   const isAfter5pm = new Date().getHours() >= 17;
   const todayStr   = todayYMD();
@@ -103,11 +105,23 @@ export default function HomeScreen() {
     return updated.toDateString() === new Date().toDateString();
   }).length;
 
-  // Goal snapshot — show top 3 active goals with likelihood scores
-  const goalsSnapshot = (goals || [])
-    .filter(g => g.status === 'active' && g.likelihoodScore != null)
-    .sort((a, b) => a.likelihoodScore - b.likelihoodScore) // worst first
-    .slice(0, 3);
+  // Deadline risk: tasks due within 7 days that aren't scheduled or done
+  const deadlineRiskTasks = useMemo(() => {
+    const now = new Date();
+    const in7  = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    return tasks.filter(t => {
+      if (t.done || !t.dueDate) return false;
+      const due = new Date(t.dueDate);
+      return due >= now && due <= in7 && !t.scheduledStart && !t.scheduledDate;
+    }).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+  }, [tasks]);
+
+  // Goal trajectory
+  const activeGoals   = (goals || []).filter(g => g.status === 'active');
+  const scoredGoals   = activeGoals.filter(g => g.likelihoodScore != null);
+  const onTrackGoals  = scoredGoals.filter(g => g.likelihoodScore >= 70);
+  const possibleGoals = scoredGoals.filter(g => g.likelihoodScore >= 50 && g.likelihoodScore < 70);
+  const atRiskGoals   = scoredGoals.filter(g => g.likelihoodScore < 50).sort((a, b) => a.likelihoodScore - b.likelihoodScore);
 
   const fetchAI = async () => {
     setAiLoading(true);
@@ -120,8 +134,25 @@ export default function HomeScreen() {
     setAiLoading(false);
   };
 
+  const fetchWeekFocus = async () => {
+    const cacheKey = 'weeklyFocusCache';
+    const cached = (() => { try { return JSON.parse(localStorage.getItem(cacheKey)); } catch { return null; } })();
+    if (cached?.data && Date.now() - cached.ts < 24 * 60 * 60 * 1000) {
+      setWeekFocus(cached.data);
+      return;
+    }
+    setWeekFocusLoading(true);
+    const data = await getWeeklyFocusStatement({ goals: goals || [], tasks, weeklyReviews: weeklyReviews || [] });
+    if (data) {
+      setWeekFocus(data);
+      localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() }));
+    }
+    setWeekFocusLoading(false);
+  };
+
   useEffect(() => {
     fetchAI();
+    fetchWeekFocus();
     // eslint-disable-next-line
   }, []);
 
@@ -213,7 +244,6 @@ export default function HomeScreen() {
   };
 
   const momentumColor = (m) => m >= 65 ? tokens.green : m >= 35 ? tokens.accent : tokens.red;
-  const likelihoodColor = (s) => s >= 70 ? tokens.green : s >= 40 ? tokens.amber : tokens.red;
 
   return (
     <div style={{ maxWidth: 820, margin: '0 auto' }}>
@@ -256,6 +286,26 @@ export default function HomeScreen() {
             <button onClick={() => setPlanOpen(true)}
               style={{ background: tokens.amber, color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
               Rework Schedule
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Deadline Risk Banner */}
+      {deadlineRiskTasks.length > 0 && (
+        <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', background: tokens.redDim, border: `1px solid ${tokens.red}30`, borderRadius: '12px' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.red, marginBottom: '2px' }}>
+                ⏱ {deadlineRiskTasks.length} unscheduled task{deadlineRiskTasks.length > 1 ? 's' : ''} due within 7 days
+              </div>
+              <div style={{ fontSize: '12px', color: tokens.textSecondary }}>
+                {deadlineRiskTasks.slice(0, 2).map(t => t.title).join(' · ')}{deadlineRiskTasks.length > 2 ? ` +${deadlineRiskTasks.length - 2} more` : ''}
+              </div>
+            </div>
+            <button onClick={() => setPlanOpen(true)}
+              style={{ background: tokens.red, color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
+              Schedule →
             </button>
           </div>
         </div>
@@ -403,31 +453,141 @@ export default function HomeScreen() {
         </Card>
       </div>
 
-      {/* Goal Likelihood Snapshot */}
-      {goalsSnapshot.length > 0 && (
+      {/* Goal Trajectory */}
+      {(scoredGoals.length > 0 || activeGoals.length > 0) && (
         <div className="fade-up stagger-4" style={{ marginBottom: '14px' }}>
           <Card>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <SectionLabel style={{ marginBottom: 0 }}>Goal Likelihood</SectionLabel>
+              <SectionLabel style={{ marginBottom: 0 }}>Trajectory</SectionLabel>
               <button onClick={() => navigate('/goals')} style={{ background: 'none', border: 'none', fontSize: '11px', color: tokens.accent, cursor: 'pointer' }}>All Goals →</button>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {goalsSnapshot.map(goal => (
-                <div key={goal.id} onClick={() => navigate('/goals')} style={{ cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 500, color: tokens.textPrimary }}>{goal.title}</span>
-                    <span style={{ fontSize: '12px', fontWeight: 700, color: likelihoodColor(goal.likelihoodScore) }}>{goal.likelihoodScore}%</span>
+
+            {/* Score summary chips */}
+            {scoredGoals.length > 0 && (
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: atRiskGoals.length > 0 ? '14px' : 0 }}>
+                {onTrackGoals.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: tokens.greenDim, borderRadius: '20px', border: `1px solid ${tokens.green}30` }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: tokens.green, display: 'inline-block' }} />
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: tokens.green }}>{onTrackGoals.length} on track</span>
                   </div>
-                  <MomentumBar value={goal.likelihoodScore} color={likelihoodColor(goal.likelihoodScore)} height={3} />
-                  {goal.likelihoodScore < 50 && (
-                    <div style={{ fontSize: '10px', color: tokens.red, marginTop: '3px', fontWeight: 600 }}>⚑ Off track — see Goals for recovery plan</div>
-                  )}
-                </div>
-              ))}
-            </div>
+                )}
+                {possibleGoals.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: tokens.amberDim, borderRadius: '20px', border: `1px solid ${tokens.amber}30` }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: tokens.amber, display: 'inline-block' }} />
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: tokens.amber }}>{possibleGoals.length} possible</span>
+                  </div>
+                )}
+                {atRiskGoals.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: tokens.redDim, borderRadius: '20px', border: `1px solid ${tokens.red}30` }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: tokens.red, display: 'inline-block' }} />
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: tokens.red }}>{atRiskGoals.length} at risk</span>
+                  </div>
+                )}
+                {activeGoals.length > scoredGoals.length && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: tokens.bgGlass, borderRadius: '20px', border: `1px solid ${tokens.border}` }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: tokens.textMuted, display: 'inline-block' }} />
+                    <span style={{ fontSize: '12px', fontWeight: 600, color: tokens.textMuted }}>{activeGoals.length - scoredGoals.length} unscored</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* At-risk goals list */}
+            {atRiskGoals.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {atRiskGoals.map(goal => (
+                  <div key={goal.id}
+                    onClick={() => navigate(`/goals/${goal.id}`)}
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: tokens.redDim, borderRadius: '8px', border: `1px solid ${tokens.red}20`, cursor: 'pointer', transition: 'opacity 0.12s' }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = '0.8'}
+                    onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '13px', fontWeight: 500, color: tokens.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        ⚑ {goal.title}
+                      </div>
+                      {goal.likelihoodReasoning && (
+                        <div style={{ fontSize: '11px', color: tokens.textSecondary, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {goal.likelihoodReasoning}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 700, color: tokens.red }}>{goal.likelihoodScore}%</span>
+                      <span style={{ fontSize: '11px', color: tokens.textMuted }}>→</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* No goals scored yet */}
+            {scoredGoals.length === 0 && activeGoals.length > 0 && (
+              <div style={{ fontSize: '13px', color: tokens.textMuted }}>
+                {activeGoals.length} active goal{activeGoals.length > 1 ? 's' : ''} not yet scored.{' '}
+                <span style={{ color: tokens.accent, cursor: 'pointer' }} onClick={() => navigate('/goals')}>Run analysis →</span>
+              </div>
+            )}
+            {activeGoals.length === 0 && (
+              <div style={{ fontSize: '13px', color: tokens.textMuted }}>
+                No active goals.{' '}
+                <span style={{ color: tokens.accent, cursor: 'pointer' }} onClick={() => navigate('/goals')}>Add your first goal →</span>
+              </div>
+            )}
           </Card>
         </div>
       )}
+
+      {/* This Week's Focus */}
+      <div className="fade-up stagger-4" style={{ marginBottom: '14px' }}>
+        <Card>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <SectionLabel style={{ marginBottom: 0 }}>This Week's Focus</SectionLabel>
+            <button onClick={() => { localStorage.removeItem('weeklyFocusCache'); setWeekFocus(null); fetchWeekFocus(); }}
+              disabled={weekFocusLoading}
+              style={{ background: 'none', border: 'none', fontSize: '13px', color: weekFocusLoading ? tokens.textMuted : tokens.accent, cursor: weekFocusLoading ? 'default' : 'pointer', opacity: weekFocusLoading ? 0.5 : 1 }}>
+              {weekFocusLoading ? '...' : '↻'}
+            </button>
+          </div>
+
+          {weekFocusLoading && !weekFocus && (
+            <div style={{ fontSize: '13px', color: tokens.textMuted, fontStyle: 'italic' }}>Analyzing your week...</div>
+          )}
+
+          {weekFocus && (
+            <>
+              {weekFocus.headline && (
+                <div style={{ fontSize: '14px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '14px', lineHeight: 1.4 }}>
+                  {weekFocus.headline}
+                </div>
+              )}
+
+              {weekFocus.thisWeekFocus?.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: weekFocus.whatToIgnore ? '14px' : 0 }}>
+                  {weekFocus.thisWeekFocus.map((action, i) => (
+                    <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: tokens.accent, background: tokens.accentDim, borderRadius: '4px', padding: '2px 7px', flexShrink: 0, marginTop: '1px', fontFamily: 'monospace' }}>{i + 1}</span>
+                      <span style={{ fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.45 }}>{action}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {weekFocus.whatToIgnore && (
+                <div style={{ padding: '10px 14px', background: tokens.amberDim, borderRadius: '8px', border: `1px solid ${tokens.amber}30` }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: tokens.amber, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Ignore This Week: </span>
+                  <span style={{ fontSize: '12px', color: tokens.textSecondary }}>{weekFocus.whatToIgnore}</span>
+                </div>
+              )}
+            </>
+          )}
+
+          {!weekFocus && !weekFocusLoading && (
+            <div style={{ fontSize: '13px', color: tokens.textMuted }}>
+              <span style={{ color: tokens.accent, cursor: 'pointer' }} onClick={fetchWeekFocus}>Generate focus plan →</span>
+            </div>
+          )}
+        </Card>
+      </div>
 
       {/* Active Projects */}
       <div className="fade-up stagger-4" style={{ marginBottom: '14px' }}>

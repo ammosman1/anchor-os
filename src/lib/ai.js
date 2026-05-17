@@ -424,15 +424,169 @@ Rules:
   }
 }
 
-export async function scoreGoals({ goals, tasks, brainDumps }) {
+export async function getWeeklyFocusStatement({ goals, tasks, weeklyReviews }) {
+  const activeGoals     = (goals || []).filter(g => g.status === 'active');
+  const atRiskGoals     = activeGoals.filter(g => g.likelihoodScore != null && g.likelihoodScore < 50);
+  const highPriorityTasks = tasks.filter(t => !t.done && (t.priority === 'critical' || t.priority === 'high')).slice(0, 8);
+  const recentReview    = weeklyReviews?.[0];
+
+  const content = `Based on Andrew's goals and task load, what are the 3 most important things to move forward this week?
+
+ACTIVE GOALS:
+${activeGoals.map(g => `- ${g.title} (${g.likelihoodScore ?? 'unscored'}/100, ${g.goalType || 'general'})`).join('\n') || 'none'}
+
+AT-RISK GOALS (score <50):
+${atRiskGoals.map(g => `- ${g.title}: ${g.likelihoodScore}/100`).join('\n') || 'none'}
+
+HIGH PRIORITY OPEN TASKS:
+${highPriorityTasks.map(t => `- ${t.title} [${t.priority}]`).join('\n') || 'none'}
+
+${recentReview ? `LAST WEEKLY REVIEW: energy ${recentReview.energyScore}/100, execution ${recentReview.executionScore}/100\nBottlenecks: ${(recentReview.bottlenecks || []).join(', ')}` : ''}
+
+Return ONLY valid JSON:
+{
+  "thisWeekFocus": ["Action 1 (specific, verb-first, under 12 words)", "Action 2", "Action 3"],
+  "whatToIgnore": "One specific thing to deprioritize this week",
+  "headline": "One sharp sentence (10 words max) capturing the week's strategic priority"
+}`;
+
+  const raw = await callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 400,
+    systemExtra: 'Return ONLY valid JSON. No markdown. No explanation.',
+  });
+
+  try {
+    const clean = (raw || '{}').replace(/```json|```/g, '').trim();
+    const match = clean.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function generateGoalInsights({ goal, linkedTasks, completedTasks, weeklyReviews, plaidData }) {
+  const taskCompletionRate = linkedTasks.length > 0
+    ? Math.round((completedTasks.length / linkedTasks.length) * 100) : null;
+
+  const recentReviews = (weeklyReviews || []).slice(0, 4);
+  const avgEnergy = recentReviews.length
+    ? Math.round(recentReviews.reduce((s, r) => s + (r.energyScore || 50), 0) / recentReviews.length) : null;
+  const avgExecution = recentReviews.length
+    ? Math.round(recentReviews.reduce((s, r) => s + (r.executionScore || 50), 0) / recentReviews.length) : null;
+
+  const content = `Analyze this goal for Andrew and answer five critical questions.
+
+GOAL: "${goal.title}"
+TYPE: ${goal.goalType || 'general'}
+WHY: ${goal.why || 'not specified'}
+TARGET DATE: ${goal.targetDate || 'none set'}
+CURRENT LIKELIHOOD: ${goal.likelihoodScore ?? 'not scored'}/100
+TREND: ${goal.likelihoodTrend || 'unknown'}
+${goal.targetAmount ? `FINANCIAL TARGET: $${goal.targetAmount.toLocaleString()}` : ''}
+${goal.currentAmount != null ? `CURRENT AMOUNT: $${goal.currentAmount.toLocaleString()}` : ''}
+${goal.description ? `DESCRIPTION: ${goal.description}` : ''}
+
+LINKED TASKS:
+- Total: ${linkedTasks.length} | Completed: ${completedTasks.length}
+- Completion rate: ${taskCompletionRate ?? 'n/a'}%
+- Active: ${linkedTasks.filter(t => !t.done).slice(0, 5).map(t => t.title).join(', ') || 'none'}
+
+EXECUTION DATA (last 4 weeks):
+- Avg energy: ${avgEnergy ?? 'n/a'}/100
+- Avg execution: ${avgExecution ?? 'n/a'}/100
+${plaidData ? `PLAID: Monthly surplus $${plaidData.monthlySurplus?.toLocaleString()}, spending $${plaidData.monthlySpending?.toLocaleString()}` : ''}
+
+Return ONLY valid JSON:
+{
+  "onTrack": true,
+  "onTrackStatement": "One direct sentence: Am I on track?",
+  "projectedDate": "YYYY-MM or null",
+  "gapStatement": "One sentence: target vs projected, what the gap is",
+  "requiredPaceStatement": "What pace is needed (financial/project goals)",
+  "currentPaceStatement": "Current pace based on data",
+  "topRisks": ["Risk 1", "Risk 2"],
+  "thisWeekActions": ["Action 1", "Action 2", "Action 3"],
+  "whatToIgnore": "One specific thing to deprioritize right now"
+}`;
+
+  const raw = await callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 700,
+    systemExtra: 'Return ONLY valid JSON. No markdown. No explanation.',
+  });
+
+  try {
+    const clean = (raw || '{}').replace(/```json|```/g, '').trim();
+    const match = clean.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function generateGoalExecutionPlan({ goal, existingTasks, projects, daysAvailablePerWeek }) {
+  const content = `Create a concrete execution plan to achieve this goal.
+
+GOAL: "${goal.title}"
+TYPE: ${goal.goalType || 'general'}
+WHY: ${goal.why || 'not specified'}
+TARGET DATE: ${goal.targetDate || 'none set'}
+${goal.targetAmount ? `TARGET: $${goal.targetAmount.toLocaleString()}` : ''}
+${goal.currentAmount != null ? `CURRENT: $${goal.currentAmount.toLocaleString()} (${Math.round((goal.currentAmount / goal.targetAmount) * 100)}% complete)` : ''}
+${goal.description ? `CONTEXT: ${goal.description}` : ''}
+
+EXISTING LINKED TASKS: ${existingTasks.filter(t => !t.done).length} open, ${existingTasks.filter(t => t.done).length} completed
+AVAILABLE CAPACITY: ~${daysAvailablePerWeek || 3} focused days/week
+ACTIVE PROJECTS: ${(projects || []).filter(p => p.status === 'active').map(p => p.title).join(', ') || 'none'}
+
+Return ONLY valid JSON:
+{
+  "milestones": [
+    { "title": "Milestone name", "targetMonth": "YYYY-MM", "description": "What done looks like" }
+  ],
+  "tasks": [
+    {
+      "title": "Action verb + task (under 10 words)",
+      "priority": "critical|high|medium|low",
+      "estimatedMinutes": 60,
+      "milestoneIndex": 0,
+      "project": "project name or Inbox",
+      "notes": "context or empty string"
+    }
+  ],
+  "summary": "One paragraph: what this plan achieves and key assumptions",
+  "warnings": ["Risk or assumption worth flagging"]
+}
+
+Rules: 2-4 milestones, 5-15 specific tasks, task titles start with action verbs, be realistic about limited bandwidth.`;
+
+  const raw = await callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 1500,
+    systemExtra: 'Return ONLY valid JSON. No markdown. No explanation.',
+  });
+
+  try {
+    const clean = (raw || '{}').replace(/```json|```/g, '').trim();
+    const match = clean.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function scoreGoals({ goals, tasks, brainDumps, plaidData = null, reviewHistory = [] }) {
   try {
     const res = await fetch('/api/goals/score', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         goals,
-        tasks:      tasks.slice(0, 50),
-        brainDumps: brainDumps.slice(0, 5),
+        tasks:         tasks.slice(0, 50),
+        brainDumps:    brainDumps.slice(0, 5),
+        plaidData:     plaidData || null,
+        reviewHistory: reviewHistory.slice(0, 4),
       }),
     });
     const data = await res.json();

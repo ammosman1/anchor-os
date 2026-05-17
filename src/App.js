@@ -16,6 +16,7 @@ import ReviewScreen     from './components/screens/ReviewScreen';
 import TasksScreen      from './components/screens/TasksScreen';
 import LifeScreen       from './components/screens/LifeScreen';
 import GoalsScreen      from './components/screens/GoalsScreen';
+import GoalDetailScreen from './components/screens/GoalDetailScreen';
 import { IdeasScreen, DebtScreen } from './components/screens/OtherScreens';
 import ProfileScreen   from './components/screens/ProfileScreen';
 import CalendarScreen  from './components/screens/CalendarScreen';
@@ -63,7 +64,8 @@ function AppRoutes() {
           <Route path="/ideas"      element={<IdeasScreen />}     />
           <Route path="/debt"       element={<DebtScreen />}      />
           <Route path="/life"       element={<LifeScreen />}      />
-          <Route path="/goals"      element={<GoalsScreen />}     />
+          <Route path="/goals"          element={<GoalsScreen />}      />
+          <Route path="/goals/:goalId"  element={<GoalDetailScreen />} />
           <Route path="/calendar"   element={<CalendarScreen />}  />
           <Route path="/profile"    element={<ProfileScreen />}   />
           <Route path="*"           element={<Navigate to="/" />} />

@@ -1,10 +1,12 @@
 // src/components/screens/GoalsScreen.js
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addGoal, updateGoal, deleteGoal, addTask, getAICache, saveAICache } from '../../lib/db';
 import { scoreGoals, generateGoalScenarios } from '../../lib/ai';
+import { fetchMonthlyCashFlow } from '../../lib/plaid';
 import { Button, Input, Select, Modal, EmptyState, MomentumBar, Tag } from '../ui';
 
 const STATUS_OPTIONS = [
@@ -12,6 +14,20 @@ const STATUS_OPTIONS = [
   { value: 'achieved', label: 'Achieved' },
   { value: 'paused',   label: 'Paused'   },
 ];
+
+const GOAL_TYPE_OPTIONS = [
+  { value: 'financial',   label: 'Financial — debt payoff, savings, income targets' },
+  { value: 'project',     label: 'Project — home, build, launch something'          },
+  { value: 'income',      label: 'Income — new revenue stream'                      },
+  { value: 'qualitative', label: 'Life — health, relationships, personal'           },
+];
+
+const GOAL_TYPE_CONFIG = {
+  financial:   { label: 'Financial', color: '#6DBF9E' },
+  project:     { label: 'Project',   color: '#5B8FD4' },
+  income:      { label: 'Income',    color: '#C8A96E' },
+  qualitative: { label: 'Life',      color: '#9B85C9' },
+};
 
 const statusConfig = {
   active:   { label: 'Active',   bg: 'rgba(109,191,158,0.12)', text: '#6DBF9E'                   },
@@ -22,7 +38,7 @@ const statusConfig = {
 const emptyForm = {
   title: '', description: '', why: '',
   targetDate: '', targetAmount: '', currentAmount: '',
-  status: 'active', dependencies: [],
+  status: 'active', dependencies: [], goalType: 'project',
 };
 
 function formatTargetDate(yyyyMM) {
@@ -44,8 +60,9 @@ function formatDollars(n) {
 }
 
 export default function GoalsScreen() {
+  const navigate                          = useNavigate();
   const { user }                          = useAuth();
-  const { goals, tasks, brainDumps }      = useData();
+  const { goals, tasks, brainDumps, plaidItems, weeklyReviews } = useData();
   const [showModal, setShowModal]         = useState(false);
   const [form,      setForm]              = useState(emptyForm);
   const [editing,   setEditing]           = useState(null);
@@ -75,7 +92,15 @@ export default function GoalsScreen() {
 
     setScoring(true);
     try {
-      const scores = await scoreGoals({ goals: activeGoals, tasks, brainDumps });
+      // Fetch real financial data to ground scores in actual numbers
+      const plaidData = await fetchMonthlyCashFlow(plaidItems).catch(() => null);
+      const scores = await scoreGoals({
+        goals:         activeGoals,
+        tasks,
+        brainDumps,
+        plaidData,
+        reviewHistory: weeklyReviews || [],
+      });
       await Promise.all(
         scores.map(s => updateGoal(user.uid, s.goalId, {
           likelihoodScore: s.score,
@@ -103,7 +128,8 @@ export default function GoalsScreen() {
 
   const openNew = () => { setForm(emptyForm); setEditing(null); setShowModal(true); };
 
-  const openEdit = (goal) => {
+  const openEdit = (goal, e) => {
+    if (e) { e.stopPropagation(); e.preventDefault(); }
     setForm({
       title:         goal.title         || '',
       description:   goal.description   || '',
@@ -113,6 +139,7 @@ export default function GoalsScreen() {
       currentAmount: goal.currentAmount != null ? String(goal.currentAmount) : '',
       status:        goal.status        || 'active',
       dependencies:  goal.dependencies  || [],
+      goalType:      goal.goalType      || 'project',
     });
     setEditing(goal.id);
     setShowModal(true);
@@ -132,6 +159,7 @@ export default function GoalsScreen() {
       currentAmount: form.currentAmount !== '' ? parseFloat(form.currentAmount) : null,
       status:        form.status,
       dependencies:  form.dependencies,
+      goalType:      form.goalType      || 'project',
     };
     if (editing) {
       await updateGoal(user.uid, editing, data);
@@ -267,9 +295,12 @@ export default function GoalsScreen() {
               .map(id => goals.find(g => g.id === id)?.title)
               .filter(Boolean);
 
+            const typeConfig = GOAL_TYPE_CONFIG[goal.goalType] || GOAL_TYPE_CONFIG.project;
+
             return (
               <div key={goal.id}
-                style={{ display: 'flex', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: tokens.radiusLg, overflow: 'hidden', transition: 'border-color 0.15s' }}
+                onClick={() => navigate(`/goals/${goal.id}`)}
+                style={{ display: 'flex', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: tokens.radiusLg, overflow: 'hidden', transition: 'border-color 0.15s', cursor: 'pointer' }}
                 onMouseEnter={e => e.currentTarget.style.borderColor = tokens.borderHover}
                 onMouseLeave={e => e.currentTarget.style.borderColor = tokens.border}
               >
@@ -279,8 +310,16 @@ export default function GoalsScreen() {
                 <div style={{ flex: 1, padding: '18px 20px' }}>
                   {/* Title + status */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '6px' }}>
-                    <div style={{ fontFamily: fonts.display, fontSize: '17px', fontWeight: 700, color: tokens.textPrimary, lineHeight: 1.3 }}>{goal.title}</div>
-                    <Tag label={sc.label} color={sc.bg} textColor={sc.text} />
+                    <div>
+                      <div style={{ display: 'flex', gap: '6px', marginBottom: '5px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '4px', background: typeConfig.color + '22', color: typeConfig.color, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                          {typeConfig.label}
+                        </span>
+                        <Tag label={sc.label} color={sc.bg} textColor={sc.text} />
+                      </div>
+                      <div style={{ fontFamily: fonts.display, fontSize: '17px', fontWeight: 700, color: tokens.textPrimary, lineHeight: 1.3 }}>{goal.title}</div>
+                    </div>
+                    <div style={{ fontSize: '11px', color: tokens.textMuted, flexShrink: 0, marginTop: '2px' }}>View →</div>
                   </div>
 
                   {/* Why */}
@@ -426,8 +465,8 @@ export default function GoalsScreen() {
 
                   {/* Actions */}
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '4px', marginTop: '12px' }}>
-                    <button onClick={() => openEdit(goal)} style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '11px', cursor: 'pointer', padding: '2px 8px', fontFamily: fonts.body }}>Edit</button>
-                    <button onClick={() => handleDelete(goal.id)} style={{ background: 'none', border: 'none', color: tokens.red, fontSize: '11px', cursor: 'pointer', padding: '2px 8px', opacity: 0.6, fontFamily: fonts.body }}>✕</button>
+                    <button onClick={e => openEdit(goal, e)} style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '11px', cursor: 'pointer', padding: '2px 8px', fontFamily: fonts.body }}>Edit</button>
+                    <button onClick={e => { e.stopPropagation(); handleDelete(goal.id); }} style={{ background: 'none', border: 'none', color: tokens.red, fontSize: '11px', cursor: 'pointer', padding: '2px 8px', opacity: 0.6, fontFamily: fonts.body }}>✕</button>
                   </div>
                 </div>
               </div>
@@ -459,6 +498,18 @@ export default function GoalsScreen() {
             placeholder="Any additional context..."
             multiline rows={2}
           />
+
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '8px' }}>Goal Type</label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+              {GOAL_TYPE_OPTIONS.map(opt => (
+                <button key={opt.value} onClick={() => setForm(f => ({ ...f, goalType: opt.value }))}
+                  style={{ padding: '8px 12px', borderRadius: '8px', border: `1px solid ${form.goalType === opt.value ? (GOAL_TYPE_CONFIG[opt.value]?.color || tokens.accent) : tokens.border}`, background: form.goalType === opt.value ? (GOAL_TYPE_CONFIG[opt.value]?.color || tokens.accent) + '18' : 'transparent', color: form.goalType === opt.value ? (GOAL_TYPE_CONFIG[opt.value]?.color || tokens.accent) : tokens.textMuted, cursor: 'pointer', fontSize: '12px', fontFamily: fonts.body, textAlign: 'left', fontWeight: form.goalType === opt.value ? 600 : 400, transition: 'all 0.12s' }}>
+                  {opt.label.split(' — ')[0]}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

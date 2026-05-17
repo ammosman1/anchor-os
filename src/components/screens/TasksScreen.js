@@ -15,9 +15,21 @@ const PRIORITIES = [
   { value: 'low',      label: '⚪ Low'      },
 ];
 
+const FOCUS_TYPES = [
+  { value: 'deep',    label: '🧠 Deep Work'  },
+  { value: 'shallow', label: '💬 Shallow'    },
+  { value: 'admin',   label: '📋 Admin'      },
+];
+
+const FOCUS_TYPE_COLORS = {
+  deep:    { bg: '#1a2340', text: '#5B8DEF' },
+  shallow: { bg: '#1a2930', text: '#4EA8A8' },
+  admin:   { bg: '#1f1a2e', text: '#9B59B6' },
+};
+
 const STATUS_FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'done'];
 
-const emptyForm = { title: '', priority: 'high', projectId: '', notes: '', estimatedMinutes: '', tags: '', recurrence: 'none' };
+const emptyForm = { title: '', priority: 'high', projectId: '', notes: '', estimatedMinutes: '', tags: '', recurrence: 'none', focusType: 'deep' };
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -148,6 +160,7 @@ export default function TasksScreen() {
       estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : '',
       tags:             task.tags?.join(', ') || '',
       recurrence:       task.recurrence       || 'none',
+      focusType:        task.focusType        || 'deep',
     });
     setEditing(task.id);
     setShowModal(true);
@@ -167,6 +180,7 @@ export default function TasksScreen() {
       estimatedMinutes: parseInt(form.estimatedMinutes) || null,
       tags:             parseTags(form.tags),
       recurrence:       form.recurrence || 'none',
+      focusType:        form.focusType || 'deep',
     };
 
     if (editing) {
@@ -336,6 +350,11 @@ export default function TasksScreen() {
                         {task.estimatedMinutes >= 60 ? `${Math.floor(task.estimatedMinutes/60)}h${task.estimatedMinutes%60 ? ` ${task.estimatedMinutes%60}m` : ''}` : `${task.estimatedMinutes}m`}
                       </span>
                     )}
+                    {task.focusType && task.focusType !== 'deep' && (
+                      <span style={{ fontSize: '10px', fontWeight: 600, color: FOCUS_TYPE_COLORS[task.focusType]?.text, background: FOCUS_TYPE_COLORS[task.focusType]?.bg, padding: '1px 6px', borderRadius: '4px' }}>
+                        {task.focusType === 'shallow' ? 'shallow' : 'admin'}
+                      </span>
+                    )}
                     {task.status === 'scheduled' && <span style={{ fontSize: '10px', color: tokens.blue, fontWeight: 600 }}>· Scheduled</span>}
                     {task.recurrence && task.recurrence !== 'none' && <span style={{ fontSize: '10px', color: tokens.green, fontWeight: 600 }}>· ↻ {task.recurrence}</span>}
                   </div>
@@ -417,8 +436,9 @@ export default function TasksScreen() {
           </div>
           <Input label="Tags (comma-separated)" value={form.tags} onChange={v => setForm(f => ({ ...f, tags: v }))} placeholder="e.g. email, client, urgent" />
           <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Any context..." multiline rows={2} />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <Input label="Estimated Time (minutes)" value={form.estimatedMinutes} onChange={v => setForm(f => ({ ...f, estimatedMinutes: v }))} placeholder="30, 60, 90..." type="number" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+            <Input label="Est. Minutes" value={form.estimatedMinutes} onChange={v => setForm(f => ({ ...f, estimatedMinutes: v }))} placeholder="30, 60..." type="number" />
+            <Select label="Focus Type" value={form.focusType} onChange={v => setForm(f => ({ ...f, focusType: v }))} options={FOCUS_TYPES} />
             <Select label="Repeat" value={form.recurrence} onChange={v => setForm(f => ({ ...f, recurrence: v }))} options={RECURRENCE_OPTIONS} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>

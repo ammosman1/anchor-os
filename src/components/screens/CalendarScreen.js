@@ -479,7 +479,27 @@ export default function CalendarScreen() {
       const tomSlots = getFreeSlots(tomEvs, tomDate.toISOString(), workHours);
 
       const needed = task.estimatedMinutes || 45;
-      const slot   = [...todaySlots, ...tomSlots].find(s => s.durationMins >= needed);
+
+      // Energy-aware slot ordering: deep work → morning; shallow/admin → afternoon
+      const energy    = userProfile?.energyToday || 5;
+      const focusType = task.focusType || 'deep';
+      const noonIso   = (slots) => slots.map(s => ({
+        ...s,
+        isMorning: new Date(s.start).getHours() < 12,
+      }));
+
+      const allSlots = [...noonIso(todaySlots), ...noonIso(tomSlots)];
+      let orderedSlots;
+      if (focusType === 'deep' || energy >= 7) {
+        // Prefer morning for deep/high-energy
+        orderedSlots = [...allSlots.filter(s => s.isMorning), ...allSlots.filter(s => !s.isMorning)];
+      } else if (focusType === 'shallow' || focusType === 'admin') {
+        // Prefer afternoon for shallow/admin (save morning for deep)
+        orderedSlots = [...allSlots.filter(s => !s.isMorning), ...allSlots.filter(s => s.isMorning)];
+      } else {
+        orderedSlots = allSlots;
+      }
+      const slot = orderedSlots.find(s => s.durationMins >= needed);
 
       if (!slot) {
         setDragNoSlot(`No free slot found for "${task.title}" today or tomorrow.`);
