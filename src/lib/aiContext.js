@@ -85,7 +85,8 @@ export function buildHolisticContext({
   if (activeGoals.length > 0) {
     lines.push(`\nACTIVE GOALS (${activeGoals.length}):`);
     activeGoals.forEach(g => {
-      const linkedTasks = tasks.filter(t => t.goalId === g.id && !t.done);
+      const linkedProjectIds = projects.filter(p => p.goalId === g.id).map(p => p.id);
+      const linkedTasks = tasks.filter(t => !t.done && (t.goalId === g.id || linkedProjectIds.includes(t.projectId)));
       const taskCount = linkedTasks.length;
       const score = g.likelihoodScore != null ? `score:${g.likelihoodScore}/100` : 'unscored';
       const target = g.targetDate ? ` | target:${g.targetDate}` : '';
