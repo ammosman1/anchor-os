@@ -104,6 +104,7 @@ export function buildHolisticContext({
   // Recent brain dumps (last 14 days)
   const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
   const recentDumps = brainDumps.filter(d => {
+    if (d.archived) return false;
     try {
       const ms = d.createdAt?.toMillis?.() || new Date(d.createdAt).getTime();
       return ms > twoWeeksAgo;

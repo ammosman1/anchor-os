@@ -112,7 +112,8 @@ export default function ProjectsScreen() {
   const stalledProjects = useMemo(() => projects.filter(p => {
     if (p.status === 'complete' || p.status === 'paused') return false;
     const projectTasks = tasks.filter(t => t.projectId === p.id);
-    // Check most recent activity across project edits and all linked tasks
+    const { score: mScore } = calculateMomentum(p, projectTasks);
+    if (mScore > 50) return false;
     let lastMs = p.updatedAt?.toMillis?.() ?? (p.updatedAt ? new Date(p.updatedAt).getTime() : 0);
     for (const t of projectTasks) {
       const tMs = Math.max(

@@ -121,6 +121,11 @@ export default function ProjectDetailScreen() {
   const [editSaving, setEditSaving] = useState(false);
 
   const buildContext = useCallback(() => {
+    let calendarDensity = null;
+    try {
+      const stored = sessionStorage.getItem('calendarDensity');
+      if (stored) calendarDensity = JSON.parse(stored);
+    } catch {}
     return buildHolisticContext({
       goals,
       tasks,
@@ -128,6 +133,7 @@ export default function ProjectDetailScreen() {
       brainDumps: brainDumps || [],
       weeklyReviews: weeklyReviews || [],
       userProfile: userProfile || profile,
+      calendarDensity,
     });
   }, [goals, tasks, projects, brainDumps, weeklyReviews, userProfile, profile]);
 
@@ -306,6 +312,7 @@ export default function ProjectDetailScreen() {
       blockers:   project.blockers   || '',
       notes:      project.notes      || '',
       goalId:     project.goalId     || '',
+      context:    project.context    || '',
     });
     setEditOpen(true);
   };
@@ -314,7 +321,7 @@ export default function ProjectDetailScreen() {
     if (!editForm.title.trim()) return;
     setEditSaving(true);
     try {
-      await updateProject(user.uid, projectId, {
+      const updates = {
         title:      editForm.title.trim(),
         category:   editForm.category   || 'work',
         status:     editForm.status     || 'active',
@@ -322,7 +329,12 @@ export default function ProjectDetailScreen() {
         blockers:   editForm.blockers   || '',
         notes:      editForm.notes      || '',
         goalId:     editForm.goalId     || null,
-      });
+        context:    editForm.context    || null,
+      };
+      if (project.status === 'stalled' && editForm.status === 'active') {
+        updates.deferCount = (project.deferCount || 0) + 1;
+      }
+      await updateProject(user.uid, projectId, updates);
       setEditOpen(false);
     } catch (err) {
       console.error('Edit project error:', err);
@@ -690,15 +702,29 @@ export default function ProjectDetailScreen() {
               </select>
             </div>
           </div>
-          <div>
-            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Linked Goal</label>
-            <select value={editForm.goalId || ''} onChange={e => setEditForm(f => ({ ...f, goalId: e.target.value }))}
-              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-              <option value="">No linked goal</option>
-              {(goals || []).filter(g => g.status === 'active').map(g => (
-                <option key={g.id} value={g.id}>{g.title}</option>
-              ))}
-            </select>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Linked Goal</label>
+              <select value={editForm.goalId || ''} onChange={e => setEditForm(f => ({ ...f, goalId: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                <option value="">No linked goal</option>
+                {(goals || []).filter(g => g.status === 'active').map(g => (
+                  <option key={g.id} value={g.id}>{g.title}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Context</label>
+              <select value={editForm.context || ''} onChange={e => setEditForm(f => ({ ...f, context: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                <option value="">No context</option>
+                <option value="wells-fargo">Wells Fargo</option>
+                <option value="personal">Personal</option>
+                <option value="side-business">Side Business</option>
+                <option value="home-family">Home/Family</option>
+                <option value="financial">Financial Recovery</option>
+              </select>
+            </div>
           </div>
           <Input label="Next Action" value={editForm.nextAction || ''} onChange={v => setEditForm(f => ({ ...f, nextAction: v }))} placeholder="What's the immediate next step?" />
           <Input label="Blockers"    value={editForm.blockers   || ''} onChange={v => setEditForm(f => ({ ...f, blockers: v }))}   placeholder="What's in the way?" />

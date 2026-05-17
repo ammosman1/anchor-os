@@ -8,6 +8,9 @@ import { getAIFocusRecommendation, getWeeklyFocusStatement } from '../../lib/ai'
 import { buildHolisticContext } from '../../lib/aiContext';
 import { updateTask, addTask, saveProfile } from '../../lib/db';
 import { getValidAccessToken, getEvents } from '../../lib/calendar';
+import { calculateMomentum } from '../../lib/momentum';
+import { calculateUrgency } from '../../lib/tasks';
+import { fetchMonthlyCashFlow } from '../../lib/plaid';
 import {
   Card, AICard, SectionLabel, MomentumBar, Tag, Button,
   EmptyState, priorityColors, Modal, Input,
@@ -54,7 +57,7 @@ const QUOTES = [
 
 export default function HomeScreen() {
   const { user, profile, updateProfile } = useAuth();
-  const { tasks, activeProjects, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile } = useData();
+  const { tasks, activeProjects, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile, plaidItems } = useData();
   const navigate = useNavigate();
 
   const [energy,      setEnergy]      = useState(profile?.energyToday || 7);
@@ -76,6 +79,7 @@ export default function HomeScreen() {
   const [feedbackText,    setFeedbackText]    = useState('');
   const [feedbackSaving,  setFeedbackSaving]  = useState(false);
   const [calendarDensity, setCalendarDensity] = useState(null);
+  const [plaidData,       setPlaidData]       = useState(null);
 
   const isAfter5pm = new Date().getHours() >= 17;
   const todayStr   = todayYMD();
@@ -106,11 +110,10 @@ export default function HomeScreen() {
     return false;
   }).sort((a, b) => (a.scheduledStart || '').localeCompare(b.scheduledStart || ''));
 
-  // Priority tasks (high/critical, unscheduled)
-  const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+  // Priority tasks sorted by urgency score
   const todayTasks = [...tasks]
     .filter(t => !t.done && (t.priority === 'critical' || t.priority === 'high' || t.source === 'brain-dump' || !t.projectId))
-    .sort((a, b) => (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9));
+    .sort((a, b) => calculateUrgency(b) - calculateUrgency(a));
 
   const top3    = todayTasks.slice(0, 3);
   const mustWin = top3.find(t => t.priority === 'critical') || top3[0];
@@ -145,6 +148,25 @@ export default function HomeScreen() {
     }).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
   }, [tasks]);
 
+  // Weekly review reminder — show if no review in last 7 days
+  const reviewReminderDue = useMemo(() => {
+    if (!weeklyReviews) return false;
+    if (weeklyReviews.length === 0) return true;
+    const lastMs = weeklyReviews[0].savedAt?.toMillis?.() ||
+      (weeklyReviews[0].savedAt ? new Date(weeklyReviews[0].savedAt).getTime() : 0);
+    return (Date.now() - lastMs) > 7 * 24 * 60 * 60 * 1000;
+  }, [weeklyReviews]);
+
+  // Pre-compute momentum for active projects
+  const activeProjectsMomentum = useMemo(() => {
+    const map = {};
+    (activeProjects || []).forEach(p => {
+      const pts = tasks.filter(t => t.projectId === p.id);
+      map[p.id] = calculateMomentum(p, pts).score;
+    });
+    return map;
+  }, [activeProjects, tasks]);
+
   // Goal trajectory
   const activeGoals   = (goals || []).filter(g => g.status === 'active');
   const scoredGoals   = activeGoals.filter(g => g.likelihoodScore != null);
@@ -160,6 +182,7 @@ export default function HomeScreen() {
     weeklyReviews:  weeklyReviews || [],
     userProfile:    userProfile || profile,
     calendarDensity,
+    plaidData,
   });
 
   const fetchAI = async () => {
@@ -236,12 +259,25 @@ export default function HomeScreen() {
           const day = new Date(ev.start.dateTime).toLocaleDateString('en-US', { weekday: 'long' });
           density[day] = (density[day] || 0) + 1;
         });
-        if (Object.keys(density).length > 0) setCalendarDensity(density);
+        if (Object.keys(density).length > 0) {
+          setCalendarDensity(density);
+          try { sessionStorage.setItem('calendarDensity', JSON.stringify(density)); } catch {}
+        }
       } catch { /* optional enhancement — fail silently */ }
     }
     fetchDensity();
     // eslint-disable-next-line
   }, [calendarIntegration]);
+
+  useEffect(() => {
+    async function loadPlaid() {
+      if (!plaidItems?.length) return;
+      const data = await fetchMonthlyCashFlow(plaidItems);
+      if (data) setPlaidData(data);
+    }
+    loadPlaid();
+    // eslint-disable-next-line
+  }, [plaidItems]);
 
   const handleEnergyChange = async (val) => {
     setEnergy(val);
@@ -399,6 +435,26 @@ export default function HomeScreen() {
               ))}
             </div>
             <div style={{ fontSize: '11px', color: tokens.textMuted }}>These tasks have been pushed multiple times — they need real time blocked today.</div>
+          </div>
+        </div>
+      )}
+
+      {/* Weekly Review Reminder */}
+      {reviewReminderDue && (
+        <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', background: tokens.accentDim, border: `1px solid rgba(200,169,110,0.3)`, borderRadius: '12px' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.accent, marginBottom: '2px' }}>
+                📋 Weekly review overdue
+              </div>
+              <div style={{ fontSize: '12px', color: tokens.textSecondary }}>
+                {weeklyReviews?.length === 0 ? 'No reviews yet — start your first weekly review.' : 'Last review was over a week ago. Stay on track with a quick check-in.'}
+              </div>
+            </div>
+            <button onClick={() => navigate('/review')}
+              style={{ background: tokens.accent, color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
+              Review →
+            </button>
           </div>
         </div>
       )}
@@ -728,16 +784,19 @@ export default function HomeScreen() {
             <EmptyState icon="◈" title="No active projects" subtitle="Add your first project." action={<Button onClick={() => navigate('/projects')} size="sm">New Project</Button>} />
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px' }}>
-              {activeProjects.slice(0, 6).map(p => (
-                <div key={p.id} onClick={() => navigate('/projects')}
-                  style={{ padding: '12px 14px', borderRadius: '8px', background: tokens.bgGlass, border: `1px solid ${tokens.border}`, cursor: 'pointer', transition: 'all 0.15s' }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = tokens.borderHover}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = tokens.border}>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</div>
-                  <MomentumBar value={p.momentum || 0} color={momentumColor(p.momentum || 0)} />
-                  <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '5px' }}>{p.momentum || 0}% momentum</div>
-                </div>
-              ))}
+              {activeProjects.slice(0, 6).map(p => {
+                const mScore = activeProjectsMomentum[p.id] ?? 0;
+                return (
+                  <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
+                    style={{ padding: '12px 14px', borderRadius: '8px', background: tokens.bgGlass, border: `1px solid ${tokens.border}`, cursor: 'pointer', transition: 'all 0.15s' }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = tokens.borderHover}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = tokens.border}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</div>
+                    <MomentumBar value={mScore} color={momentumColor(mScore)} />
+                    <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '5px' }}>{mScore}% momentum</div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </Card>

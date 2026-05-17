@@ -108,6 +108,12 @@ export const saveBrainDump = (uid, data) =>
     createdAt: serverTimestamp(),
   });
 
+export const updateBrainDump = (uid, dumpId, data) =>
+  updateDoc(doc(db, 'users', uid, 'brainDumps', dumpId), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+
 export const subscribeBrainDumps = (uid, cb) =>
   onSnapshot(
     query(collection(db, 'users', uid, 'brainDumps'), orderBy('createdAt', 'desc'), limit(30)),

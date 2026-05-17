@@ -4,7 +4,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { callAI, buildSchedule } from '../../lib/ai';
-import { saveBrainDump, addTask, addProject, updateTask } from '../../lib/db';
+import { saveBrainDump, addTask, addProject, updateTask, updateBrainDump } from '../../lib/db';
 import { getValidAccessToken, getEvents, getFreeSlots, createEvent, formatEventTime } from '../../lib/calendar';
 import { Card, Button, SectionLabel, Tag, AICard } from '../ui';
 
@@ -164,10 +164,13 @@ function ScheduleBlock({
 
 // ─── History tab ──────────────────────────────────────────────────────────────
 
-function HistoryTab({ brainDumps }) {
-  const [expanded, setExpanded] = useState(null);
+function HistoryTab({ brainDumps, uid }) {
+  const [expanded,  setExpanded]  = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
 
-  if (brainDumps.length === 0) return (
+  const visible = showArchived ? brainDumps : brainDumps.filter(d => !d.archived);
+
+  if (visible.length === 0 && !showArchived) return (
     <div style={{ textAlign: 'center', padding: '48px 24px' }}>
       <div style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.3 }}>◎</div>
       <div style={{ fontFamily: fonts.display, fontSize: '16px', color: tokens.textSecondary, marginBottom: '6px' }}>No brain dumps yet</div>
@@ -175,9 +178,20 @@ function HistoryTab({ brainDumps }) {
     </div>
   );
 
+  const archivedCount = brainDumps.filter(d => d.archived).length;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      {brainDumps.map(dump => {
+    <div>
+      {archivedCount > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
+          <button onClick={() => setShowArchived(v => !v)}
+            style={{ background: 'none', border: 'none', fontSize: '11px', color: tokens.textMuted, cursor: 'pointer', fontFamily: fonts.body }}>
+            {showArchived ? 'Hide archived' : `Show ${archivedCount} archived`}
+          </button>
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {visible.map(dump => {
         const isExpanded  = expanded === dump.id;
         const date        = dump.createdAt?.toDate?.() || new Date();
         const dateStr     = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -188,11 +202,14 @@ function HistoryTab({ brainDumps }) {
         return (
           <div key={dump.id}
             onClick={() => setExpanded(isExpanded ? null : dump.id)}
-            style={{ background: isExpanded ? 'rgba(200,169,110,0.05)' : tokens.bgCard, border: `1px solid ${isExpanded ? 'rgba(200,169,110,0.2)' : tokens.border}`, borderRadius: '10px', padding: '14px 16px', cursor: 'pointer', transition: 'all 0.18s' }}
+            style={{ background: dump.archived ? tokens.bgGlass : isExpanded ? 'rgba(200,169,110,0.05)' : tokens.bgCard, border: `1px solid ${isExpanded ? 'rgba(200,169,110,0.2)' : tokens.border}`, borderRadius: '10px', padding: '14px 16px', cursor: 'pointer', transition: 'all 0.18s', opacity: dump.archived ? 0.6 : 1 }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div style={{ flex: 1, paddingRight: '10px' }}>
-                <div style={{ fontSize: '11px', color: tokens.textMuted, marginBottom: '4px' }}>{dateStr}</div>
+                <div style={{ fontSize: '11px', color: tokens.textMuted, marginBottom: '4px' }}>
+                  {dateStr}
+                  {dump.archived && <span style={{ marginLeft: '6px', fontSize: '10px', color: tokens.textMuted, background: tokens.bgGlass, padding: '1px 5px', borderRadius: '3px' }}>archived</span>}
+                </div>
                 <div style={{ fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.5 }}>{summary}</div>
                 {categories.length > 0 && (
                   <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '6px' }}>
@@ -225,7 +242,7 @@ function HistoryTab({ brainDumps }) {
                   </div>
                 )}
                 {Object.entries(dump.result?.categories || {}).filter(([, v]) => Array.isArray(v) && v.length > 0).length > 0 && (
-                  <div>
+                  <div style={{ marginBottom: '12px' }}>
                     <div style={{ fontSize: '10px', color: tokens.textMuted, fontWeight: 700, letterSpacing: '0.08em', marginBottom: '8px' }}>CATEGORIZED</div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '8px' }}>
                       {Object.entries(dump.result.categories).filter(([, v]) => Array.isArray(v) && v.length > 0).map(([cat, items]) => (
@@ -237,11 +254,19 @@ function HistoryTab({ brainDumps }) {
                     </div>
                   </div>
                 )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+                  <button
+                    onClick={e => { e.stopPropagation(); updateBrainDump(uid, dump.id, { archived: !dump.archived }); }}
+                    style={{ background: 'none', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '4px 12px', fontSize: '11px', color: tokens.textMuted, cursor: 'pointer', fontFamily: fonts.body }}>
+                    {dump.archived ? 'Unarchive' : 'Archive'}
+                  </button>
+                </div>
               </div>
             )}
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
@@ -637,7 +662,7 @@ BRAIN DUMP:\n${text}` }],
       </div>
 
       {activeTab === 'history' ? (
-        <HistoryTab brainDumps={brainDumps} />
+        <HistoryTab brainDumps={brainDumps} uid={user.uid} />
 
       ) : view === 'input' ? (
         /* ── Dump input ── */
