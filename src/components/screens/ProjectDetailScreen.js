@@ -182,9 +182,18 @@ export default function ProjectDetailScreen() {
     if (project) loadAnalysis();
   }, [projectId]); // eslint-disable-line
 
+  // Auto-correct stalled → active when momentum is healthy.
+  // Use a ref so the write fires at most once per project load, preventing
+  // a feedback loop where the updatedAt bump re-triggers the effect.
+  const hasCorrectedStatusRef = React.useRef(false);
   useEffect(() => {
+    hasCorrectedStatusRef.current = false;
+  }, [projectId]);
+  useEffect(() => {
+    if (hasCorrectedStatusRef.current) return;
     if (!project || !user) return;
     if (project.status === 'stalled' && mScore > 50) {
+      hasCorrectedStatusRef.current = true;
       updateProject(user.uid, projectId, { status: 'active' });
     }
   }, [project?.status, mScore]); // eslint-disable-line
