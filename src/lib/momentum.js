@@ -57,6 +57,13 @@ export function calculateMomentum(project, projectTasks) {
     score -=  5; factors.push({ label: 'No next action set',    delta:  -5, icon: '↓' });
   }
 
+  // Drift penalty: prior stall cycles (–5 each, max –15)
+  if (project.deferCount > 0) {
+    const penalty = Math.min(15, project.deferCount * 5);
+    score -= penalty;
+    factors.push({ label: `Stalled ${project.deferCount}× previously`, delta: -penalty, icon: '↓' });
+  }
+
   // Active blocker (–20)
   if (project.blockers) {
     const preview = project.blockers.length > 40

@@ -15,6 +15,15 @@ const STATUS_OPTIONS = [
   { value: 'paused',   label: 'Paused'   },
 ];
 
+const CONTEXT_OPTIONS = [
+  { value: '',               label: 'No context'         },
+  { value: 'wells-fargo',    label: 'Wells Fargo'        },
+  { value: 'personal',       label: 'Personal'           },
+  { value: 'side-business',  label: 'Side Business'      },
+  { value: 'home-family',    label: 'Home/Family'        },
+  { value: 'financial',      label: 'Financial Recovery' },
+];
+
 const GOAL_TYPE_OPTIONS = [
   { value: 'financial',   label: 'Financial — debt payoff, savings, income targets' },
   { value: 'project',     label: 'Project — home, build, launch something'          },
@@ -38,7 +47,7 @@ const statusConfig = {
 const emptyForm = {
   title: '', description: '', why: '',
   targetDate: '', targetAmount: '', currentAmount: '',
-  status: 'active', dependencies: [], goalType: 'project',
+  status: 'active', dependencies: [], goalType: 'project', context: '',
 };
 
 function formatTargetDate(yyyyMM) {
@@ -63,12 +72,13 @@ export default function GoalsScreen() {
   const navigate                          = useNavigate();
   const { user }                          = useAuth();
   const { goals, tasks, brainDumps, plaidItems, weeklyReviews } = useData();
-  const [showModal, setShowModal]         = useState(false);
-  const [form,      setForm]              = useState(emptyForm);
-  const [editing,   setEditing]           = useState(null);
-  const [saving,    setSaving]            = useState(false);
-  const [scoring,   setScoring]           = useState(false);
-  const hasScoredRef                      = useRef(false);
+  const [showModal,      setShowModal]      = useState(false);
+  const [form,           setForm]           = useState(emptyForm);
+  const [editing,        setEditing]        = useState(null);
+  const [saving,         setSaving]         = useState(false);
+  const [scoring,        setScoring]        = useState(false);
+  const [filterContext,  setFilterContext]  = useState('');
+  const hasScoredRef                        = useRef(false);
 
   // Scenario modeling state
   const [scenarioGoalId,  setScenarioGoalId]  = useState(null);
@@ -140,6 +150,7 @@ export default function GoalsScreen() {
       status:        goal.status        || 'active',
       dependencies:  goal.dependencies  || [],
       goalType:      goal.goalType      || 'project',
+      context:       goal.context       || '',
     });
     setEditing(goal.id);
     setShowModal(true);
@@ -160,8 +171,13 @@ export default function GoalsScreen() {
       status:        form.status,
       dependencies:  form.dependencies,
       goalType:      form.goalType      || 'project',
+      context:       form.context       || null,
     };
     if (editing) {
+      const existingGoal = goals.find(g => g.id === editing);
+      if (existingGoal && form.targetDate && existingGoal.targetDate && form.targetDate > existingGoal.targetDate) {
+        data.targetDateChanges = (existingGoal.targetDateChanges || 0) + 1;
+      }
       await updateGoal(user.uid, editing, data);
     } else {
       await addGoal(user.uid, data);
@@ -274,6 +290,16 @@ export default function GoalsScreen() {
         ))}
       </div>
 
+      {/* Context filter pills */}
+      <div className="fade-up stagger-1" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '14px' }}>
+        {CONTEXT_OPTIONS.map(opt => (
+          <button key={opt.value} onClick={() => setFilterContext(filterContext === opt.value ? '' : opt.value)}
+            style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 12px', borderRadius: '99px', background: filterContext === opt.value ? tokens.accentDim : 'transparent', color: filterContext === opt.value ? tokens.accent : tokens.textMuted, border: `1px solid ${filterContext === opt.value ? 'rgba(200,169,110,0.2)' : tokens.border}`, cursor: 'pointer', transition: 'all 0.15s', fontFamily: fonts.body }}>
+            {opt.value === '' ? 'All' : opt.label}
+          </button>
+        ))}
+      </div>
+
       {/* Goal list */}
       <div className="fade-up stagger-2" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {goals.length === 0 ? (
@@ -284,7 +310,7 @@ export default function GoalsScreen() {
             action={<Button onClick={openNew} size="sm">+ Add Goal</Button>}
           />
         ) : (
-          goals.map(goal => {
+          goals.filter(goal => !filterContext || goal.context === filterContext).map(goal => {
             const sc       = statusConfig[goal.status] || statusConfig.active;
             const months   = monthsFrom(goal.targetDate);
             const hasMoney = goal.targetAmount != null;
@@ -316,6 +342,16 @@ export default function GoalsScreen() {
                           {typeConfig.label}
                         </span>
                         <Tag label={sc.label} color={sc.bg} textColor={sc.text} />
+                        {goal.context && (
+                          <span style={{ fontSize: '10px', fontWeight: 600, padding: '2px 7px', borderRadius: '4px', background: 'rgba(91,143,212,0.12)', color: '#5B8FD4', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                            {CONTEXT_OPTIONS.find(c => c.value === goal.context)?.label || goal.context}
+                          </span>
+                        )}
+                        {goal.targetDateChanges > 0 && (
+                          <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '4px', background: 'rgba(212,122,107,0.12)', color: tokens.red }}>
+                            ↻{goal.targetDateChanges}
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontFamily: fonts.display, fontSize: '17px', fontWeight: 700, color: tokens.textPrimary, lineHeight: 1.3 }}>{goal.title}</div>
                     </div>
@@ -529,6 +565,14 @@ export default function GoalsScreen() {
               onChange={v => setForm(f => ({ ...f, status: v }))}
               options={STATUS_OPTIONS}
             />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Context</label>
+            <select value={form.context} onChange={e => setForm(f => ({ ...f, context: e.target.value }))}
+              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+              {CONTEXT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>

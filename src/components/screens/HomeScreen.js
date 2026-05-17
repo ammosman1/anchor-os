@@ -7,6 +7,7 @@ import { useData } from '../../context/DataContext';
 import { getAIFocusRecommendation, getWeeklyFocusStatement } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
 import { updateTask, addTask, saveProfile } from '../../lib/db';
+import { getValidAccessToken, getEvents } from '../../lib/calendar';
 import {
   Card, AICard, SectionLabel, MomentumBar, Tag, Button,
   EmptyState, priorityColors, Modal, Input,
@@ -32,6 +33,13 @@ function todayYMD() {
 function formatTime(iso) {
   if (!iso) return '';
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+function weekStartDate(date) {
+  const d = new Date(date);
+  d.setDate(d.getDate() - d.getDay());
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
 const QUOTES = [
@@ -63,10 +71,11 @@ export default function HomeScreen() {
   const [quote]                         = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
 
   // AI feedback state
-  const [feedbackOpen,   setFeedbackOpen]   = useState(false);
-  const [feedbackKey,    setFeedbackKey]     = useState('');
-  const [feedbackText,   setFeedbackText]    = useState('');
-  const [feedbackSaving, setFeedbackSaving]  = useState(false);
+  const [feedbackOpen,    setFeedbackOpen]    = useState(false);
+  const [feedbackKey,     setFeedbackKey]     = useState('');
+  const [feedbackText,    setFeedbackText]    = useState('');
+  const [feedbackSaving,  setFeedbackSaving]  = useState(false);
+  const [calendarDensity, setCalendarDensity] = useState(null);
 
   const isAfter5pm = new Date().getHours() >= 17;
   const todayStr   = todayYMD();
@@ -112,14 +121,27 @@ export default function HomeScreen() {
     return updated.toDateString() === new Date().toDateString();
   }).length;
 
-  // Deadline risk: tasks due within 7 days that aren't scheduled or done
+  // Deadline risk: unscheduled tasks due within 7 days
   const deadlineRiskTasks = useMemo(() => {
     const now = new Date();
     const in7  = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     return tasks.filter(t => {
       if (t.done || !t.dueDate) return false;
-      const due = new Date(t.dueDate);
+      const due = new Date(t.dueDate + 'T23:59:59');
       return due >= now && due <= in7 && !t.scheduledStart && !t.scheduledDate;
+    }).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+  }, [tasks]);
+
+  // At-risk this week: high/critical tasks that have been chronically deferred AND are due within 5 days
+  const atRiskThisWeek = useMemo(() => {
+    const now = Date.now();
+    const in5 = now + 5 * 24 * 60 * 60 * 1000;
+    return tasks.filter(t => {
+      if (t.done || !t.dueDate) return false;
+      const dueMs = new Date(t.dueDate + 'T23:59:59').getTime();
+      if (dueMs < now || dueMs > in5) return false;
+      const isHighPriority = t.priority === 'critical' || t.priority === 'high';
+      return isHighPriority && (t.pushCount || 0) >= 2;
     }).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
   }, [tasks]);
 
@@ -131,12 +153,13 @@ export default function HomeScreen() {
   const atRiskGoals   = scoredGoals.filter(g => g.likelihoodScore < 50).sort((a, b) => a.likelihoodScore - b.likelihoodScore);
 
   const getHolisticContext = () => buildHolisticContext({
-    goals:         goals || [],
+    goals:          goals || [],
     tasks,
-    projects:      projects || [],
-    brainDumps:    brainDumps || [],
-    weeklyReviews: weeklyReviews || [],
-    userProfile:   userProfile || profile,
+    projects:       projects || [],
+    brainDumps:     brainDumps || [],
+    weeklyReviews:  weeklyReviews || [],
+    userProfile:    userProfile || profile,
+    calendarDensity,
   });
 
   const fetchAI = async () => {
@@ -198,6 +221,28 @@ export default function HomeScreen() {
     // eslint-disable-next-line
   }, []);
 
+  useEffect(() => {
+    async function fetchDensity() {
+      if (!calendarIntegration?.connected) return;
+      try {
+        const token = await getValidAccessToken(user.uid, calendarIntegration);
+        if (!token) return;
+        const ws = weekStartDate(new Date());
+        const we = new Date(ws); we.setDate(we.getDate() + 7);
+        const evs = await getEvents(token, ws.toISOString(), we.toISOString());
+        const density = {};
+        (evs || []).forEach(ev => {
+          if (!ev.start?.dateTime) return;
+          const day = new Date(ev.start.dateTime).toLocaleDateString('en-US', { weekday: 'long' });
+          density[day] = (density[day] || 0) + 1;
+        });
+        if (Object.keys(density).length > 0) setCalendarDensity(density);
+      } catch { /* optional enhancement — fail silently */ }
+    }
+    fetchDensity();
+    // eslint-disable-next-line
+  }, [calendarIntegration]);
+
   const handleEnergyChange = async (val) => {
     setEnergy(val);
     await updateProfile({ energyToday: val, energyDate: new Date().toDateString() });
@@ -253,6 +298,10 @@ export default function HomeScreen() {
         project:          editForm.project,
         projectId:        linked?.id || editingTask.projectId || null,
       };
+      // Track dueDate pushes
+      if (editForm.dueDate && editingTask.dueDate && editForm.dueDate > editingTask.dueDate) {
+        updates.pushCount = (editingTask.pushCount || 0) + 1;
+      }
       // Recalculate end time when duration changes and task has a time slot
       if (editingTask.scheduledStart && newMins) {
         updates.scheduledEnd = new Date(new Date(editingTask.scheduledStart).getTime() + newMins * 60000).toISOString();
@@ -329,6 +378,27 @@ export default function HomeScreen() {
               style={{ background: tokens.amber, color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
               Rework Schedule
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* At Risk This Week — chronic deferral + imminent deadline */}
+      {atRiskThisWeek.length > 0 && (
+        <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
+          <div style={{ padding: '12px 18px', background: 'rgba(212,122,107,0.1)', border: `1px solid rgba(212,122,107,0.4)`, borderRadius: '12px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.red, marginBottom: '6px' }}>
+              ⚑ At Risk This Week
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px' }}>
+              {atRiskThisWeek.map(t => (
+                <div key={t.id} style={{ fontSize: '12px', color: tokens.textSecondary, display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 600, color: tokens.textPrimary }}>{t.title}</span>
+                  <span style={{ color: tokens.red }}>due {t.dueDate}</span>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.red, background: 'rgba(212,122,107,0.15)', padding: '1px 5px', borderRadius: '3px' }}>↻{t.pushCount}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: '11px', color: tokens.textMuted }}>These tasks have been pushed multiple times — they need real time blocked today.</div>
           </div>
         </div>
       )}

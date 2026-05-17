@@ -1,7 +1,24 @@
 // src/lib/tasks.js
-// Task utility helpers — recurrence, lifecycle, etc.
+// Task utility helpers — recurrence, lifecycle, urgency
 
 import { addTask } from './db';
+
+const PRIORITY_WEIGHTS = { critical: 4, high: 3, medium: 2, low: 1 };
+
+// Urgency score: priority × time-pressure + drift bonus.
+// Higher = surface sooner. Tasks without a due date get a small priority-only baseline.
+export function calculateUrgency(task) {
+  const weight     = PRIORITY_WEIGHTS[task.priority] || 1;
+  const driftBonus = (task.pushCount || 0) >= 3 ? 1.5 : 0;
+
+  if (!task.dueDate) return weight * 0.1 + driftBonus;
+
+  const due        = new Date(task.dueDate + 'T23:59:59');
+  const daysTillDue = (due.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+  const recency    = 1 / Math.max(daysTillDue, 0.5);
+
+  return weight * recency + driftBonus;
+}
 
 export const RECURRENCE_OPTIONS = [
   { value: 'none',     label: 'No repeat'  },

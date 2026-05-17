@@ -1,10 +1,13 @@
 // src/lib/aiContext.js
 // Assembles full user context for all AI calls so nothing runs blind
 
+import { calculateUrgency } from './tasks';
+
 export function buildHolisticContext({
   goals = [], tasks = [], projects = [],
   brainDumps = [], weeklyReviews = [],
   userProfile = null, plaidData = null,
+  calendarDensity = null,
 }) {
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -18,6 +21,15 @@ export function buildHolisticContext({
     lines.push(`\nUSER PERSONA (Andrew's self-described working style — treat as non-negotiable preferences):\n${userProfile.persona}`);
   }
 
+  // Calendar density
+  if (calendarDensity && Object.keys(calendarDensity).length > 0) {
+    lines.push(`\nCALENDAR DENSITY THIS WEEK:`);
+    Object.entries(calendarDensity).sort(([a], [b]) => a.localeCompare(b)).forEach(([day, count]) => {
+      const load = count >= 5 ? '(heavy — protect from deep work)' : count >= 3 ? '(moderate)' : '(light)';
+      lines.push(`  ${day}: ${count} event${count !== 1 ? 's' : ''} ${load}`);
+    });
+  }
+
   // Active goals
   const activeGoals = goals.filter(g => g.status === 'active');
   if (activeGoals.length > 0) {
@@ -26,7 +38,9 @@ export function buildHolisticContext({
       const taskCount = tasks.filter(t => t.goalId === g.id && !t.done).length;
       const score = g.likelihoodScore != null ? `score:${g.likelihoodScore}/100` : 'unscored';
       const target = g.targetDate ? ` | target:${g.targetDate}` : '';
-      lines.push(`  • "${g.title}" | type:${g.goalType || 'general'} | ${score} | ${taskCount} active tasks${target}`);
+      const ctx = g.context ? ` | context:${g.context}` : '';
+      const drift = (g.targetDateChanges || 0) > 0 ? ` | target-moved:${g.targetDateChanges}x` : '';
+      lines.push(`  • "${g.title}" | type:${g.goalType || 'general'} | ${score} | ${taskCount} active tasks${target}${ctx}${drift}`);
       if (g.why) lines.push(`    Why it matters: ${g.why}`);
     });
   }
@@ -39,20 +53,41 @@ export function buildHolisticContext({
       const taskCount = tasks.filter(t => t.projectId === p.id && !t.done).length;
       const blocker = p.blockers ? ` | BLOCKER: "${p.blockers}"` : '';
       const next = p.nextAction ? ` | next: "${p.nextAction}"` : '';
-      lines.push(`  • "${p.title}" | ${p.status} | momentum:${p.momentum || 0}%${next}${blocker} | ${taskCount} open tasks`);
+      const ctx = p.context ? ` | context:${p.context}` : '';
+      const drift = (p.deferCount || 0) > 0 ? ` | stalled:${p.deferCount}x` : '';
+      lines.push(`  • "${p.title}" | ${p.status} | momentum:${p.momentum || 0}%${next}${blocker}${ctx}${drift} | ${taskCount} open tasks`);
     });
   }
 
-  // High-priority open tasks
+  // High-priority open tasks — sorted by urgency
   const openHigh = tasks
     .filter(t => !t.done && (t.priority === 'critical' || t.priority === 'high'))
+    .map(t => ({ ...t, _urgency: calculateUrgency(t) }))
+    .sort((a, b) => b._urgency - a._urgency)
     .slice(0, 14);
   if (openHigh.length > 0) {
-    lines.push(`\nHIGH PRIORITY OPEN TASKS:`);
+    lines.push(`\nHIGH PRIORITY OPEN TASKS (sorted by urgency):`);
     openHigh.forEach(t => {
       const due = t.dueDate ? ` | due:${t.dueDate}` : '';
       const proj = t.project && t.project !== 'Inbox' ? ` | ${t.project}` : '';
-      lines.push(`  • "${t.title}" | ${t.priority}${proj}${due}`);
+      const push = (t.pushCount || 0) > 0 ? ` | pushed:${t.pushCount}x` : '';
+      lines.push(`  • "${t.title}" | ${t.priority}${proj}${due}${push}`);
+    });
+  }
+
+  // At-risk this week: high/critical with pushCount >= 2 due within 5 days
+  const nowMs = Date.now();
+  const in5Ms = nowMs + 5 * 24 * 60 * 60 * 1000;
+  const atRisk = tasks.filter(t => {
+    if (t.done || !t.dueDate) return false;
+    const dueMs = new Date(t.dueDate + 'T23:59:59').getTime();
+    if (dueMs < nowMs || dueMs > in5Ms) return false;
+    return (t.priority === 'critical' || t.priority === 'high') && (t.pushCount || 0) >= 2;
+  });
+  if (atRisk.length > 0) {
+    lines.push(`\nAT RISK THIS WEEK — chronic deferral + imminent deadline (CALL THESE OUT explicitly):`);
+    atRisk.forEach(t => {
+      lines.push(`  ⚑ "${t.title}" | ${t.priority} | due:${t.dueDate} | pushed:${t.pushCount}x`);
     });
   }
 

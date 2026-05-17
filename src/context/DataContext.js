@@ -65,7 +65,7 @@ export function DataProvider({ children }) {
         const last = p.updatedAt?.toDate?.() || (p.updatedAt ? new Date(p.updatedAt) : new Date(0));
         return (Date.now() - last.getTime()) > FIVE_DAYS;
       })
-      .forEach(p => updateProject(user.uid, p.id, { status: 'stalled' }));
+      .forEach(p => updateProject(user.uid, p.id, { status: 'stalled', deferCount: (p.deferCount || 0) + 1 }));
   }, [projects, user]); // eslint-disable-line
 
   // Derived data
