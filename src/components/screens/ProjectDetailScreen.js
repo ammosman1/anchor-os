@@ -151,6 +151,9 @@ export default function ProjectDetailScreen() {
   const loadAnalysis = useCallback(async (force = false) => {
     if (!project || analysisLoading) return;
 
+    // Compute display status locally so the AI always sees the correct status
+    const displayStatus = (project.status === 'stalled' && mScore > 50) ? 'active' : project.status;
+
     // Auto-correct stalled status once — fire-and-forget, no reactive loop
     if (project.status === 'stalled' && mScore > 50) {
       updateProject(user.uid, projectId, { status: 'active' }).catch(err =>
@@ -158,7 +161,9 @@ export default function ProjectDetailScreen() {
       );
     }
 
-    if (!force) {
+    // Skip cache if status was corrected (stale analysis would reference wrong status)
+    const statusCorrected = project.status === 'stalled' && mScore > 50;
+    if (!force && !statusCorrected) {
       const cached = await getAICache(user.uid, `project-analysis-${projectId}`, 6);
       if (cached) {
         try { setAnalysis(JSON.parse(cached)); return; } catch {}
@@ -168,7 +173,7 @@ export default function ProjectDetailScreen() {
     try {
       const holisticContext = buildContext();
       const result = await generateProjectAnalysis({
-        project,
+        project:       { ...project, status: displayStatus },
         linkedTasks:     projectTasks,
         completedTasks:  doneTasks,
         linkedGoal,

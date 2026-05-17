@@ -171,12 +171,13 @@ export default function ProjectsScreen() {
           <EmptyState icon="◈" title="No projects yet" subtitle="Add your first project to start tracking." action={<Button onClick={openNew}>+ New Project</Button>} />
         ) : (
           filtered.map(p => {
-            const sc              = statusColors[p.status] || statusColors.paused;
             const projectTasks    = tasks.filter(t => t.projectId === p.id);
             const doneCount       = projectTasks.filter(t => t.done).length;
             const totalCount      = projectTasks.length;
             const linkedGoal      = p.goalId ? goals.find(g => g.id === p.goalId) : null;
             const { score: mScore } = calculateMomentum(p, projectTasks);
+            const displayStatus   = (p.status === 'stalled' && mScore > 50) ? 'active' : p.status;
+            const sc              = statusColors[displayStatus] || statusColors.paused;
             return (
               <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
                 style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '12px', padding: '16px 18px', cursor: 'pointer', transition: 'all 0.18s ease' }}
@@ -188,7 +189,7 @@ export default function ProjectsScreen() {
                     <div style={{ fontWeight: 600, color: tokens.textPrimary, fontSize: '14px', marginBottom: '3px' }}>{p.title}</div>
                     <div style={{ fontSize: '11px', color: tokens.textMuted }}>{p.category} · {daysSince(p.updatedAt) || 'new'}</div>
                   </div>
-                  <Tag label={p.status} color={sc.bg} textColor={sc.text} />
+                  <Tag label={displayStatus} color={sc.bg} textColor={sc.text} />
                 </div>
                 {(linkedGoal || p.context) && (
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap' }}>
