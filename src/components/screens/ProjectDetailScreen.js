@@ -1,5 +1,5 @@
 // src/components/screens/ProjectDetailScreen.js
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
@@ -9,9 +9,27 @@ import { generateProjectAnalysis } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
 import { calculateMomentum, getMomentumBlurb } from '../../lib/momentum';
 import { RECURRENCE_OPTIONS } from '../../lib/tasks';
-import { Button, Modal, Input, MomentumBar, Spinner } from '../ui';
+import { Button, Modal, Input, Select, MomentumBar, Spinner } from '../ui';
 
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
+
+const CATEGORIES = [
+  { value: 'work',     label: 'Work'     },
+  { value: 'finance',  label: 'Finance'  },
+  { value: 'health',   label: 'Health'   },
+  { value: 'home',     label: 'Home'     },
+  { value: 'creative', label: 'Creative' },
+  { value: 'personal', label: 'Personal' },
+  { value: 'business', label: 'Business' },
+];
+
+const STATUSES = [
+  { value: 'active',   label: 'Active'   },
+  { value: 'planning', label: 'Planning' },
+  { value: 'stalled',  label: 'Stalled'  },
+  { value: 'paused',   label: 'Paused'   },
+  { value: 'complete', label: 'Complete' },
+];
 
 const FOCUS_TYPES = [
   { value: 'deep',    label: '🧠 Deep Work' },
@@ -97,6 +115,11 @@ export default function ProjectDetailScreen() {
   const [newTaskForm,    setNewTaskForm]    = useState(emptyTaskForm);
   const [addingTask,     setAddingTask]     = useState(false);
 
+  // Edit project modal
+  const [editOpen,   setEditOpen]   = useState(false);
+  const [editForm,   setEditForm]   = useState({});
+  const [editSaving, setEditSaving] = useState(false);
+
   const buildContext = useCallback(() => {
     return buildHolisticContext({
       goals,
@@ -107,6 +130,23 @@ export default function ProjectDetailScreen() {
       userProfile: userProfile || profile,
     });
   }, [goals, tasks, projects, brainDumps, weeklyReviews, userProfile, profile]);
+
+  const { score: mScore, factors: mFactors } = useMemo(() => {
+    if (!project) return { score: 50, factors: [] };
+    return calculateMomentum(project, projectTasks);
+  }, [project, projectTasks]);
+  const mBlurb = useMemo(() => getMomentumBlurb(mScore, mFactors), [mScore, mFactors]);
+
+  const dedupedActions = useMemo(() => {
+    if (!analysis?.thisWeekActions) return [];
+    return analysis.thisWeekActions.filter(action => {
+      const actionLower = action.toLowerCase();
+      return !activeTasks.some(t => {
+        const tLower = t.title.toLowerCase();
+        return tLower.includes(actionLower) || actionLower.includes(tLower);
+      });
+    });
+  }, [analysis, activeTasks]); // eslint-disable-line
 
   const loadAnalysis = useCallback(async (force = false) => {
     if (!project || analysisLoading) return;
@@ -125,6 +165,7 @@ export default function ProjectDetailScreen() {
         completedTasks:  doneTasks,
         linkedGoal,
         holisticContext,
+        momentumScore:   mScore,
       });
       if (result) {
         setAnalysis(result);
@@ -135,11 +176,18 @@ export default function ProjectDetailScreen() {
     } finally {
       setAnalysisLoading(false);
     }
-  }, [project, projectId, user, projectTasks, doneTasks, linkedGoal, buildContext]); // eslint-disable-line
+  }, [project, projectId, user, projectTasks, doneTasks, linkedGoal, buildContext, mScore]); // eslint-disable-line
 
   useEffect(() => {
     if (project) loadAnalysis();
   }, [projectId]); // eslint-disable-line
+
+  useEffect(() => {
+    if (!project || !user) return;
+    if (project.status === 'stalled' && mScore > 50) {
+      updateProject(user.uid, projectId, { status: 'active' });
+    }
+  }, [project?.status, mScore]); // eslint-disable-line
 
   const handleFeedbackSubmit = async () => {
     if (!feedbackText.trim()) return;
@@ -195,10 +243,10 @@ export default function ProjectDetailScreen() {
   };
 
   const handleBulkCreate = async () => {
-    if (!analysis?.thisWeekActions?.length || bulkCreating) return;
+    if (!dedupedActions.length || bulkCreating) return;
     setBulkCreating(true);
     try {
-      const remaining = analysis.thisWeekActions.filter(a => !addedActions.has(a));
+      const remaining = dedupedActions.filter(a => !addedActions.has(a));
       await Promise.all(remaining.map(action =>
         addTask(user.uid, {
           title:     action,
@@ -209,7 +257,7 @@ export default function ProjectDetailScreen() {
           status:    'pending',
         })
       ));
-      setAddedActions(new Set(analysis.thisWeekActions));
+      setAddedActions(new Set(dedupedActions));
     } finally {
       setBulkCreating(false);
     }
@@ -240,6 +288,41 @@ export default function ProjectDetailScreen() {
       setAddTaskOpen(false);
     } finally {
       setAddingTask(false);
+    }
+  };
+
+  const openEdit = () => {
+    setEditForm({
+      title:      project.title      || '',
+      category:   project.category   || 'work',
+      status:     project.status     || 'active',
+      nextAction: project.nextAction || '',
+      blockers:   project.blockers   || '',
+      notes:      project.notes      || '',
+      goalId:     project.goalId     || '',
+    });
+    setEditOpen(true);
+  };
+
+  const handleEditSave = async () => {
+    if (!editForm.title.trim()) return;
+    setEditSaving(true);
+    try {
+      await updateProject(user.uid, projectId, {
+        title:      editForm.title.trim(),
+        category:   editForm.category   || 'work',
+        status:     editForm.status     || 'active',
+        nextAction: editForm.nextAction || '',
+        blockers:   editForm.blockers   || '',
+        notes:      editForm.notes      || '',
+        goalId:     editForm.goalId     || null,
+      });
+      setEditOpen(false);
+    } catch (err) {
+      console.error('Edit project error:', err);
+      alert('Failed to save. Please try again.');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -284,12 +367,9 @@ export default function ProjectDetailScreen() {
     transition: 'all 0.12s',
   });
 
-  const remainingActions = analysis?.thisWeekActions?.filter(a => !addedActions.has(a)) || [];
+  const remainingActions = dedupedActions.filter(a => !addedActions.has(a));
   const taskProgress = projectTasks.length > 0
     ? Math.round((doneTasks.length / projectTasks.length) * 100) : 0;
-
-  const { score: mScore, factors: mFactors } = calculateMomentum(project, projectTasks);
-  const mBlurb = getMomentumBlurb(mScore, mFactors);
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', paddingBottom: '40px' }}>
@@ -315,9 +395,12 @@ export default function ProjectDetailScreen() {
           )}
           <span style={{ fontSize: '11px', color: tokens.textMuted }}>· Updated {daysSince(project.updatedAt) || 'just now'}</span>
         </div>
-        <h1 style={{ fontFamily: fonts.display, fontSize: '26px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: '0 0 8px' }}>
-          {project.title}
-        </h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+          <h1 style={{ fontFamily: fonts.display, fontSize: '26px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>
+            {project.title}
+          </h1>
+          <Button variant="ghost" size="sm" onClick={openEdit} style={{ marginTop: '4px', flexShrink: 0 }}>Edit</Button>
+        </div>
         {project.notes && (
           <div style={{ fontSize: '14px', color: tokens.textSecondary, lineHeight: 1.55 }}>
             {project.notes}
@@ -461,7 +544,7 @@ export default function ProjectDetailScreen() {
 
           {analysis && (
             <>
-              {analysis.thisWeekActions?.length > 0 && (
+              {dedupedActions.length > 0 && (
                 <div style={{ marginBottom: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                     <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary }}>Required Actions</div>
@@ -471,10 +554,10 @@ export default function ProjectDetailScreen() {
                       </Button>
                     )}
                   </div>
-                  {analysis.thisWeekActions.map((action, i) => {
+                  {dedupedActions.map((action, i) => {
                     const added = addedActions.has(action);
                     return (
-                      <div key={i} style={{ display: 'flex', gap: '10px', padding: '8px 0', borderBottom: i < analysis.thisWeekActions.length - 1 ? `1px solid ${tokens.border}` : 'none', alignItems: 'center' }}>
+                      <div key={i} style={{ display: 'flex', gap: '10px', padding: '8px 0', borderBottom: i < dedupedActions.length - 1 ? `1px solid ${tokens.border}` : 'none', alignItems: 'center' }}>
                         <span style={{ color: added ? tokens.green : tokens.accent, fontWeight: 700, fontSize: '12px', flexShrink: 0, minWidth: '16px' }}>
                           {added ? '✓' : `${i + 1}.`}
                         </span>
@@ -575,6 +658,34 @@ export default function ProjectDetailScreen() {
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
           <Button variant="ghost" onClick={() => { setActionModal(false); setActionTaskForm(emptyTaskForm); }}>Cancel</Button>
           <Button onClick={handleActionTaskSave} loading={actionSaving} disabled={!actionTaskForm.title.trim()}>Create Task</Button>
+        </div>
+      </Modal>
+
+      {/* ── Edit Project Modal ── */}
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit Project">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <Input label="Project Title" value={editForm.title || ''} onChange={v => setEditForm(f => ({ ...f, title: v }))} placeholder="e.g. Half Bath Remodel" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <Select label="Category" value={editForm.category || 'work'} onChange={v => setEditForm(f => ({ ...f, category: v }))} options={CATEGORIES} />
+            <Select label="Status"   value={editForm.status   || 'active'} onChange={v => setEditForm(f => ({ ...f, status: v }))}   options={STATUSES} />
+          </div>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Linked Goal</label>
+            <select value={editForm.goalId || ''} onChange={e => setEditForm(f => ({ ...f, goalId: e.target.value }))}
+              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+              <option value="">No linked goal</option>
+              {(goals || []).filter(g => g.status === 'active').map(g => (
+                <option key={g.id} value={g.id}>{g.title}</option>
+              ))}
+            </select>
+          </div>
+          <Input label="Next Action" value={editForm.nextAction || ''} onChange={v => setEditForm(f => ({ ...f, nextAction: v }))} placeholder="What's the immediate next step?" />
+          <Input label="Blockers"    value={editForm.blockers   || ''} onChange={v => setEditForm(f => ({ ...f, blockers: v }))}   placeholder="What's in the way?" />
+          <Input label="Notes"       value={editForm.notes      || ''} onChange={v => setEditForm(f => ({ ...f, notes: v }))}      placeholder="Context, links, thoughts..." multiline rows={3} />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+            <Button variant="ghost" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button onClick={handleEditSave} loading={editSaving} disabled={!editForm.title?.trim()}>Save Changes</Button>
+          </div>
         </div>
       </Modal>
 
