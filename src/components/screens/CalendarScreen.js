@@ -123,7 +123,8 @@ export default function CalendarScreen() {
   const [detail, setDetail]            = useState(null);
   const [deleting, setDeleting]        = useState(false);
   const [planOpen, setPlanOpen]        = useState(false);
-  const [sidebarOpen, setSidebarOpen]  = useState(true);
+  const [sidebarOpen, setSidebarOpen]   = useState(true);
+  const [sidebarFilter, setSidebarFilter] = useState('unscheduled'); // 'unscheduled' | 'all'
   const [conflicts, setConflicts]      = useState([]);
   // Task edit modal
   const [editingTask, setEditingTask]  = useState(null);
@@ -177,6 +178,19 @@ export default function CalendarScreen() {
       return true;
     })
     .sort((a, b) => {
+      const po = { critical: 0, high: 1, medium: 2, low: 3 };
+      return (po[a.priority] ?? 9) - (po[b.priority] ?? 9);
+    }),
+  [tasks]);
+
+  // ── All tasks for sidebar "All" view ─────────────────────────────────────
+  const allSidebarTasks = useMemo(() => tasks
+    .filter(t => !t.done)
+    .sort((a, b) => {
+      // scheduled first (by scheduledDate then scheduledStart), then by priority
+      const aDate = a.scheduledDate || a.scheduledStart?.split('T')[0] || 'z';
+      const bDate = b.scheduledDate || b.scheduledStart?.split('T')[0] || 'z';
+      if (aDate !== bDate) return aDate.localeCompare(bDate);
       const po = { critical: 0, high: 1, medium: 2, low: 3 };
       return (po[a.priority] ?? 9) - (po[b.priority] ?? 9);
     }),
@@ -638,35 +652,52 @@ export default function CalendarScreen() {
                 ✦ Plan My Schedule
               </Button>
             </div>
-            <div style={{ padding: '6px 14px 4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${tokens.border}` }}>
-              <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: tokens.textMuted }}>
-                Unscheduled · {unscheduledTasks.length}
+            <div style={{ padding: '6px 14px 4px', borderBottom: `1px solid ${tokens.border}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: tokens.textMuted }}>
+                  {sidebarFilter === 'unscheduled'
+                    ? `Unscheduled · ${unscheduledTasks.length}`
+                    : `All Tasks · ${allSidebarTasks.length}`}
+                </div>
+                {sidebarFilter === 'unscheduled' && <span style={{ fontSize: '10px', color: tokens.textMuted }}>drag to place</span>}
               </div>
-              <span style={{ fontSize: '10px', color: tokens.textMuted }}>drag to place</span>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {['unscheduled', 'all'].map(f => (
+                  <button key={f} onClick={() => setSidebarFilter(f)} style={{
+                    flex: 1, padding: '4px 0', fontSize: '10px', fontWeight: 600,
+                    background: sidebarFilter === f ? tokens.accentDim : 'transparent',
+                    border: `1px solid ${sidebarFilter === f ? tokens.accent : tokens.border}`,
+                    borderRadius: '5px', color: sidebarFilter === f ? tokens.accent : tokens.textMuted,
+                    cursor: 'pointer', fontFamily: fonts.body, transition: 'all 0.12s',
+                  }}>{f === 'unscheduled' ? 'Unscheduled' : 'All'}</button>
+                ))}
+              </div>
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
-              {unscheduledTasks.length === 0 && (
+              {sidebarFilter === 'unscheduled' && unscheduledTasks.length === 0 && (
                 <div style={{ padding: '24px 14px', textAlign: 'center', color: tokens.textMuted, fontSize: '12px' }}>
-                  All tasks scheduled ✓
+                  All tasks have time slots ✓
                 </div>
               )}
-              {unscheduledTasks.slice(0, 60).map(task => {
+              {(sidebarFilter === 'unscheduled' ? unscheduledTasks : allSidebarTasks).slice(0, 80).map(task => {
                 const pc      = priorityColors[task.priority] || {};
                 const overdue = task.scheduledDate && task.scheduledDate < yesterdayStr;
                 const yest    = task.scheduledDate === yesterdayStr;
                 const isAutoSched = autoScheduling.has(task.id);
+                const isScheduled = !!task.scheduledStart;
 
                 return (
                   <div
                     key={task.id}
-                    draggable
-                    onDragStart={e => handleSidebarDragStart(e, task)}
-                    onDragEnd={handleSidebarDragEnd}
+                    draggable={!isScheduled}
+                    onDragStart={e => !isScheduled && handleSidebarDragStart(e, task)}
+                    onDragEnd={!isScheduled ? handleSidebarDragEnd : undefined}
                     style={{
                       padding: '9px 12px', borderBottom: `1px solid ${tokens.border}`,
-                      cursor: 'grab', userSelect: 'none',
+                      cursor: isScheduled ? 'pointer' : 'grab', userSelect: 'none',
                       opacity: isAutoSched ? 0.5 : 1,
                       transition: 'background 0.1s',
+                      borderLeft: isScheduled ? `3px solid ${tokens.accentDim}` : 'none',
                     }}
                     onMouseEnter={e => e.currentTarget.style.background = tokens.bgCardHover}
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -707,8 +738,13 @@ export default function CalendarScreen() {
                           due {new Date(task.dueDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         </span>
                       )}
-                      {yest    && <span style={{ fontSize: '9px', color: tokens.amber, fontWeight: 600 }}>⚡ yesterday</span>}
-                      {overdue && !yest && <span style={{ fontSize: '9px', color: tokens.red, fontWeight: 600 }}>overdue</span>}
+                      {isScheduled && (
+                        <span style={{ fontSize: '9px', color: tokens.accent, fontWeight: 600 }}>
+                          {formatEventTime(task.scheduledStart)}{task.scheduledDate ? ` · ${new Date(task.scheduledDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                        </span>
+                      )}
+                      {yest    && !isScheduled && <span style={{ fontSize: '9px', color: tokens.amber, fontWeight: 600 }}>⚡ yesterday</span>}
+                      {overdue && !yest && !isScheduled && <span style={{ fontSize: '9px', color: tokens.red, fontWeight: 600 }}>overdue</span>}
                     </div>
                   </div>
                 );

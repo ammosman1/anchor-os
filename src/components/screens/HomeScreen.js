@@ -8,7 +8,7 @@ import { getAIFocusRecommendation } from '../../lib/ai';
 import { updateTask, addTask } from '../../lib/db';
 import {
   Card, AICard, SectionLabel, MomentumBar, Tag, Button,
-  EmptyState, priorityColors,
+  EmptyState, priorityColors, Modal, Input,
 } from '../ui';
 import PlanScheduleFlow from './PlanScheduleFlow';
 
@@ -45,15 +45,18 @@ const QUOTES = [
 
 export default function HomeScreen() {
   const { user, profile, updateProfile } = useAuth();
-  const { tasks, activeProjects, totalDebt, goals, calendarIntegration } = useData();
+  const { tasks, activeProjects, totalDebt, goals, calendarIntegration, projects } = useData();
   const navigate = useNavigate();
 
-  const [energy,     setEnergy]     = useState(profile?.energyToday || 7);
-  const [aiText,     setAiText]     = useState('');
-  const [aiLoading,  setAiLoading]  = useState(false);
-  const [quickTask,  setQuickTask]  = useState('');
-  const [addingTask, setAddingTask] = useState(false);
-  const [planOpen,   setPlanOpen]   = useState(false);
+  const [energy,      setEnergy]      = useState(profile?.energyToday || 7);
+  const [aiText,      setAiText]      = useState('');
+  const [aiLoading,   setAiLoading]   = useState(false);
+  const [quickTask,   setQuickTask]   = useState('');
+  const [addingTask,  setAddingTask]  = useState(false);
+  const [planOpen,    setPlanOpen]    = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+  const [editForm,    setEditForm]    = useState({});
+  const [editSaving,  setEditSaving]  = useState(false);
   const [quote]                     = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
 
   const isAfter5pm = new Date().getHours() >= 17;
@@ -73,10 +76,17 @@ export default function HomeScreen() {
     ),
   [tasks, yesterdayStr]);
 
-  // Today's scheduled tasks
-  const scheduledToday = tasks.filter(t =>
-    !t.done && t.status === 'scheduled' && t.scheduledDate === todayStr
-  ).sort((a, b) => (a.scheduledStart || '').localeCompare(b.scheduledStart || ''));
+  // Today's scheduled tasks — catches both date-only and timed schedules
+  const scheduledToday = tasks.filter(t => {
+    if (t.done) return false;
+    if (t.scheduledDate === todayStr) return true;
+    if (t.scheduledStart) {
+      const d = new Date(t.scheduledStart);
+      const localYmd = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      if (localYmd === todayStr) return true;
+    }
+    return false;
+  }).sort((a, b) => (a.scheduledStart || '').localeCompare(b.scheduledStart || ''));
 
   // Priority tasks (high/critical, unscheduled)
   const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -141,6 +151,40 @@ export default function HomeScreen() {
     });
     setQuickTask('');
     setAddingTask(false);
+  };
+
+  const openEdit = (task) => {
+    setEditingTask(task);
+    setEditForm({
+      title:            task.title || '',
+      priority:         task.priority || 'medium',
+      dueDate:          task.dueDate || '',
+      estimatedMinutes: task.estimatedMinutes || '',
+      notes:            task.notes || '',
+      project:          task.project || 'Inbox',
+    });
+  };
+
+  const handleEditSave = async () => {
+    if (!editingTask || !editForm.title.trim()) return;
+    setEditSaving(true);
+    const linked = (projects || []).find(p => p.title === editForm.project);
+    try {
+      await updateTask(user.uid, editingTask.id, {
+        title:            editForm.title.trim(),
+        priority:         editForm.priority,
+        dueDate:          editForm.dueDate || null,
+        estimatedMinutes: editForm.estimatedMinutes ? Number(editForm.estimatedMinutes) : null,
+        notes:            editForm.notes,
+        project:          editForm.project,
+        projectId:        linked?.id || editingTask.projectId || null,
+      });
+      setEditingTask(null);
+    } catch (err) {
+      console.error('Edit save error:', err);
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   const momentumColor = (m) => m >= 65 ? tokens.green : m >= 35 ? tokens.accent : tokens.red;
@@ -237,8 +281,11 @@ export default function HomeScreen() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {scheduledToday.map(task => (
-                <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
-                  <div onClick={() => handleToggleTask(task)}
+                <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}`, cursor: 'pointer', transition: 'background 0.12s' }}
+                  onClick={() => openEdit(task)}
+                  onMouseEnter={e => e.currentTarget.style.background = tokens.bgCardHover}
+                  onMouseLeave={e => e.currentTarget.style.background = tokens.bgGlass}>
+                  <div onClick={e => { e.stopPropagation(); handleToggleTask(task); }}
                     style={{ width: 18, height: 18, borderRadius: '4px', flexShrink: 0, border: `1.5px solid ${task.done ? tokens.green : tokens.blue}`, background: task.done ? tokens.greenDim : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '10px', color: tokens.green, transition: 'all 0.15s' }}>
                     {task.done ? '✓' : ''}
                   </div>
@@ -246,6 +293,9 @@ export default function HomeScreen() {
                     <div style={{ fontSize: '13px', fontWeight: 500, color: tokens.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.title}</div>
                     {task.scheduledStart && (
                       <div style={{ fontSize: '11px', color: tokens.blue, marginTop: '2px' }}>{formatTime(task.scheduledStart)} – {formatTime(task.scheduledEnd)}</div>
+                    )}
+                    {!task.scheduledStart && task.scheduledDate && (
+                      <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>All day — tap to add a time</div>
                     )}
                   </div>
                   <Tag label={task.priority} color={priorityColors[task.priority]?.bg} textColor={priorityColors[task.priority]?.text} />
@@ -427,6 +477,39 @@ export default function HomeScreen() {
         onClose={() => setPlanOpen(false)}
         calendarIntegration={calendarIntegration}
       />
+
+      {/* Task Edit Modal */}
+      <Modal open={!!editingTask} onClose={() => setEditingTask(null)} title="Edit Task">
+        {editingTask && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <Input label="Title" value={editForm.title} onChange={v => setEditForm(p => ({ ...p, title: v }))} placeholder="Task title" />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Priority</label>
+                <select value={editForm.priority} onChange={e => setEditForm(p => ({ ...p, priority: e.target.value }))}
+                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                  {['critical','high','medium','low'].map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Est. Minutes</label>
+                <input type="number" value={editForm.estimatedMinutes} onChange={e => setEditForm(p => ({ ...p, estimatedMinutes: e.target.value }))} placeholder="45"
+                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
+              </div>
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
+              <input type="date" value={editForm.dueDate} onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
+            </div>
+            <Input label="Notes" value={editForm.notes} onChange={v => setEditForm(p => ({ ...p, notes: v }))} placeholder="Notes..." />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', paddingTop: '4px' }}>
+              <Button variant="ghost" onClick={() => setEditingTask(null)}>Cancel</Button>
+              <Button onClick={handleEditSave} loading={editSaving}>Save</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
