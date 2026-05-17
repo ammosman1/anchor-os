@@ -407,6 +407,24 @@ export default function CalendarScreen() {
     }
   };
 
+  const handleMarkComplete = async (task) => {
+    const now = new Date();
+    const updates = { done: true, status: 'completed', completedAt: now.toISOString() };
+    // Trim end to actual completion time if task hasn't ended yet
+    if (task.scheduledEnd && new Date(task.scheduledEnd) > now) {
+      updates.scheduledEnd = now.toISOString();
+      if (task.calendarEventId && calendarIntegration?.connected) {
+        try {
+          const token = await getValidAccessToken(user.uid, calendarIntegration);
+          if (token) await updateEvent(token, task.calendarEventId, {
+            end: { dateTime: now.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+          });
+        } catch (err) { console.warn('GCal end trim failed:', err); }
+      }
+    }
+    await updateTask(user.uid, task.id, updates);
+  };
+
   const handleUnschedule = async () => {
     if (!editingTask) return;
     setEditSaving(true);
@@ -813,6 +831,14 @@ export default function CalendarScreen() {
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '6px' }}>
+                      {/* Complete checkbox */}
+                      <div
+                        onClick={e => { e.stopPropagation(); handleMarkComplete(task); }}
+                        title="Mark complete"
+                        style={{ width: 16, height: 16, borderRadius: '4px', flexShrink: 0, marginTop: '1px', border: `1.5px solid ${tokens.border}`, background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.12s' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = tokens.green; e.currentTarget.style.background = tokens.greenDim; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = tokens.border; e.currentTarget.style.background = 'transparent'; }}
+                      />
                       <div style={{ fontSize: '12px', color: tokens.textPrimary, fontWeight: 500, lineHeight: 1.35, flex: 1, minWidth: 0 }}>
                         {task.title}
                       </div>
@@ -1041,9 +1067,19 @@ export default function CalendarScreen() {
                             onMouseEnter={e => { if (!dragState) e.currentTarget.style.filter = 'brightness(1.18)'; }}
                             onMouseLeave={e => e.currentTarget.style.filter = 'none'}
                             style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: ev._isTask ? 'pointer' : isDragging ? 'grabbing' : 'grab', zIndex: isDragging ? 20 : 5, boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: isDragging ? 0.9 : 1, transition: isDragging ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none' }}>
-                            <div style={{ fontSize: '11px', fontWeight: 700, color: color.text, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {ev._isTask && <span style={{ opacity: 0.7, marginRight: 3 }}>☐</span>}
-                              {ev.summary}
+                            <div style={{ fontSize: '11px', fontWeight: 700, color: color.text, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }}>
+                              {ev._isTask && (
+                                <span
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    const t = tasks.find(tk => tk.id === ev._taskId);
+                                    if (t) handleMarkComplete(t);
+                                  }}
+                                  title="Mark complete"
+                                  style={{ opacity: 0.85, marginRight: 4, cursor: 'pointer', flexShrink: 0, fontSize: '13px', lineHeight: 1 }}
+                                >☐</span>
+                              )}
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.summary}</span>
                             </div>
                             {height > 32 && (
                               <div style={{ fontSize: '10px', color: color.text, opacity: 0.85, marginTop: '2px', whiteSpace: 'nowrap' }}>
@@ -1126,7 +1162,11 @@ export default function CalendarScreen() {
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-              <div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <Button onClick={() => { handleMarkComplete(editingTask); setEditingTask(null); }} variant="ghost" loading={editSaving}
+                  style={{ color: tokens.green, borderColor: tokens.green }}>
+                  ✓ Mark Complete
+                </Button>
                 {editingTask?.scheduledStart && (
                   <Button onClick={handleUnschedule} variant="ghost" loading={editSaving}
                     style={{ color: tokens.red, borderColor: tokens.red }}>
