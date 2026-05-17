@@ -8,7 +8,7 @@ import { addTask, updateTask, updateProject, saveProfile, getAICache, saveAICach
 import { generateProjectAnalysis } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
 import { calculateMomentum, getMomentumBlurb } from '../../lib/momentum';
-import { RECURRENCE_OPTIONS } from '../../lib/tasks';
+import { RECURRENCE_OPTIONS, getProjectNextAction } from '../../lib/tasks';
 import { Button, Modal, Input, MomentumBar, Spinner } from '../ui';
 
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
@@ -305,14 +305,13 @@ export default function ProjectDetailScreen() {
 
   const openEdit = () => {
     setEditForm({
-      title:      project.title      || '',
-      category:   project.category   || 'work',
-      status:     project.status     || 'active',
-      nextAction: project.nextAction || '',
-      blockers:   project.blockers   || '',
-      notes:      project.notes      || '',
-      goalId:     project.goalId     || '',
-      context:    project.context    || '',
+      title:    project.title    || '',
+      category: project.category || 'work',
+      status:   project.status   || 'active',
+      blockers: project.blockers || '',
+      notes:    project.notes    || '',
+      goalId:   project.goalId   || '',
+      context:  project.context  || '',
     });
     setEditOpen(true);
   };
@@ -322,14 +321,13 @@ export default function ProjectDetailScreen() {
     setEditSaving(true);
     try {
       const updates = {
-        title:      editForm.title.trim(),
-        category:   editForm.category   || 'work',
-        status:     editForm.status     || 'active',
-        nextAction: editForm.nextAction || '',
-        blockers:   editForm.blockers   || '',
-        notes:      editForm.notes      || '',
-        goalId:     editForm.goalId     || null,
-        context:    editForm.context    || null,
+        title:    editForm.title.trim(),
+        category: editForm.category || 'work',
+        status:   editForm.status   || 'active',
+        blockers: editForm.blockers || '',
+        notes:    editForm.notes    || '',
+        goalId:   editForm.goalId   || null,
+        context:  editForm.context  || null,
       };
       if (project.status === 'stalled' && editForm.status === 'active') {
         updates.deferCount = (project.deferCount || 0) + 1;
@@ -458,22 +456,32 @@ export default function ProjectDetailScreen() {
           ))}
         </div>
 
-        {(project.nextAction || project.blockers) && (
-          <div style={{ display: 'grid', gridTemplateColumns: project.nextAction && project.blockers ? '1fr 1fr' : '1fr', gap: '8px', marginTop: '14px' }}>
-            {project.nextAction && (
-              <div style={{ padding: '10px 12px', background: tokens.accentGlow, borderRadius: '8px', borderLeft: `2px solid ${tokens.accent}` }}>
-                <div style={{ fontSize: '10px', color: tokens.accent, fontWeight: 700, marginBottom: '3px' }}>NEXT ACTION</div>
-                <div style={{ fontSize: '12px', color: tokens.textPrimary }}>{project.nextAction}</div>
-              </div>
-            )}
-            {project.blockers && (
-              <div style={{ padding: '10px 12px', background: tokens.redDim, borderRadius: '8px', borderLeft: `2px solid ${tokens.red}` }}>
-                <div style={{ fontSize: '10px', color: tokens.red, fontWeight: 700, marginBottom: '3px' }}>BLOCKER</div>
-                <div style={{ fontSize: '12px', color: tokens.textPrimary }}>{project.blockers}</div>
-              </div>
-            )}
-          </div>
-        )}
+        {(() => {
+          const nextActions = getProjectNextAction(projectId, tasks);
+          const hasNext = nextActions.length > 0;
+          if (!hasNext && !project.blockers) return null;
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: hasNext && project.blockers ? '1fr 1fr' : '1fr', gap: '8px', marginTop: '14px' }}>
+              {hasNext && (
+                <div style={{ padding: '10px 12px', background: tokens.accentGlow, borderRadius: '8px', borderLeft: `2px solid ${tokens.accent}` }}>
+                  <div style={{ fontSize: '10px', color: tokens.accent, fontWeight: 700, marginBottom: '3px' }}>NEXT ACTION</div>
+                  {nextActions.map((a, i) => (
+                    <div key={i} style={{ fontSize: '12px', color: tokens.textPrimary, marginTop: i > 0 ? '4px' : 0 }}>
+                      {a.title}
+                      {a.dueDate && <span style={{ fontSize: '10px', color: tokens.textMuted, marginLeft: '6px' }}>due {a.dueDate}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {project.blockers && (
+                <div style={{ padding: '10px 12px', background: tokens.redDim, borderRadius: '8px', borderLeft: `2px solid ${tokens.red}` }}>
+                  <div style={{ fontSize: '10px', color: tokens.red, fontWeight: 700, marginBottom: '3px' }}>BLOCKER</div>
+                  <div style={{ fontSize: '12px', color: tokens.textPrimary }}>{project.blockers}</div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {projectTasks.length > 0 && (
           <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: `1px solid ${tokens.border}` }}>
@@ -726,8 +734,7 @@ export default function ProjectDetailScreen() {
               </select>
             </div>
           </div>
-          <Input label="Next Action" value={editForm.nextAction || ''} onChange={v => setEditForm(f => ({ ...f, nextAction: v }))} placeholder="What's the immediate next step?" />
-          <Input label="Blockers"    value={editForm.blockers   || ''} onChange={v => setEditForm(f => ({ ...f, blockers: v }))}   placeholder="What's in the way?" />
+          <Input label="Blockers" value={editForm.blockers || ''} onChange={v => setEditForm(f => ({ ...f, blockers: v }))} placeholder="What's in the way?" />
           <Input label="Notes"       value={editForm.notes      || ''} onChange={v => setEditForm(f => ({ ...f, notes: v }))}      placeholder="Context, links, thoughts..." multiline rows={3} />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
             <Button variant="ghost" onClick={() => setEditOpen(false)}>Cancel</Button>

@@ -87,7 +87,7 @@ export async function callAI({ messages, systemExtra = '', maxTokens = 500 }) {
 export async function getAIFocusRecommendation({ energy, topTasks, projects, holisticContext }) {
   const content = `Energy today: ${energy}/10.
 Top tasks: ${topTasks.map(t => t.title).join(', ')}.
-Active projects: ${projects.map(p => `${p.title} (${p.momentum}% momentum, ${p.status})`).join(', ')}.
+Active projects: ${projects.map(p => `${p.title} (${(p._mScore ?? p.momentum ?? 0)}% momentum, ${p.status})`).join(', ')}.
 What should I focus on right now? 2-3 sentences max. Factor in ALL active goals and projects, not just one area.`;
 
   return callAI({
@@ -135,9 +135,10 @@ ${rawText}`;
   }
 }
 
-export async function getProjectAdvice(project) {
+export async function getProjectAdvice(project, momentumScore = null) {
+  const momentum = momentumScore ?? project._mScore ?? project.momentum ?? 0;
   const content = `Project: "${project.title}"
-Status: ${project.status} | Momentum: ${project.momentum}% | Last active: ${project.lastActive || 'unknown'}
+Status: ${project.status} | Momentum: ${momentum}% | Last active: ${project.lastActive || 'unknown'}
 Blocker: ${project.blockers || 'none'} | Sentiment: ${project.sentiment || 'neutral'}
 Next action on file: ${project.nextAction || 'none'}
 

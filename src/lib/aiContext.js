@@ -2,12 +2,15 @@
 // Assembles full user context for all AI calls so nothing runs blind
 
 import { calculateUrgency } from './tasks';
+import { calculateMomentum } from './momentum';
+import { getProjectNextAction } from './tasks';
 
 export function buildHolisticContext({
   goals = [], tasks = [], projects = [],
   brainDumps = [], weeklyReviews = [],
   userProfile = null, plaidData = null,
-  calendarDensity = null, weatherForecast = null,
+  calendarDensity = null, calendarEvents = [],
+  weatherForecast = null,
 }) {
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -20,6 +23,17 @@ export function buildHolisticContext({
   if (userProfile?.persona) {
     lines.push(`\nUSER PERSONA (Andrew's self-described working style — treat as non-negotiable preferences):\n${userProfile.persona}`);
   }
+
+  // Task completion velocity (last 14 days)
+  const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
+  const recentlyCompleted = tasks.filter(t => {
+    if (!t.done || !t.completedAt) return false;
+    try { return new Date(t.completedAt).getTime() > twoWeeksAgo; } catch { return false; }
+  });
+  const completedLast14 = recentlyCompleted.length;
+  const completedPerWeek = Math.round(completedLast14 / 2);
+  const openTotal = tasks.filter(t => !t.done).length;
+  lines.push(`\nEXECUTION VELOCITY: ${completedLast14} tasks completed in last 14 days (~${completedPerWeek}/week) | ${openTotal} open tasks total`);
 
   // Weather forecast
   if (weatherForecast?.forecast?.length > 0) {
@@ -34,8 +48,31 @@ export function buildHolisticContext({
     }
   }
 
-  // Calendar density
-  if (calendarDensity && Object.keys(calendarDensity).length > 0) {
+  // Upcoming calendar events (next 5 days — actual titles, not just density)
+  const todayMs = new Date(); todayMs.setHours(0, 0, 0, 0);
+  const in5Ms = new Date(todayMs.getTime() + 5 * 24 * 60 * 60 * 1000);
+  const upcomingEvents = (calendarEvents || []).filter(ev => {
+    const dt = ev.start?.dateTime;
+    if (!dt) return false;
+    const d = new Date(dt);
+    return d >= todayMs && d <= in5Ms;
+  });
+
+  if (upcomingEvents.length > 0) {
+    // Group by day
+    const byDay = {};
+    upcomingEvents.forEach(ev => {
+      const dayKey = new Date(ev.start.dateTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      if (!byDay[dayKey]) byDay[dayKey] = [];
+      const timeStr = new Date(ev.start.dateTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      byDay[dayKey].push(`${ev.summary || 'Untitled'} (${timeStr})`);
+    });
+    lines.push(`\nUPCOMING CALENDAR EVENTS (next 5 days — use for prep and scheduling context):`);
+    Object.entries(byDay).forEach(([day, evs]) => {
+      lines.push(`  [${day}] ${evs.slice(0, 5).join(' · ')}`);
+    });
+  } else if (calendarDensity && Object.keys(calendarDensity).length > 0) {
+    // Fall back to density if no event titles available
     lines.push(`\nCALENDAR DENSITY THIS WEEK:`);
     Object.entries(calendarDensity).sort(([a], [b]) => a.localeCompare(b)).forEach(([day, count]) => {
       const load = count >= 5 ? '(heavy — protect from deep work)' : count >= 3 ? '(moderate)' : '(light)';
@@ -43,36 +80,50 @@ export function buildHolisticContext({
     });
   }
 
-  // Active goals
+  // Active goals — with orphan flag
   const activeGoals = goals.filter(g => g.status === 'active');
   if (activeGoals.length > 0) {
     lines.push(`\nACTIVE GOALS (${activeGoals.length}):`);
     activeGoals.forEach(g => {
-      const taskCount = tasks.filter(t => t.goalId === g.id && !t.done).length;
+      const linkedTasks = tasks.filter(t => t.goalId === g.id && !t.done);
+      const taskCount = linkedTasks.length;
       const score = g.likelihoodScore != null ? `score:${g.likelihoodScore}/100` : 'unscored';
       const target = g.targetDate ? ` | target:${g.targetDate}` : '';
       const ctx = g.context ? ` | context:${g.context}` : '';
       const drift = (g.targetDateChanges || 0) > 0 ? ` | target-moved:${g.targetDateChanges}x` : '';
-      lines.push(`  • "${g.title}" | type:${g.goalType || 'general'} | ${score} | ${taskCount} active tasks${target}${ctx}${drift}`);
+      const orphan = taskCount === 0 ? ' ⚠ NO TASKS LINKED — goal has no execution path' : '';
+      lines.push(`  • "${g.title}" | type:${g.goalType || 'general'} | ${score} | ${taskCount} active tasks${target}${ctx}${drift}${orphan}`);
       if (g.why) lines.push(`    Why it matters: ${g.why}`);
     });
   }
 
-  // Active projects
+  // Active projects — computed momentum, computed next action
   const activeProjects = projects.filter(p => p.status === 'active' || p.status === 'planning');
   if (activeProjects.length > 0) {
     lines.push(`\nACTIVE PROJECTS (${activeProjects.length}):`);
     activeProjects.forEach(p => {
-      const taskCount = tasks.filter(t => t.projectId === p.id && !t.done).length;
+      const projectTasks = tasks.filter(t => t.projectId === p.id);
+      const { score: mScore } = calculateMomentum(p, projectTasks);
+      const openCount = projectTasks.filter(t => !t.done).length;
       const blocker = p.blockers ? ` | BLOCKER: "${p.blockers}"` : '';
-      const next = p.nextAction ? ` | next: "${p.nextAction}"` : '';
       const ctx = p.context ? ` | context:${p.context}` : '';
       const drift = (p.deferCount || 0) > 0 ? ` | stalled:${p.deferCount}x` : '';
-      lines.push(`  • "${p.title}" | ${p.status} | momentum:${p.momentum || 0}%${next}${blocker}${ctx}${drift} | ${taskCount} open tasks`);
+
+      // Computed next action from tasks
+      const nextActions = getProjectNextAction(p.id, tasks);
+      let nextStr = '';
+      if (nextActions.length > 0) {
+        const items = nextActions.map(a => `"${a.title}"${a.dueDate ? ` due:${a.dueDate}` : ''}`).join(' or ');
+        nextStr = ` | next: ${items}`;
+      } else if (p.nextAction) {
+        nextStr = ` | next: "${p.nextAction}"`;
+      }
+
+      lines.push(`  • "${p.title}" | ${p.status} | momentum:${mScore}%${nextStr}${blocker}${ctx}${drift} | ${openCount} open tasks`);
     });
   }
 
-  // High-priority open tasks — sorted by urgency
+  // High-priority open tasks — sorted by urgency, with tags
   const openHigh = tasks
     .filter(t => !t.done && (t.priority === 'critical' || t.priority === 'high'))
     .map(t => ({ ...t, _urgency: calculateUrgency(t) }))
@@ -84,17 +135,32 @@ export function buildHolisticContext({
       const due = t.dueDate ? ` | due:${t.dueDate}` : '';
       const proj = t.project && t.project !== 'Inbox' ? ` | ${t.project}` : '';
       const push = (t.pushCount || 0) > 0 ? ` | pushed:${t.pushCount}x` : '';
-      lines.push(`  • "${t.title}" | ${t.priority}${proj}${due}${push}`);
+      const tags = t.tags?.length ? ` | tags:${t.tags.join(',')}` : '';
+      const ctx = t.context ? ` | context:${t.context}` : '';
+      lines.push(`  • "${t.title}" | ${t.priority}${proj}${due}${push}${tags}${ctx}`);
+    });
+  }
+
+  // Stale inbox tasks (not updated in 14+ days, no project)
+  const staleInbox = tasks.filter(t => {
+    if (t.done || (t.projectId && t.project !== 'Inbox')) return false;
+    const updMs = t.updatedAt?.toMillis?.() || (t.updatedAt ? new Date(t.updatedAt).getTime() : 0);
+    return updMs > 0 && updMs < twoWeeksAgo;
+  });
+  if (staleInbox.length > 0) {
+    lines.push(`\nSTALE INBOX (${staleInbox.length} tasks untouched 14+ days — flag for triage or delete):`);
+    staleInbox.slice(0, 5).forEach(t => {
+      lines.push(`  • "${t.title}" | ${t.priority}`);
     });
   }
 
   // At-risk this week: high/critical with pushCount >= 2 due within 5 days
   const nowMs = Date.now();
-  const in5Ms = nowMs + 5 * 24 * 60 * 60 * 1000;
+  const in5DayMs = nowMs + 5 * 24 * 60 * 60 * 1000;
   const atRisk = tasks.filter(t => {
     if (t.done || !t.dueDate) return false;
     const dueMs = new Date(t.dueDate + 'T23:59:59').getTime();
-    if (dueMs < nowMs || dueMs > in5Ms) return false;
+    if (dueMs < nowMs || dueMs > in5DayMs) return false;
     return (t.priority === 'critical' || t.priority === 'high') && (t.pushCount || 0) >= 2;
   });
   if (atRisk.length > 0) {
@@ -115,7 +181,6 @@ export function buildHolisticContext({
   }
 
   // Recent brain dumps (last 14 days)
-  const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
   const recentDumps = brainDumps.filter(d => {
     if (d.archived) return false;
     try {

@@ -58,7 +58,7 @@ const QUOTES = [
 
 export default function HomeScreen() {
   const { user, profile, updateProfile } = useAuth();
-  const { tasks, activeProjects, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile, plaidItems } = useData();
+  const { tasks, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile, plaidItems } = useData();
   const navigate = useNavigate();
 
   const [energy,      setEnergy]      = useState(profile?.energyToday || 7);
@@ -80,6 +80,7 @@ export default function HomeScreen() {
   const [feedbackText,    setFeedbackText]    = useState('');
   const [feedbackSaving,  setFeedbackSaving]  = useState(false);
   const [calendarDensity,  setCalendarDensity]  = useState(null);
+  const [calendarEvents,   setCalendarEvents]   = useState([]);
   const [plaidData,        setPlaidData]        = useState(null);
   const [weatherForecast,  setWeatherForecast]  = useState(null);
 
@@ -150,6 +151,17 @@ export default function HomeScreen() {
     }).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
   }, [tasks]);
 
+  // Stale inbox — tasks with no project untouched for 14+ days
+  const staleInboxTasks = useMemo(() => {
+    const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    return tasks.filter(t => {
+      if (t.done) return false;
+      if (t.projectId && t.project !== 'Inbox') return false;
+      const updMs = t.updatedAt?.toMillis?.() || (t.updatedAt ? new Date(t.updatedAt).getTime() : 0);
+      return updMs > 0 && updMs < cutoff;
+    });
+  }, [tasks]);
+
   // Weekly review reminder — show if no review in last 7 days
   const reviewReminderDue = useMemo(() => {
     if (!weeklyReviews) return false;
@@ -189,6 +201,7 @@ export default function HomeScreen() {
     weeklyReviews:  weeklyReviews || [],
     userProfile:    userProfile || profile,
     calendarDensity,
+    calendarEvents,
     plaidData,
     weatherForecast,
   });
@@ -198,7 +211,7 @@ export default function HomeScreen() {
     const text = await getAIFocusRecommendation({
       energy,
       topTasks:         top3,
-      projects:         activeProjects,
+      projects:         displayActiveProjects,
       holisticContext:  getHolisticContext(),
     });
     setAiText(text || 'Focus on your single highest-leverage task. Everything else can wait.');
@@ -261,8 +274,9 @@ export default function HomeScreen() {
         const ws = weekStartDate(new Date());
         const we = new Date(ws); we.setDate(we.getDate() + 7);
         const evs = await getEvents(token, ws.toISOString(), we.toISOString());
+        const evList = evs || [];
         const density = {};
-        (evs || []).forEach(ev => {
+        evList.forEach(ev => {
           if (!ev.start?.dateTime) return;
           const day = new Date(ev.start.dateTime).toLocaleDateString('en-US', { weekday: 'long' });
           density[day] = (density[day] || 0) + 1;
@@ -271,6 +285,7 @@ export default function HomeScreen() {
           setCalendarDensity(density);
           try { sessionStorage.setItem('calendarDensity', JSON.stringify(density)); } catch {}
         }
+        setCalendarEvents(evList);
       } catch { /* optional enhancement — fail silently */ }
     }
     fetchDensity();
@@ -513,6 +528,26 @@ export default function HomeScreen() {
           </div>
         );
       })()}
+
+      {/* Stale Inbox Banner */}
+      {staleInboxTasks.length >= 3 && (
+        <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', background: tokens.bgGlass, border: `1px solid ${tokens.border}`, borderRadius: '12px' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.textSecondary, marginBottom: '2px' }}>
+                🗂 {staleInboxTasks.length} inbox tasks untouched for 14+ days
+              </div>
+              <div style={{ fontSize: '12px', color: tokens.textMuted }}>
+                {staleInboxTasks.slice(0, 2).map(t => t.title).join(' · ')}{staleInboxTasks.length > 2 ? ` +${staleInboxTasks.length - 2} more` : ''}
+              </div>
+            </div>
+            <button onClick={() => navigate('/tasks')}
+              style={{ background: tokens.bgInput, color: tokens.textSecondary, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
+              Triage →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Deadline Risk Banner */}
       {deadlineRiskTasks.length > 0 && (

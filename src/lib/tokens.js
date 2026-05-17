@@ -157,12 +157,12 @@ export const tokens = {
 };
 
 export const fonts = {
-  display: "'Playfair Display', Georgia, serif",
+  display: "'Plus Jakarta Sans', 'DM Sans', sans-serif",
   body:    "'DM Sans', 'Helvetica Neue', sans-serif",
 };
 
 export const globalStyles = `
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600;700&display=swap');
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 

@@ -4,6 +4,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { callAI } from '../../lib/ai';
+import { calculateMomentum } from '../../lib/momentum';
 import { saveAdvisorChat, getAdvisorChat, addTask, addProject } from '../../lib/db';
 import { Spinner } from '../ui';
 
@@ -47,7 +48,7 @@ function parseActions(text) {
 
 export default function AdvisorScreen() {
   const { user, profile }                      = useAuth();
-  const { projects, tasks, debtAccounts, totalDebt, goals } = useData();
+  const { projects, tasks, totalDebt, goals } = useData();
   const [messages,       setMessages]          = useState([]);
   const [input,          setInput]             = useState('');
   const [loading,        setLoading]           = useState(false);
@@ -119,7 +120,11 @@ export default function AdvisorScreen() {
   }, [messages, loading]);
 
   const buildContext = () => {
-    const activeProjects  = projects.filter(p => p.status === 'active').map(p => `${p.title} (${p.momentum || 0}% momentum)`);
+    const activeProjects  = projects.filter(p => p.status === 'active').map(p => {
+      const pts = tasks.filter(t => t.projectId === p.id);
+      const { score } = calculateMomentum(p, pts);
+      return `${p.title} (${score}% momentum)`;
+    });
     const stalledProjects = projects.filter(p => p.status === 'stalled').map(p => p.title);
     const pendingTasks    = tasks.filter(t => !t.done).slice(0, 8).map(t => `${t.title} [${t.priority}]`);
 

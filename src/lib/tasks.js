@@ -20,6 +20,41 @@ export function calculateUrgency(task) {
   return weight * recency + driftBonus;
 }
 
+const PRIORITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
+
+// Returns [{title, dueDate, priority}] — 1 item normally, 2 if there's a true tie.
+// Logic: tasks with due dates first (nearest), tiebreak by priority, tiebreak → show both.
+// Falls back to highest-priority task if none have due dates.
+export function getProjectNextAction(projectId, tasks) {
+  const open = tasks.filter(t => t.projectId === projectId && !t.done);
+  if (open.length === 0) return [];
+
+  const withDue = open
+    .filter(t => t.dueDate)
+    .sort((a, b) => {
+      if (a.dueDate !== b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+      return (PRIORITY_ORDER[a.priority] ?? 4) - (PRIORITY_ORDER[b.priority] ?? 4);
+    });
+
+  const withoutDue = open
+    .filter(t => !t.dueDate)
+    .sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 4) - (PRIORITY_ORDER[b.priority] ?? 4));
+
+  const candidates = [...withDue, ...withoutDue];
+  const first = candidates[0];
+  const second = candidates[1];
+
+  // True tie: same due date AND same priority → show both
+  if (second && first.dueDate && second.dueDate === first.dueDate && second.priority === first.priority) {
+    return [
+      { title: first.title,  dueDate: first.dueDate,  priority: first.priority  },
+      { title: second.title, dueDate: second.dueDate, priority: second.priority },
+    ];
+  }
+
+  return [{ title: first.title, dueDate: first.dueDate || null, priority: first.priority }];
+}
+
 export const RECURRENCE_OPTIONS = [
   { value: 'none',     label: 'No repeat'  },
   { value: 'daily',    label: 'Daily'      },

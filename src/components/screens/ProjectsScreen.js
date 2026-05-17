@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addProject, updateProject, deleteProject } from '../../lib/db';
 import { calculateMomentum } from '../../lib/momentum';
+import { getProjectNextAction } from '../../lib/tasks';
 import { Button, Input, Select, MomentumBar, Tag, Modal, EmptyState, statusColors } from '../ui';
 
 // ─── Projects List View ───────────────────────────────────────────────────────
@@ -37,7 +38,7 @@ const STATUSES = [
   { value: 'complete', label: 'Complete' },
 ];
 
-const emptyForm = { title: '', category: 'work', status: 'active', momentum: 50, nextAction: '', blockers: '', notes: '', sentiment: 'focused', goalId: '', context: '' };
+const emptyForm = { title: '', category: 'work', status: 'active', momentum: 50, blockers: '', notes: '', sentiment: 'focused', goalId: '', context: '' };
 
 function momentumColor(m) { return m >= 65 ? tokens.green : m >= 35 ? tokens.accent : tokens.red; }
 
@@ -65,7 +66,7 @@ export default function ProjectsScreen() {
   const openNew  = () => { setForm(emptyForm); setEditing(null); setShowModal(true); };
   const openEdit = (p, e) => {
     e.stopPropagation();
-    setForm({ title: p.title || '', category: p.category || 'work', status: p.status || 'active', momentum: p.momentum || 50, nextAction: p.nextAction || '', blockers: p.blockers || '', notes: p.notes || '', sentiment: p.sentiment || 'focused', goalId: p.goalId || '', context: p.context || '' });
+    setForm({ title: p.title || '', category: p.category || 'work', status: p.status || 'active', momentum: p.momentum || 50, blockers: p.blockers || '', notes: p.notes || '', sentiment: p.sentiment || 'focused', goalId: p.goalId || '', context: p.context || '' });
     setEditing(p.id);
     setShowModal(true);
   };
@@ -75,15 +76,14 @@ export default function ProjectsScreen() {
     setSaving(true);
     try {
       const clean = {
-        title:      form.title.trim(),
-        category:   form.category || 'work',
-        status:     form.status   || 'active',
-        nextAction: form.nextAction || '',
-        blockers:   form.blockers   || '',
-        notes:      form.notes      || '',
-        sentiment:  form.sentiment  || 'focused',
-        goalId:     form.goalId     || null,
-        context:    form.context    || null,
+        title:     form.title.trim(),
+        category:  form.category || 'work',
+        status:    form.status   || 'active',
+        blockers:  form.blockers   || '',
+        notes:     form.notes      || '',
+        sentiment: form.sentiment  || 'focused',
+        goalId:    form.goalId     || null,
+        context:   form.context    || null,
       };
       if (editing) {
         const existingProject = projects.find(p => p.id === editing);
@@ -206,11 +206,19 @@ export default function ProjectsScreen() {
                   {totalCount > 0 && <span style={{ fontSize: '11px', color: tokens.textMuted }}>{doneCount}/{totalCount} tasks</span>}
                 </div>
 
-                {p.nextAction && (
-                  <div style={{ marginTop: '10px', fontSize: '12px', color: tokens.textSecondary, padding: '7px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', borderLeft: `2px solid ${tokens.accent}` }}>
-                    → {p.nextAction}
-                  </div>
-                )}
+                {(() => {
+                  const nextActions = getProjectNextAction(p.id, tasks);
+                  if (!nextActions.length) return null;
+                  return (
+                    <div style={{ marginTop: '10px', padding: '7px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '6px', borderLeft: `2px solid ${tokens.accent}` }}>
+                      {nextActions.map((a, i) => (
+                        <div key={i} style={{ fontSize: '12px', color: tokens.textSecondary, marginTop: i > 0 ? '3px' : 0 }}>
+                          → {a.title}{a.dueDate ? <span style={{ fontSize: '10px', color: tokens.textMuted, marginLeft: '5px' }}>due {a.dueDate}</span> : null}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
                 {p.blockers && <div style={{ marginTop: '6px', fontSize: '11px', color: tokens.red }}>⚑ {p.blockers}</div>}
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '10px' }}>
@@ -247,8 +255,7 @@ export default function ProjectsScreen() {
               {CONTEXT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
           </div>
-          <Input label="Next Action" value={form.nextAction} onChange={v => setForm(f => ({ ...f, nextAction: v }))} placeholder="What's the immediate next step?" />
-          <Input label="Blockers"    value={form.blockers}   onChange={v => setForm(f => ({ ...f, blockers: v }))}   placeholder="What's in the way?" />
+          <Input label="Blockers" value={form.blockers} onChange={v => setForm(f => ({ ...f, blockers: v }))} placeholder="What's in the way?" />
           <Input label="Notes"       value={form.notes}      onChange={v => setForm(f => ({ ...f, notes: v }))}      placeholder="Context, links, thoughts..." multiline rows={3} />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
             <Button onClick={() => setShowModal(false)} variant="ghost">Cancel</Button>
