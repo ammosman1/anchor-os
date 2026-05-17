@@ -447,8 +447,17 @@ export default function CalendarScreen() {
       const todayEvs = events.filter(e => e.start?.dateTime?.startsWith(ymd(todayDate)));
       const tomEvs   = events.filter(e => e.start?.dateTime?.startsWith(ymd(tomDate)));
 
-      const todaySlots = getFreeSlots(todayEvs, todayDate.toISOString(), workHours);
-      const tomSlots   = getFreeSlots(tomEvs,   tomDate.toISOString(),   workHours);
+      const now = new Date();
+      const todaySlotsRaw = getFreeSlots(todayEvs, todayDate.toISOString(), workHours);
+      const todaySlots = todaySlotsRaw
+        .map(s => {
+          const slotStart = new Date(s.start) < now ? now : new Date(s.start);
+          const slotEnd   = new Date(s.end);
+          const durationMins = Math.round((slotEnd - slotStart) / 60000);
+          return { start: slotStart.toISOString(), end: s.end, durationMins };
+        })
+        .filter(s => s.durationMins >= 15);
+      const tomSlots = getFreeSlots(tomEvs, tomDate.toISOString(), workHours);
 
       const needed = task.estimatedMinutes || 45;
       const slot   = [...todaySlots, ...tomSlots].find(s => s.durationMins >= needed);
@@ -643,6 +652,14 @@ export default function CalendarScreen() {
       const token = await getValidAccessToken(user.uid, calendarIntegration);
       if (token) await deleteEvent(token, detail.id);
       setEvents(prev => prev.filter(e => e.id !== detail.id));
+      // Unschedule the linked Anchor task in the same action
+      const linkedTask = tasks.find(t => t.calendarEventId === detail.id);
+      if (linkedTask) {
+        await updateTask(user.uid, linkedTask.id, {
+          status: 'pending', scheduledDate: null, scheduledStart: null,
+          scheduledEnd: null, calendarEventId: null,
+        });
+      }
       setDetail(null);
     } catch (err) {
       console.error('Delete error:', err);
