@@ -12,7 +12,13 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const { goals, tasks = [], brainDumps = [], plaidData = null, reviewHistory = [] } = req.body;
+  const { goals, tasks = [], brainDumps = [], plaidData = null, manualCashFlow = null, reviewHistory = [] } = req.body;
+  // Prefer Plaid data; fall back to manually imported cash flow
+  const effectivePlaidData = plaidData || (manualCashFlow ? {
+    monthlySurplus:  manualCashFlow.monthlySurplus  || 0,
+    monthlySpending: manualCashFlow.monthlySpending || 0,
+    monthlyIncome:   manualCashFlow.monthlyIncome   || 0,
+  } : null);
   if (!goals || !goals.length) return res.status(400).json({ error: 'goals required' });
 
   const now = new Date();
@@ -55,7 +61,7 @@ export default async function handler(req, res) {
       const needed         = g.targetAmount - g.currentAmount;
       const requiredPerMo  = Math.round(needed / months);
       let currentPerMo     = null;
-      if (plaidData?.monthlySurplus) currentPerMo = Math.round(plaidData.monthlySurplus);
+      if (effectivePlaidData?.monthlySurplus) currentPerMo = Math.round(effectivePlaidData.monthlySurplus);
       pacingContext = {
         amountNeeded:    needed,
         requiredPerMonth: requiredPerMo,
@@ -95,11 +101,11 @@ export default async function handler(req, res) {
     ? Math.round(recentReviews.reduce((s, r) => s + (r.weekRating != null ? r.weekRating * 20 : (r.energyScore || 50)), 0) / recentReviews.length)
     : null;
 
-  const financialContext = plaidData
-    ? `FINANCIAL REALITY (Plaid):
-- Monthly surplus: $${plaidData.monthlySurplus?.toLocaleString() || 'unknown'}
-- Monthly spending: $${plaidData.monthlySpending?.toLocaleString() || 'unknown'}
-- Monthly income: $${plaidData.monthlyIncome?.toLocaleString() || 'unknown'}`
+  const financialContext = effectivePlaidData
+    ? `FINANCIAL REALITY (${plaidData ? 'Plaid' : 'manually imported'}):
+- Monthly surplus: $${effectivePlaidData.monthlySurplus?.toLocaleString() || 'unknown'}
+- Monthly spending: $${effectivePlaidData.monthlySpending?.toLocaleString() || 'unknown'}
+- Monthly income: $${effectivePlaidData.monthlyIncome?.toLocaleString() || 'unknown'}`
     : '';
 
   const reviewContext = avgRating != null

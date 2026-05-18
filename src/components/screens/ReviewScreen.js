@@ -365,7 +365,7 @@ function EODReview({ tasks, projects, onSave }) {
 // ─── Weekly Review ─────────────────────────────────────────────────────────────
 function WeeklyReview({ tasks, projects }) {
   const { user } = useAuth();
-  const { goals, brainDumps, weeklyReviews } = useData();
+  const { goals, brainDumps, weeklyReviews, manualCashFlow } = useData();
 
   const cacheKey = `weeklyReviewSummary_${weekKey}`;
 
@@ -446,7 +446,7 @@ function WeeklyReview({ tasks, projects }) {
     setSaved(true);
     const activeGoals = goals.filter(g => g.status === 'active');
     if (activeGoals.length > 0) {
-      scoreGoals({ goals: activeGoals, tasks, brainDumps, reviewHistory: weeklyReviews })
+      scoreGoals({ goals: activeGoals, tasks, brainDumps, reviewHistory: weeklyReviews, manualCashFlow: manualCashFlow || null })
         .then(scores => Promise.all(scores.map(s => updateGoal(user.uid, s.goalId, { likelihoodScore: s.score, likelihoodTrend: s.trend }))))
         .catch(() => {});
     }

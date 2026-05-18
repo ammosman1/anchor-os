@@ -690,7 +690,7 @@ Rules: 2-4 milestones, 5-15 specific tasks, task titles start with action verbs,
   }
 }
 
-export async function scoreGoals({ goals, tasks, brainDumps, plaidData = null, reviewHistory = [] }) {
+export async function scoreGoals({ goals, tasks, brainDumps, plaidData = null, manualCashFlow = null, reviewHistory = [] }) {
   try {
     const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
     const res = await fetch('/api/goals/score', {
@@ -701,10 +701,11 @@ export async function scoreGoals({ goals, tasks, brainDumps, plaidData = null, r
       },
       body: JSON.stringify({
         goals,
-        tasks:         tasks.slice(0, 50),
-        brainDumps:    brainDumps.slice(0, 5),
-        plaidData:     plaidData || null,
-        reviewHistory: reviewHistory.slice(0, 4),
+        tasks:          tasks.slice(0, 50),
+        brainDumps:     brainDumps.slice(0, 5),
+        plaidData:      plaidData || null,
+        manualCashFlow: manualCashFlow || null,
+        reviewHistory:  reviewHistory.slice(0, 4),
       }),
     });
     const data = await res.json();

@@ -218,6 +218,19 @@ export const subscribePlaidItems = (uid, cb) =>
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
 
+// ─── Manual Cash Flow ─────────────────────────────────────────────────────────
+export const saveManualCashFlow = (uid, data) =>
+  setDoc(doc(db, 'users', uid, 'cashFlow', 'manual'), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+
+export const subscribeManualCashFlow = (uid, cb) =>
+  onSnapshot(
+    doc(db, 'users', uid, 'cashFlow', 'manual'),
+    snap => cb(snap.exists() ? snap.data() : null)
+  );
+
 // ─── Calendar Integration ─────────────────────────────────────────────────────
 export const saveCalendarTokens = (uid, data) =>
   setDoc(doc(db, 'users', uid, 'integrations', 'googleCalendar'), {

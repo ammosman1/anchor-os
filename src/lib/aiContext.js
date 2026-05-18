@@ -8,7 +8,7 @@ import { getProjectNextAction } from './tasks';
 export function buildHolisticContext({
   goals = [], tasks = [], projects = [],
   brainDumps = [], weeklyReviews = [],
-  userProfile = null, plaidData = null,
+  userProfile = null, plaidData = null, manualCashFlow = null,
   calendarDensity = null, calendarEvents = [],
   weatherForecast = null,
 }) {
@@ -247,10 +247,16 @@ export function buildHolisticContext({
     });
   }
 
-  if (plaidData) {
-    lines.push(`\nFINANCIAL SNAPSHOT:`);
-    if (plaidData.monthlySurplus != null) lines.push(`  Monthly surplus: $${Math.round(plaidData.monthlySurplus).toLocaleString()}`);
-    if (plaidData.monthlySpending != null) lines.push(`  Monthly spending: $${Math.round(plaidData.monthlySpending).toLocaleString()}`);
+  const effectiveFinance = plaidData || manualCashFlow;
+  if (effectiveFinance) {
+    const src = plaidData ? 'Plaid' : 'manual import';
+    const surplus  = effectiveFinance.monthlySurplus  ?? effectiveFinance.surplus;
+    const spending = effectiveFinance.monthlySpending ?? effectiveFinance.spending;
+    const income   = effectiveFinance.monthlyIncome   ?? effectiveFinance.income;
+    lines.push(`\nFINANCIAL SNAPSHOT (source: ${src}):`);
+    if (surplus  != null) lines.push(`  Monthly surplus: $${Math.round(surplus).toLocaleString()}`);
+    if (spending != null) lines.push(`  Monthly spending: $${Math.round(spending).toLocaleString()}`);
+    if (income   != null) lines.push(`  Monthly income: $${Math.round(income).toLocaleString()}`);
   }
 
   // Past feedback corrections — always enforced

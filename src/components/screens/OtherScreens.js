@@ -1,11 +1,13 @@
 // src/components/screens/OtherScreens.js
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { getDebtAdvice } from '../../lib/ai';
-import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem } from '../../lib/db';
-import { openPlaidLink, fetchAccounts, fetchTransactions, calcCashFlow, formatTxAmount, formatTxDate } from '../../lib/plaid';
+import { auth } from '../../lib/firebase';
+import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask } from '../../lib/db';
+import { openPlaidLink, calcCashFlow, formatTxAmount, formatTxDate } from '../../lib/plaid';
 import { Card, Button, Input, Select, SectionLabel, MomentumBar, Modal, AICard, EmptyState } from '../ui';
 
 // ─── Payoff simulation math ───────────────────────────────────────────────────
@@ -173,84 +175,141 @@ const typeColors = {
   other:    { bg: 'rgba(28,24,20,0.07)',    text: 'rgba(28,24,20,0.42)'  },
 };
 
+// ─── File-to-base64 helper ────────────────────────────────────────────────────
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// ─── Format import date ───────────────────────────────────────────────────────
+function fmtImportDate(ts) {
+  if (!ts) return '';
+  try {
+    const ms = ts.toMillis?.() ?? (ts._seconds ? ts._seconds * 1000 : new Date(ts).getTime());
+    return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return ''; }
+}
+
 export function DebtScreen() {
-  const { user }                          = useAuth();
-  const { debtAccounts, totalDebt, plaidItems } = useData();
+  const { user }                                                    = useAuth();
+  const { debtAccounts, totalDebt, plaidItems, manualCashFlow, goals } = useData();
+
+  // ── Existing account modal ────────────────────────────────────────────────
   const [showModal,     setShowModal]     = useState(false);
   const [form,          setForm]          = useState(emptyForm);
   const [editing,       setEditing]       = useState(null);
   const [saving,        setSaving]        = useState(false);
   const [aiText,        setAiText]        = useState('');
   const [aiLoading,     setAiLoading]     = useState(false);
+  const [showAllTx,     setShowAllTx]     = useState(false);
+
+  // ── Plaid ─────────────────────────────────────────────────────────────────
   const [plaidAccounts, setPlaidAccounts] = useState([]);
   const [transactions,  setTransactions]  = useState([]);
   const [loadingPlaid,  setLoadingPlaid]  = useState(false);
   const [connecting,    setConnecting]    = useState(false);
-  const [showAllTx,     setShowAllTx]     = useState(false);
 
-  // Load balances + transactions whenever connected items change
+  // ── File import ───────────────────────────────────────────────────────────
+  const fileInputRef                            = useRef(null);
+  const [importLoading,    setImportLoading]    = useState(false);
+  const [importError,      setImportError]      = useState('');
+  const [showImportModal,  setShowImportModal]  = useState(false);
+  const [importSummary,    setImportSummary]    = useState('');
+  const [importFileName,   setImportFileName]   = useState('');
+  const [editableAccounts, setEditableAccounts] = useState([]);
+  const [selectedIndices,  setSelectedIndices]  = useState(new Set());
+  const [importCashFlow,   setImportCashFlow]   = useState(null);
+  const [includeCashFlow,  setIncludeCashFlow]  = useState(false);
+  const [editableCF,       setEditableCF]       = useState({ monthlyIncome: '', monthlySpending: '', monthlySurplus: '' });
+  const [importSaving,     setImportSaving]     = useState(false);
+
+  // ── Plaid load ────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!plaidItems.length) {
-      setPlaidAccounts([]);
-      setTransactions([]);
-      return;
-    }
+    if (!plaidItems.length) { setPlaidAccounts([]); setTransactions([]); return; }
     let cancelled = false;
     const load = async () => {
       setLoadingPlaid(true);
       try {
-        const allAccounts = [];
-        const allTx       = [];
+        const allAccounts = [], allTx = [];
         await Promise.all(plaidItems.map(async item => {
           const [aRes, tRes] = await Promise.all([
             fetch('/api/plaid/accounts',     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accessToken: item.accessToken }) }),
             fetch('/api/plaid/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accessToken: item.accessToken, days: 30 }) }),
           ]);
-          const aData = await aRes.json();
-          const tData = await tRes.json();
-          if (aData.accounts)    allAccounts.push(...aData.accounts.map(a => ({ ...a, institutionName: item.institutionName })));
+          const aData = await aRes.json(); const tData = await tRes.json();
+          if (aData.accounts)     allAccounts.push(...aData.accounts.map(a => ({ ...a, institutionName: item.institutionName })));
           if (tData.transactions) allTx.push(...tData.transactions);
         }));
         if (!cancelled) {
           setPlaidAccounts(allAccounts);
           setTransactions(allTx.sort((a, b) => new Date(b.date) - new Date(a.date)));
         }
-      } catch (err) {
-        console.error('Plaid load error:', err);
-      } finally {
-        if (!cancelled) setLoadingPlaid(false);
-      }
+      } catch (err) { console.error('Plaid load error:', err); }
+      finally { if (!cancelled) setLoadingPlaid(false); }
     };
     load();
     return () => { cancelled = true; };
   }, [plaidItems.map(i => i.id).join(',')]); // eslint-disable-line
 
-  const cashFlow = calcCashFlow(transactions);
+  const plaidCashFlow = calcCashFlow(transactions);
 
+  // ── Effective cash flow (Plaid preferred, manual fallback) ────────────────
+  const effectiveFlow = useMemo(() => {
+    if (plaidCashFlow) return { income: plaidCashFlow.income, spending: plaidCashFlow.spending, surplus: plaidCashFlow.surplus, source: 'plaid' };
+    if (manualCashFlow) return {
+      income:   manualCashFlow.monthlyIncome   || 0,
+      spending: manualCashFlow.monthlySpending  || 0,
+      surplus:  manualCashFlow.monthlySurplus   || 0,
+      source: 'manual',
+      importedAt: manualCashFlow.updatedAt || manualCashFlow.importedAt,
+      importedFrom: manualCashFlow.importedFrom,
+    };
+    return null;
+  }, [plaidCashFlow, manualCashFlow]); // eslint-disable-line
+
+  // ── Financial health metrics ──────────────────────────────────────────────
+  const totalMinimums      = debtAccounts.reduce((s, a) => s + (a.minimumPayment || 0), 0);
+  const surplus            = effectiveFlow?.surplus ?? 0;
+  const extraAfterMinimums = surplus - totalMinimums;
+  const debtFreeMonths     = totalDebt > 0 && extraAfterMinimums > 0 ? Math.ceil(totalDebt / extraAfterMinimums) : null;
+  const coveragePct        = totalMinimums > 0 ? Math.round((surplus / totalMinimums) * 100) : null;
+  const isDanger           = effectiveFlow && surplus < 0;
+  const isWarning          = effectiveFlow && !isDanger && totalMinimums > 0 && surplus < totalMinimums;
+
+  // Goal alignment (active financial goal pace)
+  const finGoal = useMemo(() => goals.find(g => g.status === 'active' && g.goalType === 'financial'), [goals]);
+  const goalPace = useMemo(() => {
+    if (!finGoal?.targetAmount || finGoal.currentAmount == null || !finGoal.targetDate) return null;
+    const [y, m] = finGoal.targetDate.split('-').map(Number);
+    const now = new Date();
+    const monthsLeft = (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1));
+    if (monthsLeft <= 0) return null;
+    const needed = finGoal.targetAmount - (finGoal.currentAmount || 0);
+    const requiredPerMonth = Math.round(needed / monthsLeft);
+    return { requiredPerMonth, onPace: surplus >= requiredPerMonth, monthsLeft, goalTitle: finGoal.title };
+  }, [finGoal, surplus]);
+
+  // ── Plaid connect ─────────────────────────────────────────────────────────
   const handleConnect = async () => {
     setConnecting(true);
     try {
       await openPlaidLink(user.uid, async (data) => {
-        await savePlaidItem(user.uid, data.itemId, {
-          accessToken:     data.accessToken,
-          itemId:          data.itemId,
-          institutionId:   data.institutionId,
-          institutionName: data.institutionName,
-          accounts:        data.accounts,
-        });
+        await savePlaidItem(user.uid, data.itemId, { accessToken: data.accessToken, itemId: data.itemId, institutionId: data.institutionId, institutionName: data.institutionName, accounts: data.accounts });
       });
-    } catch (err) {
-      console.error('Plaid connect error:', err);
-    } finally {
-      setConnecting(false);
-    }
+    } catch (err) { console.error('Plaid connect error:', err); }
+    finally { setConnecting(false); }
   };
 
+  // ── Manual account modal ──────────────────────────────────────────────────
   const sorted         = [...debtAccounts].sort((a, b) => (b.interestRate || 0) - (a.interestRate || 0));
   const highestBalance = Math.max(...debtAccounts.map(a => a.balance || 0), 1);
 
   const fetchAI = async () => {
-    if (debtAccounts.length === 0) return;
+    if (!debtAccounts.length) return;
     setAiLoading(true);
     const text = await getDebtAdvice(debtAccounts);
     setAiText(text || 'Focus on the highest-interest debt first. Every extra dollar there saves the most.');
@@ -260,51 +319,161 @@ export function DebtScreen() {
   const openNew  = () => { setForm(emptyForm); setEditing(null); setShowModal(true); };
   const openEdit = (a) => {
     setForm({ name: a.name || '', balance: String(a.balance || ''), interestRate: String(a.interestRate || ''), type: a.type || 'personal', minimumPayment: String(a.minimumPayment || ''), notes: a.notes || '' });
-    setEditing(a.id);
-    setShowModal(true);
+    setEditing(a.id); setShowModal(true);
   };
-
   const handleSave = async () => {
     if (!form.name.trim() || !form.balance) return;
     setSaving(true);
     const data = { name: form.name.trim(), balance: parseFloat(form.balance) || 0, interestRate: parseFloat(form.interestRate) || 0, type: form.type, minimumPayment: parseFloat(form.minimumPayment) || 0, notes: form.notes };
     if (editing) { await updateDebtAccount(user.uid, editing, data); }
     else         { await addDebtAccount(user.uid, data); }
-    setSaving(false);
-    setShowModal(false);
-    setAiText('');
+    setSaving(false); setShowModal(false); setAiText('');
   };
-
   const handleDelete = async (id) => {
     if (!window.confirm('Remove this account?')) return;
-    await deleteDebtAccount(user.uid, id);
-    setAiText('');
+    await deleteDebtAccount(user.uid, id); setAiText('');
   };
 
-  useEffect(() => {
-    if (debtAccounts.length > 0 && !aiText) fetchAI();
-  }, []); // eslint-disable-line
+  useEffect(() => { if (debtAccounts.length > 0 && !aiText) fetchAI(); }, []); // eslint-disable-line
 
+  // ── File import ───────────────────────────────────────────────────────────
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportLoading(true); setImportError('');
+    try {
+      let payload;
+      if (/\.(xlsx|xls|csv)$/i.test(file.name)) {
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook    = XLSX.read(arrayBuffer, { type: 'array' });
+        const sheet       = workbook.Sheets[workbook.SheetNames[0]];
+        const rows        = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        const headers     = (rows[0] || []).map(String);
+        const dataRows    = rows.slice(1).filter(r => r.some(c => c !== '' && c != null));
+        payload = { type: 'structured', data: { headers, rows: dataRows.map(r => r.map(String)) }, fileName: file.name };
+      } else if (/\.pdf$/i.test(file.name)) {
+        const base64 = await fileToBase64(file);
+        payload = { type: 'pdf', data: base64, fileName: file.name };
+      } else {
+        setImportError('Unsupported file type. Please upload an Excel, CSV, or PDF file.');
+        return;
+      }
+
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+      const res   = await fetch('/api/finance/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ ...payload, existingAccounts: debtAccounts }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Extraction failed');
+
+      const accounts = (data.accounts || []).map(a => ({
+        ...a,
+        balance:        String(a.balance || ''),
+        interestRate:   String(a.interestRate || ''),
+        minimumPayment: String(a.minimumPayment || ''),
+        existingId:     a.isDuplicate ? (debtAccounts.find(e => e.name.toLowerCase() === (a.name || '').toLowerCase())?.id || null) : null,
+      }));
+
+      setEditableAccounts(accounts);
+      setSelectedIndices(new Set(accounts.map((_, i) => i)));
+      setImportCashFlow(data.cashFlow || null);
+      setIncludeCashFlow(!!data.cashFlow);
+      setEditableCF(data.cashFlow ? {
+        monthlyIncome:   String(data.cashFlow.monthlyIncome   || ''),
+        monthlySpending: String(data.cashFlow.monthlySpending || ''),
+        monthlySurplus:  String(data.cashFlow.monthlySurplus  || ''),
+      } : { monthlyIncome: '', monthlySpending: '', monthlySurplus: '' });
+      setImportSummary(data.summary || '');
+      setImportFileName(file.name);
+      setShowImportModal(true);
+    } catch (err) {
+      console.error('Import error:', err);
+      setImportError(err.message || 'Failed to process file. Please try again.');
+    } finally {
+      setImportLoading(false);
+      e.target.value = '';
+    }
+  };
+
+  const toggleImportIndex = (i) => {
+    setSelectedIndices(prev => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i); else next.add(i);
+      return next;
+    });
+  };
+
+  const toggleAllImport = () => {
+    if (selectedIndices.size === editableAccounts.length) setSelectedIndices(new Set());
+    else setSelectedIndices(new Set(editableAccounts.map((_, i) => i)));
+  };
+
+  const handleImportConfirm = async () => {
+    setImportSaving(true);
+    try {
+      for (const idx of selectedIndices) {
+        const a    = editableAccounts[idx];
+        const data = { name: (a.name || '').trim(), balance: parseFloat(a.balance) || 0, interestRate: parseFloat(a.interestRate) || 0, minimumPayment: parseFloat(a.minimumPayment) || 0, type: a.type || 'other', notes: a.notes || '' };
+        if (a.isDuplicate && a.existingId) { await updateDebtAccount(user.uid, a.existingId, data); }
+        else                               { await addDebtAccount(user.uid, data); }
+      }
+
+      if (includeCashFlow) {
+        const inc  = parseFloat(editableCF.monthlyIncome)   || 0;
+        const spen = parseFloat(editableCF.monthlySpending)  || 0;
+        const sur  = parseFloat(editableCF.monthlySurplus)   || (inc - spen);
+        await saveManualCashFlow(user.uid, { monthlyIncome: inc, monthlySpending: spen, monthlySurplus: sur, importedFrom: importFileName, importedAt: new Date().toISOString() });
+      }
+
+      // Create upload reminder for next month
+      const next     = new Date(); next.setMonth(next.getMonth() + 1);
+      const monthLbl = next.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+      const dueDate  = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-15`;
+      await addTask(user.uid, { title: `Upload ${monthLbl} bank statements`, priority: 'medium', dueDate, goalId: finGoal?.id || null, source: 'finance-import' });
+
+      setShowImportModal(false); setAiText('');
+    } catch (err) { console.error('Import save error:', err); }
+    finally { setImportSaving(false); }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ maxWidth: 800, margin: '0 auto' }}>
-      {/* Header */}
+
+      {/* ── Header ── */}
       <div className="fade-up" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px' }}>
         <div>
           <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Finance</div>
           <h1 style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>Finance OS</h1>
           <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '6px' }}>Real accounts. Real numbers. No guessing.</p>
         </div>
-        <Button onClick={openNew} variant="ghost">+ Manual Account</Button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf" onChange={handleFileSelect} style={{ display: 'none' }} />
+          <Button onClick={() => fileInputRef.current?.click()} loading={importLoading} variant="ghost" size="sm">
+            {importLoading ? 'Reading...' : '↑ Import File'}
+          </Button>
+          <Button onClick={openNew} variant="ghost" size="sm">+ Manual</Button>
+        </div>
       </div>
 
-      {/* ── Plaid: no accounts connected yet ── */}
+      {/* Import error banner */}
+      {importError && (
+        <div style={{ marginBottom: '12px', padding: '10px 14px', background: 'rgba(212,122,107,0.1)', border: '1px solid rgba(212,122,107,0.25)', borderRadius: '8px', fontSize: '13px', color: tokens.red, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {importError}
+          <button onClick={() => setImportError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.red, fontSize: '16px', lineHeight: 1 }}>×</button>
+        </div>
+      )}
+
+      {/* ── Plaid: no accounts connected ── */}
       {plaidItems.length === 0 && (
         <div className="fade-up stagger-1" style={{ marginBottom: '16px' }}>
           <div style={{ background: 'linear-gradient(135deg, rgba(91,143,212,0.08), rgba(91,143,212,0.03))', border: `1px dashed rgba(91,143,212,0.3)`, borderRadius: tokens.radiusLg, padding: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontSize: '14px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '4px' }}>Connect your bank accounts</div>
-                <div style={{ fontSize: '12px', color: tokens.textMuted }}>See live balances, transactions, and monthly surplus — all in one place.</div>
+                <div style={{ fontSize: '12px', color: tokens.textMuted }}>See live balances and transactions — or use ↑ Import File to upload a statement manually.</div>
               </div>
               <Button loading={connecting} onClick={handleConnect}>Connect Bank</Button>
             </div>
@@ -360,33 +529,99 @@ export function DebtScreen() {
         </div>
       )}
 
-      {/* ── Monthly Cash Flow ── */}
-      {transactions.length > 0 && (
+      {/* ── Financial Health Dashboard ── */}
+      {effectiveFlow && (
         <div className="fade-up stagger-2" style={{ marginBottom: '16px' }}>
-          <Card>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+
+          {/* Danger / warning alert */}
+          {isDanger && (
+            <div style={{ marginBottom: '10px', padding: '10px 14px', background: 'rgba(212,122,107,0.1)', border: '1px solid rgba(212,122,107,0.3)', borderRadius: '8px', fontSize: '13px', color: tokens.red, fontWeight: 600 }}>
+              ⚠ Monthly spending exceeds income by ${Math.abs(surplus).toLocaleString()}. Address this before adding extra debt payments.
+            </div>
+          )}
+          {isWarning && (
+            <div style={{ marginBottom: '10px', padding: '10px 14px', background: 'rgba(200,169,110,0.1)', border: '1px solid rgba(200,169,110,0.3)', borderRadius: '8px', fontSize: '13px', color: tokens.amber, fontWeight: 600 }}>
+              ⚠ Monthly surplus (${surplus.toLocaleString()}) is less than total minimums (${totalMinimums.toLocaleString()}). Review your budget.
+            </div>
+          )}
+
+          {/* Cash flow row */}
+          <Card style={{ marginBottom: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
               <SectionLabel style={{ marginBottom: 0 }}>Monthly Cash Flow</SectionLabel>
-              <span style={{ fontSize: '10px', color: tokens.textMuted }}>Last 30 days</span>
+              <span style={{ fontSize: '10px', color: tokens.textMuted }}>
+                {effectiveFlow.source === 'plaid' ? 'Via Plaid · last 30 days' : `Via import · ${fmtImportDate(effectiveFlow.importedAt)}${effectiveFlow.importedFrom ? ' · ' + effectiveFlow.importedFrom : ''}`}
+              </span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', textAlign: 'center' }}>
               {[
-                { label: 'Income',   val: cashFlow.income,   color: tokens.green, prefix: '+$' },
-                { label: 'Spending', val: cashFlow.spending,  color: tokens.red,   prefix: '-$' },
-                { label: 'Surplus',  val: Math.abs(cashFlow.surplus), color: cashFlow.surplus >= 0 ? tokens.accent : tokens.red, prefix: cashFlow.surplus >= 0 ? '+$' : '-$' },
+                { label: 'Income',   val: effectiveFlow.income,   color: tokens.green, prefix: '+$' },
+                { label: 'Spending', val: effectiveFlow.spending,  color: tokens.red,   prefix: '-$' },
+                { label: 'Surplus',  val: Math.abs(effectiveFlow.surplus), color: surplus >= 0 ? tokens.accent : tokens.red, prefix: surplus >= 0 ? '+$' : '-$' },
               ].map(item => (
                 <div key={item.label}>
                   <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{item.label}</div>
                   <div style={{ fontFamily: fonts.display, fontSize: '22px', fontWeight: 700, color: item.color }}>
-                    {item.prefix}{item.val.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    {item.prefix}{(item.val || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </div>
                 </div>
               ))}
             </div>
           </Card>
+
+          {/* Metrics row */}
+          {debtAccounts.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: goalPace ? 'repeat(3, 1fr)' : '1fr 1fr', gap: '10px' }}>
+              {/* Minimums coverage */}
+              <Card style={{ padding: '14px', textAlign: 'center' }}>
+                <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Min. Coverage</div>
+                {coveragePct !== null ? (
+                  <>
+                    <div style={{ fontFamily: fonts.display, fontSize: '24px', fontWeight: 700, color: coveragePct >= 100 ? tokens.green : tokens.red }}>{coveragePct}%</div>
+                    <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '4px' }}>
+                      {coveragePct >= 100 ? `${(surplus - totalMinimums).toLocaleString()} left after minimums` : `$${(totalMinimums - surplus).toLocaleString()} shortfall`}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: '12px', color: tokens.textMuted }}>No minimums set</div>
+                )}
+              </Card>
+
+              {/* Debt-free estimate */}
+              <Card style={{ padding: '14px', textAlign: 'center' }}>
+                <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Debt-Free Est.</div>
+                {debtFreeMonths !== null ? (
+                  <>
+                    <div style={{ fontFamily: fonts.display, fontSize: '24px', fontWeight: 700, color: debtFreeMonths <= 24 ? tokens.green : debtFreeMonths <= 60 ? tokens.accent : tokens.amber }}>
+                      {debtFreeMonths <= 11 ? `${debtFreeMonths}mo` : `${(debtFreeMonths / 12).toFixed(1)}yr`}
+                    </div>
+                    <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '4px' }}>at current surplus rate</div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: '12px', color: tokens.textMuted }}>{extraAfterMinimums <= 0 ? 'Need more surplus' : 'Debt free!'}</div>
+                )}
+              </Card>
+
+              {/* Goal alignment */}
+              {goalPace && (
+                <Card style={{ padding: '14px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Goal Pace</div>
+                  <div style={{ fontFamily: fonts.display, fontSize: '24px', fontWeight: 700, color: goalPace.onPace ? tokens.green : tokens.red }}>
+                    {goalPace.onPace ? 'On Track' : 'Behind'}
+                  </div>
+                  <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '4px' }}>
+                    {goalPace.onPace
+                      ? `Need $${goalPace.requiredPerMonth.toLocaleString()}/mo ✓`
+                      : `Need $${goalPace.requiredPerMonth.toLocaleString()}/mo, have $${surplus.toLocaleString()}`}
+                  </div>
+                </Card>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* ── Recent Transactions ── */}
+      {/* ── Recent Transactions (Plaid only) ── */}
       {transactions.length > 0 && (
         <div className="fade-up stagger-3" style={{ marginBottom: '16px' }}>
           <Card>
@@ -395,16 +630,10 @@ export function DebtScreen() {
               {transactions.slice(0, showAllTx ? undefined : 12).map(tx => (
                 <div key={tx.transaction_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${tokens.border}` }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '13px', color: tokens.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {tx.merchant_name || tx.name}
-                    </div>
-                    <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '2px' }}>
-                      {formatTxDate(tx.date)} · {(tx.personal_finance_category?.primary || tx.category?.[0] || 'Uncategorized').replace(/_/g, ' ')}
-                    </div>
+                    <div style={{ fontSize: '13px', color: tokens.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.merchant_name || tx.name}</div>
+                    <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '2px' }}>{formatTxDate(tx.date)} · {(tx.personal_finance_category?.primary || tx.category?.[0] || 'Uncategorized').replace(/_/g, ' ')}</div>
                   </div>
-                  <div style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 600, color: tx.amount < 0 ? tokens.green : tokens.textPrimary, flexShrink: 0, marginLeft: '16px' }}>
-                    {formatTxAmount(tx.amount)}
-                  </div>
+                  <div style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 600, color: tx.amount < 0 ? tokens.green : tokens.textPrimary, flexShrink: 0, marginLeft: '16px' }}>{formatTxAmount(tx.amount)}</div>
                 </div>
               ))}
             </div>
@@ -417,7 +646,7 @@ export function DebtScreen() {
         </div>
       )}
 
-      {/* ── Manual Debt Accounts ── */}
+      {/* ── Debt Accounts ── */}
       <div className="fade-up stagger-4" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
         <SectionLabel style={{ marginBottom: 0 }}>Debt Accounts</SectionLabel>
         <Button onClick={openNew} size="sm">+ Add Account</Button>
@@ -434,9 +663,7 @@ export function DebtScreen() {
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: '12px', color: tokens.textMuted, marginBottom: '4px' }}>Monthly Minimums</div>
-                <div style={{ fontFamily: fonts.display, fontSize: '22px', color: tokens.amber }}>
-                  ${debtAccounts.reduce((s, a) => s + (a.minimumPayment || 0), 0).toLocaleString()}
-                </div>
+                <div style={{ fontFamily: fonts.display, fontSize: '22px', color: tokens.amber }}>${totalMinimums.toLocaleString()}</div>
               </div>
             </div>
           </Card>
@@ -457,7 +684,12 @@ export function DebtScreen() {
 
       <div className="fade-up stagger-5" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {debtAccounts.length === 0 ? (
-          <EmptyState icon="◉" title="No debt accounts tracked" subtitle="Add your accounts to get an AI-optimized payoff strategy." action={<Button onClick={openNew}>+ Add First Account</Button>} />
+          <EmptyState icon="◉" title="No debt accounts tracked" subtitle="Import a bank statement or add accounts manually to get started." action={
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <Button onClick={() => fileInputRef.current?.click()} variant="ghost">↑ Import File</Button>
+              <Button onClick={openNew}>+ Add Manually</Button>
+            </div>
+          } />
         ) : (
           sorted.map((account, i) => {
             const tc  = typeColors[account.type] || typeColors.other;
@@ -489,6 +721,7 @@ export function DebtScreen() {
         )}
       </div>
 
+      {/* ── Manual account modal ── */}
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Account' : 'Add Debt Account'}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <Input label="Account Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. IRS Tax Debt 2023" />
@@ -504,6 +737,126 @@ export function DebtScreen() {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
             <Button onClick={() => setShowModal(false)} variant="ghost">Cancel</Button>
             <Button onClick={handleSave} loading={saving} disabled={!form.name.trim() || !form.balance}>{editing ? 'Save' : 'Add Account'}</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Import Review Modal ── */}
+      <Modal open={showImportModal} onClose={() => setShowImportModal(false)} title="Review Extracted Data">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Summary */}
+          {importSummary && (
+            <div style={{ padding: '10px 14px', background: tokens.accentDim, borderRadius: '8px', fontSize: '13px', color: tokens.textSecondary }}>
+              ✦ {importSummary}
+            </div>
+          )}
+
+          {/* Accounts section */}
+          {editableAccounts.length > 0 && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <SectionLabel style={{ marginBottom: 0 }}>Accounts Found ({editableAccounts.length})</SectionLabel>
+                <button onClick={toggleAllImport} style={{ fontSize: '11px', color: tokens.accent, background: 'none', border: 'none', cursor: 'pointer', fontFamily: fonts.body }}>
+                  {selectedIndices.size === editableAccounts.length ? 'Deselect All' : 'Select All'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {editableAccounts.map((a, i) => (
+                  <div key={i} style={{ padding: '12px', background: selectedIndices.has(i) ? tokens.bgCardHover : 'transparent', border: `1px solid ${selectedIndices.has(i) ? tokens.border : 'transparent'}`, borderRadius: '10px', transition: 'all 0.15s' }}>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '8px' }}>
+                      <input type="checkbox" checked={selectedIndices.has(i)} onChange={() => toggleImportIndex(i)}
+                        style={{ width: '16px', height: '16px', accentColor: tokens.accent, flexShrink: 0, cursor: 'pointer' }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <input
+                          value={a.name}
+                          onChange={e => setEditableAccounts(prev => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
+                          style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: `1px solid ${tokens.border}`, padding: '2px 0', fontSize: '14px', fontWeight: 600, color: tokens.textPrimary, fontFamily: fonts.body, outline: 'none' }}
+                        />
+                      </div>
+                      {a.isDuplicate && <span style={{ fontSize: '10px', color: tokens.amber, background: 'rgba(200,169,110,0.12)', padding: '2px 7px', borderRadius: '4px', fontWeight: 700, flexShrink: 0 }}>exists · will update</span>}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', paddingLeft: '26px' }}>
+                      <div>
+                        <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '3px' }}>TYPE</div>
+                        <select value={a.type} onChange={e => setEditableAccounts(prev => prev.map((x, j) => j === i ? { ...x, type: e.target.value } : x))}
+                          style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '4px 6px', fontSize: '11px', color: tokens.textPrimary, fontFamily: fonts.body, cursor: 'pointer' }}>
+                          {DEBT_TYPES.map(dt => <option key={dt.value} value={dt.value}>{dt.label}</option>)}
+                        </select>
+                      </div>
+                      {[
+                        { label: 'Balance $', field: 'balance' },
+                        { label: 'Rate %',    field: 'interestRate' },
+                        { label: 'Min/mo $',  field: 'minimumPayment' },
+                      ].map(({ label, field }) => (
+                        <div key={field}>
+                          <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '3px' }}>{label}</div>
+                          <input type="number" value={a[field]}
+                            onChange={e => setEditableAccounts(prev => prev.map((x, j) => j === i ? { ...x, [field]: e.target.value } : x))}
+                            style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '4px 6px', fontSize: '12px', color: tokens.textPrimary, fontFamily: fonts.body, outline: 'none' }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {editableAccounts.length === 0 && (
+            <div style={{ padding: '16px', textAlign: 'center', color: tokens.textMuted, fontSize: '13px' }}>
+              No debt accounts found in this file. You can still import cash flow data below.
+            </div>
+          )}
+
+          {/* Cash flow section */}
+          {importCashFlow && (
+            <div style={{ borderTop: `1px solid ${tokens.border}`, paddingTop: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <SectionLabel style={{ marginBottom: 0 }}>Cash Flow Data</SectionLabel>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', color: tokens.textSecondary }}>
+                  <input type="checkbox" checked={includeCashFlow} onChange={e => setIncludeCashFlow(e.target.checked)}
+                    style={{ accentColor: tokens.accent, cursor: 'pointer' }} />
+                  Include in import
+                </label>
+              </div>
+              {includeCashFlow && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                  {[
+                    { label: 'Monthly Income $',   field: 'monthlyIncome' },
+                    { label: 'Monthly Spending $',  field: 'monthlySpending' },
+                    { label: 'Monthly Surplus $',   field: 'monthlySurplus' },
+                  ].map(({ label, field }) => (
+                    <div key={field}>
+                      <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '4px' }}>{label}</div>
+                      <input type="number" value={editableCF[field]}
+                        onChange={e => setEditableCF(prev => ({ ...prev, [field]: e.target.value }))}
+                        style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '8px 10px', fontSize: '13px', color: tokens.textPrimary, fontFamily: fonts.body, outline: 'none', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+              {importCashFlow.notes && (
+                <div style={{ marginTop: '8px', fontSize: '11px', color: tokens.textMuted }}>Note: {importCashFlow.notes}</div>
+              )}
+            </div>
+          )}
+
+          {/* Footer note about reminder task */}
+          <div style={{ fontSize: '11px', color: tokens.textMuted, padding: '8px 0', borderTop: `1px solid ${tokens.border}` }}>
+            A reminder task will be created to upload next month's statements.
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button onClick={() => setShowImportModal(false)} variant="ghost">Cancel</Button>
+            <Button
+              onClick={handleImportConfirm}
+              loading={importSaving}
+              disabled={selectedIndices.size === 0 && !includeCashFlow}
+            >
+              Import {selectedIndices.size > 0 ? `${selectedIndices.size} Account${selectedIndices.size !== 1 ? 's' : ''}` : 'Cash Flow Only'}
+            </Button>
           </div>
         </div>
       </Modal>

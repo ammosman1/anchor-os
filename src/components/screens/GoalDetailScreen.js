@@ -59,7 +59,7 @@ export default function GoalDetailScreen() {
   const { goalId }   = useParams();
   const navigate     = useNavigate();
   const { user }     = useAuth();
-  const { goals, tasks, weeklyReviews, projects, plaidItems, brainDumps, userProfile } = useData();
+  const { goals, tasks, weeklyReviews, projects, plaidItems, brainDumps, userProfile, manualCashFlow } = useData();
 
   const goal            = goals.find(g => g.id === goalId);
   const linkedTasks     = tasks.filter(t => t.goalId === goalId);
@@ -141,9 +141,10 @@ export default function GoalDetailScreen() {
         tasks,
         projects,
         brainDumps:    brainDumps || [],
-        weeklyReviews: weeklyReviews || [],
-        userProfile:   userProfile,
+        weeklyReviews:  weeklyReviews || [],
+        userProfile:    userProfile,
         plaidData,
+        manualCashFlow,
       });
       const result = await generateGoalInsights({
         goal,
@@ -172,11 +173,14 @@ export default function GoalDetailScreen() {
     if (rescoring) return;
     setRescoring(true);
     try {
+      const scorePlaidData = await fetchMonthlyCashFlow(plaidItems).catch(() => null);
       const scores = await scoreGoals({
         goals: [goal],
         tasks,
-        brainDumps: brainDumps || [],
-        reviewHistory: weeklyReviews || [],
+        brainDumps:     brainDumps || [],
+        reviewHistory:  weeklyReviews || [],
+        plaidData:      scorePlaidData,
+        manualCashFlow: manualCashFlow || null,
       });
       const s = (scores || []).find(s => s.goalId === goalId);
       if (s) await updateGoal(user.uid, goalId, { likelihoodScore: s.score, likelihoodTrend: s.trend });

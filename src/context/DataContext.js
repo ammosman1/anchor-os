@@ -6,6 +6,7 @@ import {
   subscribeIdeas, subscribeDecisions, subscribeBrainDumps,
   subscribeWeeklyReviews, subscribeGoals, subscribeCalendarIntegration,
   subscribePlaidItems, subscribeProfile, subscribeDailyReviews, updateProject,
+  subscribeManualCashFlow,
 } from '../lib/db';
 import { setUserPersona } from '../lib/ai';
 import { calculateMomentum } from '../lib/momentum';
@@ -26,6 +27,7 @@ export function DataProvider({ children }) {
   const [plaidItems,          setPlaidItems]          = useState([]);
   const [userProfile,         setUserProfile]         = useState(null);
   const [dailyReviews,        setDailyReviews]        = useState([]);
+  const [manualCashFlow,      setManualCashFlow]      = useState(null);
   const [loaded,              setLoaded]              = useState(false);
 
   useEffect(() => {
@@ -33,7 +35,7 @@ export function DataProvider({ children }) {
       setProjects([]); setTasks([]); setDebtAccounts([]);
       setIdeas([]); setDecisions([]); setBrainDumps([]);
       setWeeklyReviews([]); setGoals([]); setCalendarIntegration(null); setPlaidItems([]);
-      setDailyReviews([]); setLoaded(false);
+      setDailyReviews([]); setManualCashFlow(null); setLoaded(false);
       return;
     }
 
@@ -49,6 +51,7 @@ export function DataProvider({ children }) {
       subscribeCalendarIntegration(user.uid, setCalendarIntegration),
       subscribePlaidItems(user.uid,          setPlaidItems),
       subscribeDailyReviews(user.uid,        setDailyReviews),
+      subscribeManualCashFlow(user.uid,      setManualCashFlow),
       subscribeProfile(user.uid, (prof) => {
         setUserProfile(prof);
         if (prof?.persona) setUserPersona(prof.persona);
@@ -108,7 +111,7 @@ export function DataProvider({ children }) {
 
   return (
     <DataContext.Provider value={{
-      projects, tasks, debtAccounts, ideas, decisions, brainDumps, weeklyReviews, goals, calendarIntegration, plaidItems, userProfile, dailyReviews,
+      projects, tasks, debtAccounts, ideas, decisions, brainDumps, weeklyReviews, goals, calendarIntegration, plaidItems, userProfile, dailyReviews, manualCashFlow,
       activeProjects, stalledProjects, todayTasks, totalDebt, activeGoals,
       loaded,
     }}>
