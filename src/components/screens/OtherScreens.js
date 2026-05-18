@@ -340,9 +340,34 @@ export function DebtScreen() {
     finally { setConnecting(false); }
   };
 
-  // ── Manual account modal ──────────────────────────────────────────────────
-  const sorted         = [...debtAccounts].sort((a, b) => (b.interestRate || 0) - (a.interestRate || 0));
+  // ── Debt account grouping ─────────────────────────────────────────────────
+  const [openGroups, setOpenGroups] = useState(new Set());
+  const toggleGroup = (type) => setOpenGroups(prev => {
+    const next = new Set(prev);
+    if (next.has(type)) next.delete(type); else next.add(type);
+    return next;
+  });
+
+  const TYPE_ORDER = ['tax', 'mortgage', 'auto', 'student', 'credit', 'business', 'personal', 'medical', 'other'];
   const highestBalance = Math.max(...debtAccounts.map(a => a.balance || 0), 1);
+  const groupedDebt = useMemo(() => {
+    const groups = {};
+    for (const a of debtAccounts) {
+      const t = a.type || 'other';
+      if (!groups[t]) groups[t] = [];
+      groups[t].push(a);
+    }
+    return TYPE_ORDER
+      .filter(t => groups[t]?.length > 0)
+      .map(t => {
+        const accs         = [...groups[t]].sort((a, b) => (b.balance || 0) - (a.balance || 0));
+        const typeLabel    = DEBT_TYPES.find(dt => dt.value === t)?.label || t;
+        const totalBalance = accs.reduce((s, a) => s + (a.balance || 0), 0);
+        const totalMin     = accs.reduce((s, a) => s + (a.minimumPayment || 0), 0);
+        const totalInterest = Math.round(accs.reduce((s, a) => s + ((a.balance || 0) * ((a.interestRate || 0) / 100 / 12)), 0));
+        return { type: t, label: typeLabel, accounts: accs, totalBalance, totalMin, totalInterest };
+      });
+  }, [debtAccounts]); // eslint-disable-line
 
   const fetchAI = async () => {
     if (!debtAccounts.length) return;
@@ -354,7 +379,7 @@ export function DebtScreen() {
 
   const openNew  = () => { setForm(emptyForm); setEditing(null); setShowModal(true); };
   const openEdit = (a) => {
-    setForm({ name: a.name || '', balance: String(a.balance || ''), interestRate: String(a.interestRate || ''), type: a.type || 'personal', minimumPayment: String(a.minimumPayment || ''), notes: a.notes || '' });
+    setForm({ name: a.name || '', balance: String(a.balance ?? ''), interestRate: String(a.interestRate ?? ''), type: a.type || 'personal', minimumPayment: String(a.minimumPayment ?? ''), notes: a.notes || '' });
     setEditing(a.id); setShowModal(true);
   };
   const handleSave = async () => {
@@ -891,7 +916,7 @@ export function DebtScreen() {
         </div>
       )}
 
-      <div className="fade-up stagger-5" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div className="fade-up stagger-5" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {debtAccounts.length === 0 ? (
           <EmptyState icon="◉" title="No debt accounts tracked" subtitle="Import a bank statement or add accounts manually to get started." action={
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -900,31 +925,66 @@ export function DebtScreen() {
             </div>
           } />
         ) : (
-          sorted.map((account, i) => {
-            const tc  = typeColors[account.type] || typeColors.other;
-            const pct = Math.max(0, Math.min(100, ((account.balance || 0) / highestBalance) * 100));
+          groupedDebt.map(({ type, label, accounts, totalBalance, totalMin, totalInterest }) => {
+            const tc     = typeColors[type] || typeColors.other;
+            const isOpen = openGroups.has(type);
             return (
-              <Card key={account.id}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    {i === 0 && <span style={{ fontSize: '11px', color: tokens.accent, fontWeight: 700 }}>PRIORITY 1</span>}
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '14px', color: tokens.textPrimary }}>{account.name}</div>
-                      <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>{account.interestRate || 0}% APR · Min ${(account.minimumPayment || 0).toLocaleString()}/mo</div>
+              <div key={type} style={{ border: `1px solid ${tokens.border}`, borderRadius: tokens.radiusLg, overflow: 'hidden', background: tokens.bgCard }}>
+                {/* Group header — click to expand/collapse */}
+                <button
+                  onClick={() => toggleGroup(type)}
+                  style={{ width: '100%', background: 'transparent', border: 'none', padding: '14px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: fonts.body, textAlign: 'left' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '4px', background: tc.bg, color: tc.text, textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>{label}</span>
+                    <span style={{ fontSize: '12px', color: tokens.textMuted }}>{accounts.length} account{accounts.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexShrink: 0 }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontFamily: fonts.display, fontSize: '16px', fontWeight: 700, color: totalBalance > 0 ? tokens.red : tokens.textMuted }}>
+                        ${totalBalance.toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '1px' }}>
+                        Min ${totalMin.toLocaleString()}/mo{totalInterest > 0 ? ` · ~$${totalInterest.toLocaleString()}/mo interest` : ''}
+                      </div>
                     </div>
+                    <span style={{ fontSize: '10px', color: tokens.textMuted, display: 'inline-block', transition: 'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'none' }}>▼</span>
                   </div>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span style={{ fontFamily: fonts.display, fontSize: '20px', fontWeight: 700, color: tokens.red }}>${(account.balance || 0).toLocaleString()}</span>
-                    <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: tc.bg, color: tc.text, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{account.type}</span>
+                </button>
+
+                {/* Expanded accounts */}
+                {isOpen && (
+                  <div style={{ borderTop: `1px solid ${tokens.border}` }}>
+                    {accounts.map((account, i) => {
+                      const pct = Math.max(0, Math.min(100, ((account.balance || 0) / highestBalance) * 100));
+                      return (
+                        <div key={account.id} style={{ padding: '14px 16px', borderBottom: i < accounts.length - 1 ? `1px solid ${tokens.border}` : 'none', background: tokens.bgCard }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                            <div style={{ flex: 1, minWidth: 0, paddingRight: '12px' }}>
+                              <div style={{ fontWeight: 600, fontSize: '14px', color: tokens.textPrimary }}>{account.name}</div>
+                              <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>
+                                {account.interestRate || 0}% APR · Min ${(account.minimumPayment || 0).toLocaleString()}/mo
+                                {account.interestRate > 0 && account.balance > 0 && (
+                                  <span style={{ color: tokens.amber }}> · ~${Math.round(account.balance * account.interestRate / 100 / 12).toLocaleString()}/mo interest</span>
+                                )}
+                              </div>
+                            </div>
+                            <span style={{ fontFamily: fonts.display, fontSize: '18px', fontWeight: 700, color: (account.balance || 0) > 0 ? tokens.red : tokens.textMuted, flexShrink: 0 }}>
+                              ${(account.balance || 0).toLocaleString()}
+                            </span>
+                          </div>
+                          {(account.balance || 0) > 0 && <MomentumBar value={pct} color={tokens.red} height={3} />}
+                          {account.notes && <div style={{ marginTop: '6px', fontSize: '11px', color: tokens.textMuted }}>{account.notes}</div>}
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '10px' }}>
+                            <Button onClick={() => openEdit(account)} variant="ghost" size="sm">Edit</Button>
+                            <Button onClick={() => handleDelete(account.id)} variant="danger" size="sm">Remove</Button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
-                <MomentumBar value={pct} color={tokens.red} height={4} />
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '10px' }}>
-                  <Button onClick={() => openEdit(account)} variant="ghost" size="sm">Edit</Button>
-                  <Button onClick={() => handleDelete(account.id)} variant="danger" size="sm">Remove</Button>
-                </div>
-                {account.notes && <div style={{ marginTop: '8px', fontSize: '12px', color: tokens.textMuted }}>{account.notes}</div>}
-              </Card>
+                )}
+              </div>
             );
           })
         )}
@@ -945,7 +1005,7 @@ export function DebtScreen() {
           <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Context, payment plan details..." multiline rows={2} />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
             <Button onClick={() => setShowModal(false)} variant="ghost">Cancel</Button>
-            <Button onClick={handleSave} loading={saving} disabled={!form.name.trim() || !form.balance}>{editing ? 'Save' : 'Add Account'}</Button>
+            <Button onClick={handleSave} loading={saving} disabled={!form.name.trim() || (form.balance === '' && !editing)}>{editing ? 'Save' : 'Add Account'}</Button>
           </div>
         </div>
       </Modal>
