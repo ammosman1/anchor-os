@@ -58,7 +58,7 @@ const QUOTES = [
 
 export default function HomeScreen() {
   const { user, profile, updateProfile } = useAuth();
-  const { tasks, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile, plaidItems } = useData();
+  const { tasks, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile, plaidItems, dailyReviews } = useData();
   const navigate = useNavigate();
 
   const [energy,      setEnergy]      = useState(profile?.energyToday || 7);
@@ -75,10 +75,11 @@ export default function HomeScreen() {
   const [quote]                         = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
 
   // AI feedback state
-  const [feedbackOpen,    setFeedbackOpen]    = useState(false);
-  const [feedbackKey,     setFeedbackKey]     = useState('');
-  const [feedbackText,    setFeedbackText]    = useState('');
-  const [feedbackSaving,  setFeedbackSaving]  = useState(false);
+  const [feedbackOpen,      setFeedbackOpen]      = useState(false);
+  const [feedbackKey,       setFeedbackKey]       = useState('');
+  const [feedbackText,      setFeedbackText]      = useState('');
+  const [feedbackSaving,    setFeedbackSaving]    = useState(false);
+  const [actionCenterOpen,  setActionCenterOpen]  = useState(true);
   const [calendarDensity,  setCalendarDensity]  = useState(null);
   const [calendarEvents,   setCalendarEvents]   = useState([]);
   const [plaidData,        setPlaidData]        = useState(null);
@@ -197,6 +198,65 @@ export default function HomeScreen() {
       (weeklyReviews[0].savedAt ? new Date(weeklyReviews[0].savedAt).getTime() : 0);
     return (Date.now() - lastMs) > 7 * 24 * 60 * 60 * 1000;
   }, [weeklyReviews]);
+
+  // EOD review done today
+  const eodDoneToday = useMemo(() =>
+    (dailyReviews || []).some(r => r.type === 'eod' && r.date === todayStr),
+  [dailyReviews, todayStr]);
+
+  // Action Center items — single source of truth for all standing to-dos
+  const actionItems = useMemo(() => {
+    const items = [];
+    if (atRiskThisWeek.length > 0) {
+      items.push({
+        id: 'at-risk', icon: '⚑', urgency: 'high',
+        label: `${atRiskThisWeek.length} task${atRiskThisWeek.length > 1 ? 's' : ''} at risk — due soon, pushed repeatedly`,
+        detail: atRiskThisWeek.map(t => t.title).join(' · '),
+        actionLabel: 'Schedule →', actionFn: () => setPlanOpen(true),
+      });
+    }
+    if (deadlineRiskTasks.length > 0) {
+      items.push({
+        id: 'deadline-risk', icon: '⏱', urgency: 'high',
+        label: `${deadlineRiskTasks.length} unscheduled task${deadlineRiskTasks.length > 1 ? 's' : ''} due within 7 days`,
+        detail: deadlineRiskTasks.slice(0, 2).map(t => t.title).join(' · ') + (deadlineRiskTasks.length > 2 ? ` +${deadlineRiskTasks.length - 2} more` : ''),
+        actionLabel: 'Schedule →', actionFn: () => setPlanOpen(true),
+      });
+    }
+    if (driftingGoals.length > 0) {
+      items.push({
+        id: 'drifting-goals', icon: '⚠', urgency: 'medium',
+        label: `${driftingGoals.length} goal${driftingGoals.length > 1 ? 's' : ''} drifting with no action this week`,
+        detail: driftingGoals.map(g => `${g.title}${g.likelihoodScore != null ? ` (${g.likelihoodScore}%)` : ''}`).join(' · '),
+        actionLabel: 'Review →', actionFn: () => navigate('/goals'),
+      });
+    }
+    if (reviewReminderDue) {
+      items.push({
+        id: 'weekly-review', icon: '📋', urgency: 'medium',
+        label: 'Weekly review overdue',
+        detail: weeklyReviews?.length === 0 ? 'No reviews yet — start your first weekly review' : 'Last review was over a week ago',
+        actionLabel: 'Review →', actionFn: () => navigate('/review'),
+      });
+    }
+    if (staleInboxTasks.length >= 3) {
+      items.push({
+        id: 'stale-inbox', icon: '🗂', urgency: 'low',
+        label: `${staleInboxTasks.length} inbox tasks untouched 14+ days`,
+        detail: staleInboxTasks.slice(0, 2).map(t => t.title).join(' · ') + (staleInboxTasks.length > 2 ? ` +${staleInboxTasks.length - 2} more` : ''),
+        actionLabel: 'Triage →', actionFn: () => navigate('/tasks'),
+      });
+    }
+    if (isAfter5pm && !eodDoneToday) {
+      items.push({
+        id: 'eod', icon: '🌙', urgency: 'low',
+        label: 'End-of-Day check-in',
+        detail: 'Reflect on today, set tomorrow\'s intentions',
+        actionLabel: 'Check in →', actionFn: () => navigate('/review'),
+      });
+    }
+    return items;
+  }, [atRiskThisWeek, deadlineRiskTasks, driftingGoals, reviewReminderDue, staleInboxTasks, isAfter5pm, eodDoneToday, weeklyReviews, navigate, setPlanOpen]); // eslint-disable-line
 
   // Compute display-active projects: includes stalled projects with momentum > 50
   // (same displayStatus logic as ProjectsScreen, avoids DataContext auto-stall hiding real activity)
@@ -485,43 +545,39 @@ export default function HomeScreen() {
         </div>
       )}
 
-      {/* At Risk This Week — chronic deferral + imminent deadline */}
-      {atRiskThisWeek.length > 0 && (
+      {/* Action Center */}
+      {actionItems.length > 0 && (
         <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
-          <div style={{ padding: '12px 18px', background: 'rgba(212,122,107,0.1)', border: `1px solid rgba(212,122,107,0.4)`, borderRadius: '12px' }}>
-            <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.red, marginBottom: '6px' }}>
-              ⚑ At Risk This Week
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px' }}>
-              {atRiskThisWeek.map(t => (
-                <div key={t.id} style={{ fontSize: '12px', color: tokens.textSecondary, display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 600, color: tokens.textPrimary }}>{t.title}</span>
-                  <span style={{ color: tokens.red }}>due {t.dueDate}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.red, background: 'rgba(212,122,107,0.15)', padding: '1px 5px', borderRadius: '3px' }}>↻{t.pushCount}</span>
-                </div>
-              ))}
-            </div>
-            <div style={{ fontSize: '11px', color: tokens.textMuted }}>These tasks have been pushed multiple times — they need real time blocked today.</div>
-          </div>
-        </div>
-      )}
-
-      {/* Weekly Review Reminder */}
-      {reviewReminderDue && (
-        <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', background: tokens.accentDim, border: `1px solid rgba(200,169,110,0.3)`, borderRadius: '12px' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.accent, marginBottom: '2px' }}>
-                📋 Weekly review overdue
+          <div style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '12px', overflow: 'hidden' }}>
+            <div onClick={() => setActionCenterOpen(o => !o)}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 16px', cursor: 'pointer', userSelect: 'none', borderBottom: actionCenterOpen ? `1px solid ${tokens.border}` : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: tokens.textPrimary }}>⚡ Action Center</span>
+                <span style={{ fontSize: '11px', fontWeight: 700, color: tokens.accent, background: tokens.accentDim, padding: '1px 8px', borderRadius: '99px' }}>{actionItems.length}</span>
               </div>
-              <div style={{ fontSize: '12px', color: tokens.textSecondary }}>
-                {weeklyReviews?.length === 0 ? 'No reviews yet — start your first weekly review.' : 'Last review was over a week ago. Stay on track with a quick check-in.'}
-              </div>
+              <span style={{ fontSize: '11px', color: tokens.textMuted }}>{actionCenterOpen ? '▲' : '▾'}</span>
             </div>
-            <button onClick={() => navigate('/review')}
-              style={{ background: tokens.accent, color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
-              Review →
-            </button>
+            {actionCenterOpen && (
+              <div>
+                {actionItems.map((item, i) => {
+                  const uc = item.urgency === 'high' ? tokens.red : item.urgency === 'medium' ? tokens.amber : tokens.accent;
+                  const ubg = item.urgency === 'high' ? `${tokens.red}12` : item.urgency === 'medium' ? tokens.amberDim : tokens.accentDim;
+                  return (
+                    <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', borderBottom: i < actionItems.length - 1 ? `1px solid ${tokens.border}` : 'none', gap: '12px' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '1px' }}>
+                          <span style={{ marginRight: '5px' }}>{item.icon}</span>{item.label}
+                        </div>
+                        {item.detail && <div style={{ fontSize: '11px', color: tokens.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.detail}</div>}
+                      </div>
+                      <button onClick={item.actionFn} style={{ background: ubg, color: uc, border: `1px solid ${uc}30`, borderRadius: '8px', padding: '5px 12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                        {item.actionLabel}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -556,65 +612,6 @@ export default function HomeScreen() {
         );
       })()}
 
-      {/* Stale Inbox Banner */}
-      {staleInboxTasks.length >= 3 && (
-        <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', background: tokens.bgGlass, border: `1px solid ${tokens.border}`, borderRadius: '12px' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.textSecondary, marginBottom: '2px' }}>
-                🗂 {staleInboxTasks.length} inbox tasks untouched for 14+ days
-              </div>
-              <div style={{ fontSize: '12px', color: tokens.textMuted }}>
-                {staleInboxTasks.slice(0, 2).map(t => t.title).join(' · ')}{staleInboxTasks.length > 2 ? ` +${staleInboxTasks.length - 2} more` : ''}
-              </div>
-            </div>
-            <button onClick={() => navigate('/tasks')}
-              style={{ background: tokens.bgInput, color: tokens.textSecondary, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
-              Triage →
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Goal Health Banner */}
-      {driftingGoals.length > 0 && (
-        <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', background: `${tokens.red}10`, border: `1px solid ${tokens.red}40`, borderRadius: '12px' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.red, marginBottom: '2px' }}>
-                ⚠ {driftingGoals.length} goal{driftingGoals.length > 1 ? 's' : ''} drifting with no action this week
-              </div>
-              <div style={{ fontSize: '12px', color: tokens.textSecondary }}>
-                {driftingGoals.map(g => `${g.title}${g.likelihoodScore != null ? ` (${g.likelihoodScore}%)` : ''}`).join(' · ')}
-              </div>
-            </div>
-            <button onClick={() => navigate('/goals')}
-              style={{ background: tokens.bgInput, color: tokens.textSecondary, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
-              Review →
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Deadline Risk Banner */}
-      {deadlineRiskTasks.length > 0 && (
-        <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', background: tokens.redDim, border: `1px solid ${tokens.red}30`, borderRadius: '12px' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.red, marginBottom: '2px' }}>
-                ⏱ {deadlineRiskTasks.length} unscheduled task{deadlineRiskTasks.length > 1 ? 's' : ''} due within 7 days
-              </div>
-              <div style={{ fontSize: '12px', color: tokens.textSecondary }}>
-                {deadlineRiskTasks.slice(0, 2).map(t => t.title).join(' · ')}{deadlineRiskTasks.length > 2 ? ` +${deadlineRiskTasks.length - 2} more` : ''}
-              </div>
-            </div>
-            <button onClick={() => setPlanOpen(true)}
-              style={{ background: tokens.red, color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
-              Schedule →
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Quick Capture */}
       <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
@@ -941,20 +938,6 @@ export default function HomeScreen() {
         </Card>
       </div>
 
-      {/* EOD Check-in CTA — visible after 5pm */}
-      {isAfter5pm && (
-        <div className="fade-up stagger-5" style={{ marginBottom: '14px' }}>
-          <div
-            onClick={() => navigate('/review')}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', background: tokens.blueDim, border: `1px solid ${tokens.blueDim}`, borderRadius: '12px', cursor: 'pointer' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.blue, marginBottom: '2px' }}>🌙 End-of-Day Check-in</div>
-              <div style={{ fontSize: '12px', color: tokens.textSecondary }}>Reflect on today, set tomorrow's intentions.</div>
-            </div>
-            <span style={{ fontSize: '14px', color: tokens.blue }}>→</span>
-          </div>
-        </div>
-      )}
 
       {/* Debt Callout */}
       {totalDebt > 0 && (
