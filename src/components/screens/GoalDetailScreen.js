@@ -5,7 +5,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { updateGoal, addTask, updateTask, getAICache, saveAICache, saveProfile } from '../../lib/db';
-import { generateGoalInsights, generateGoalExecutionPlan } from '../../lib/ai';
+import { generateGoalInsights, generateGoalExecutionPlan, scoreGoals } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
 import { RECURRENCE_OPTIONS } from '../../lib/tasks';
 import { fetchMonthlyCashFlow, fetchAccounts } from '../../lib/plaid';
@@ -68,6 +68,7 @@ export default function GoalDetailScreen() {
 
   const [insights,       setInsights]       = useState(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
+  const [rescoring,      setRescoring]      = useState(false);
 
   const [showPlan,       setShowPlan]       = useState(false);
   const [plan,           setPlan]           = useState(null);
@@ -166,6 +167,25 @@ export default function GoalDetailScreen() {
   useEffect(() => {
     if (goal) loadInsights();
   }, [goalId]); // eslint-disable-line
+
+  const handleRescore = async () => {
+    if (rescoring) return;
+    setRescoring(true);
+    try {
+      const scores = await scoreGoals({
+        goals: [goal],
+        tasks,
+        brainDumps: brainDumps || [],
+        reviewHistory: weeklyReviews || [],
+      });
+      const s = (scores || []).find(s => s.goalId === goalId);
+      if (s) await updateGoal(user.uid, goalId, { likelihoodScore: s.score, likelihoodTrend: s.trend });
+    } catch (err) {
+      console.error('Rescore error:', err);
+    } finally {
+      setRescoring(false);
+    }
+  };
 
   const handleGeneratePlan = async () => {
     setPlanLoading(true);
@@ -465,7 +485,20 @@ export default function GoalDetailScreen() {
 
       {/* ── Trajectory Card ── */}
       <Card>
-        <SectionLabel>Trajectory</SectionLabel>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <SectionLabel style={{ marginBottom: 0 }}>Trajectory</SectionLabel>
+          <button
+            onClick={handleRescore}
+            disabled={rescoring}
+            title="Rescore this goal"
+            style={{ background: 'none', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 10px', fontSize: '11px', color: rescoring ? tokens.textMuted : tokens.textSecondary, cursor: rescoring ? 'default' : 'pointer', fontFamily: fonts.body, display: 'flex', alignItems: 'center', gap: '4px', transition: 'all 0.15s' }}
+            onMouseEnter={e => { if (!rescoring) { e.currentTarget.style.borderColor = tokens.accent; e.currentTarget.style.color = tokens.accent; } }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = tokens.border; e.currentTarget.style.color = rescoring ? tokens.textMuted : tokens.textSecondary; }}
+          >
+            <span style={{ display: 'inline-block', animation: rescoring ? 'spin 1s linear infinite' : 'none' }}>↻</span>
+            {rescoring ? 'Scoring…' : 'Rescore'}
+          </button>
+        </div>
 
         {/* Score + status */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '18px' }}>
