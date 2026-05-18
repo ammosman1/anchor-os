@@ -95,6 +95,12 @@ export default function GoalDetailScreen() {
   const [addedActions,   setAddedActions]   = useState(new Set());
   const [bulkCreating,   setBulkCreating]   = useState(false);
 
+  // Task editing
+  const [editTaskOpen,   setEditTaskOpen]   = useState(false);
+  const [editingTask,    setEditingTask]    = useState(null);
+  const [editTaskForm,   setEditTaskForm]   = useState(emptyTaskForm);
+  const [editTaskSaving, setEditTaskSaving] = useState(false);
+
   const [balanceOpen,     setBalanceOpen]     = useState(false);
   const [newBalance,      setNewBalance]      = useState('');
   const [plaidAccounts,   setPlaidAccounts]   = useState([]);
@@ -241,6 +247,47 @@ export default function GoalDetailScreen() {
       status:      !task.done ? 'completed' : 'pending',
       completedAt: !task.done ? new Date().toISOString() : null,
     });
+  };
+
+  const openEditTask = (task) => {
+    setEditingTask(task);
+    setEditTaskForm({
+      title:            task.title || '',
+      priority:         task.priority || 'high',
+      focusType:        task.focusType || 'deep',
+      project:          task.project || '',
+      estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : '',
+      dueDate:          task.dueDate || '',
+      notes:            task.notes || '',
+      tags:             (task.tags || []).join(', '),
+      recurrence:       task.recurrence || 'none',
+    });
+    setEditTaskOpen(true);
+  };
+
+  const handleEditTaskSave = async () => {
+    if (!editingTask || !editTaskForm.title.trim() || editTaskSaving) return;
+    setEditTaskSaving(true);
+    try {
+      const tagsArr = editTaskForm.tags
+        ? editTaskForm.tags.split(',').map(t => t.trim()).filter(Boolean)
+        : [];
+      await updateTask(user.uid, editingTask.id, {
+        title:            editTaskForm.title.trim(),
+        priority:         editTaskForm.priority,
+        focusType:        editTaskForm.focusType || null,
+        project:          editTaskForm.project || editingTask.project || goal.title || 'Inbox',
+        estimatedMinutes: editTaskForm.estimatedMinutes ? Number(editTaskForm.estimatedMinutes) : null,
+        dueDate:          editTaskForm.dueDate || null,
+        notes:            editTaskForm.notes || '',
+        tags:             tagsArr.length ? tagsArr : null,
+        recurrence:       editTaskForm.recurrence !== 'none' ? editTaskForm.recurrence : null,
+      });
+      setEditTaskOpen(false);
+      setEditingTask(null);
+    } finally {
+      setEditTaskSaving(false);
+    }
   };
 
   const handleFeedbackSubmit = async () => {
@@ -640,12 +687,15 @@ export default function GoalDetailScreen() {
               onMouseEnter={e => { e.currentTarget.style.borderColor = tokens.green; e.currentTarget.style.background = 'rgba(109,191,158,0.1)'; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = tokens.border; e.currentTarget.style.background = 'transparent'; }}
             />
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openEditTask(task)}>
               <div style={{ fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.4 }}>{task.title}</div>
-              <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px', display: 'flex', gap: '8px' }}>
+              <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <span style={{ textTransform: 'capitalize' }}>{task.priority}</span>
                 {task.estimatedMinutes && <span>⏱ {task.estimatedMinutes}m</span>}
-                {task.scheduledDate && <span>📅 {task.scheduledDate}</span>}
+                {task.dueDate && <span>📅 {task.dueDate}</span>}
+                {task.scheduledDate && !task.dueDate && <span>📅 {task.scheduledDate}</span>}
+                {task.notes && <span style={{ color: tokens.textMuted, fontStyle: 'italic' }}>has notes</span>}
+                <span style={{ color: tokens.accent, opacity: 0.6 }}>Edit →</span>
               </div>
             </div>
           </div>
@@ -864,6 +914,70 @@ export default function GoalDetailScreen() {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
             <Button variant="ghost" onClick={() => { setActionModal(false); setActionTaskForm(emptyTaskForm); }}>Cancel</Button>
             <Button onClick={handleActionTaskSave} loading={actionSaving} disabled={!actionTaskForm.title.trim()}>Create Task</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Task Modal */}
+      <Modal open={editTaskOpen} onClose={() => { setEditTaskOpen(false); setEditingTask(null); }} title="Edit Task">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <Input label="Title" value={editTaskForm.title} onChange={v => setEditTaskForm(f => ({ ...f, title: v }))} placeholder="What needs to happen?" />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Priority</label>
+              <select value={editTaskForm.priority} onChange={e => setEditTaskForm(f => ({ ...f, priority: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Focus Type</label>
+              <select value={editTaskForm.focusType} onChange={e => setEditTaskForm(f => ({ ...f, focusType: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                {FOCUS_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
+              <input type="date" value={editTaskForm.dueDate} onChange={e => setEditTaskForm(f => ({ ...f, dueDate: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, colorScheme: 'light', boxSizing: 'border-box' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Est. Minutes</label>
+              <input type="number" min="5" max="480" value={editTaskForm.estimatedMinutes} onChange={e => setEditTaskForm(f => ({ ...f, estimatedMinutes: e.target.value }))} placeholder="45"
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Recurrence</label>
+              <select value={editTaskForm.recurrence} onChange={e => setEditTaskForm(f => ({ ...f, recurrence: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                {RECURRENCE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Tags (comma separated)</label>
+              <input value={editTaskForm.tags} onChange={e => setEditTaskForm(f => ({ ...f, tags: e.target.value }))} placeholder="e.g. design, research"
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
+            </div>
+          </div>
+
+          <Input label="Notes" value={editTaskForm.notes} onChange={v => setEditTaskForm(f => ({ ...f, notes: v }))} placeholder="Context, links, details..." multiline rows={2} />
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+            <Button variant="ghost" size="sm" onClick={async () => { await handleToggleTask(editingTask); setEditTaskOpen(false); setEditingTask(null); }}>
+              ✓ Mark Complete
+            </Button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <Button variant="ghost" onClick={() => { setEditTaskOpen(false); setEditingTask(null); }}>Cancel</Button>
+              <Button onClick={handleEditTaskSave} loading={editTaskSaving} disabled={!editTaskForm.title.trim()}>Save Changes</Button>
+            </div>
           </div>
         </div>
       </Modal>

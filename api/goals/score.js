@@ -30,6 +30,18 @@ export default async function handler(req, res) {
         ? Math.round((g.currentAmount / g.targetAmount) * 100)
         : null;
 
+    // Goal age in days — handles Firestore Timestamp, ISO string, or missing
+    const goalAgeDays = (() => {
+      const raw = g.createdAt;
+      if (!raw) return null;
+      let ms;
+      if (typeof raw === 'string') ms = new Date(raw).getTime();
+      else if (raw._seconds != null) ms = raw._seconds * 1000;
+      else if (raw.seconds != null) ms = raw.seconds * 1000;
+      else return null;
+      return isNaN(ms) ? null : Math.floor((Date.now() - ms) / (1000 * 60 * 60 * 24));
+    })();
+
     // Per-goal task metrics — more accurate than global task counts
     const goalTasks      = tasks.filter(t => t.goalId === g.id);
     const goalDone       = goalTasks.filter(t => t.done);
@@ -67,6 +79,7 @@ export default async function handler(req, res) {
       allTasksDone:      globalDone.length,
       previousScore:     g.likelihoodScore ?? null,
       pacing:            pacingContext,
+      goalAgeDays,
     };
   });
 
@@ -77,11 +90,9 @@ export default async function handler(req, res) {
 
   // Review execution patterns (last 4 weeks)
   const recentReviews = reviewHistory.slice(0, 4);
-  const avgEnergy    = recentReviews.length
-    ? Math.round(recentReviews.reduce((s, r) => s + (r.energyScore || 50), 0) / recentReviews.length)
-    : null;
-  const avgExecution = recentReviews.length
-    ? Math.round(recentReviews.reduce((s, r) => s + (r.executionScore || 50), 0) / recentReviews.length)
+  // Support both new weekRating (1-5 → normalize to 0-100) and old energyScore/executionScore
+  const avgRating = recentReviews.length
+    ? Math.round(recentReviews.reduce((s, r) => s + (r.weekRating != null ? r.weekRating * 20 : (r.energyScore || 50)), 0) / recentReviews.length)
     : null;
 
   const financialContext = plaidData
@@ -91,10 +102,9 @@ export default async function handler(req, res) {
 - Monthly income: $${plaidData.monthlyIncome?.toLocaleString() || 'unknown'}`
     : '';
 
-  const reviewContext = avgEnergy != null
+  const reviewContext = avgRating != null
     ? `EXECUTION PATTERNS (last 4 weeks):
-- Avg energy score: ${avgEnergy}/100
-- Avg execution score: ${avgExecution}/100`
+- Avg weekly rating: ${avgRating}/100 (normalized)`
     : '';
 
   const prompt = `Score the likelihood that Andrew achieves each of his active goals.
@@ -111,7 +121,12 @@ ${reviewContext}
 RECENT BRAIN DUMPS (last 5):
 ${dumpSnippets.length ? dumpSnippets.map((d, i) => `${i + 1}. ${d}`).join('\n') : 'None on file.'}
 
-Scoring rules by goal type:
+NEW GOAL RULE (highest priority — apply before all other rules):
+- If goalAgeDays is 0-20 AND linkedTasksActive > 0: score MUST be 45-55. This goal was just created and already has tasks — there is not enough execution history to score it lower. Do not penalize for zero completions. Use reasoning like "Newly started with active tasks — scoring neutral pending execution data."
+- If goalAgeDays is 0-20 AND linkedTasksActive === 0: score 35-45. Created recently but no tasks yet — flag that tasks are needed.
+- If goalAgeDays is null AND linkedTasksTotal === 0 AND linkedTasksDone === 0: treat as potentially new; score 40-50 rather than near-zero.
+
+Scoring rules by goal type (apply only when goal is NOT new per rules above):
 - financial: Weight heavily on pacing data. If paceGap > 0 (behind pace), score should reflect that mathematically. A $500/mo gap on a 36-month goal is more serious than on a 120-month goal.
 - project: Weight on linked task completion rate and whether active tasks exist.
 - income: Weight on milestone progression and whether exploratory tasks are happening.
@@ -132,8 +147,9 @@ Scoring rubric:
 - 40-69: Possible but needs attention or acceleration.
 - 0-39: At risk — timeline, resources, or focus are misaligned.
 
-trend: compare to previousScore. "up" if clearly improving, "down" if declining, "flat" if stable or no prior score.
+trend: compare to previousScore. "up" if clearly improving, "down" if declining, "flat" if stable or no prior score. New goals with no prior score should use "flat".
 Be honest. Do not inflate scores. A financial goal behind pace by 50%+ should score below 50.
+EXCEPTION: Never score a goal < 21 days old below 35, regardless of completion data — there is no data yet to justify it.
 
 Return ONLY the JSON array. No markdown. No explanation outside the array.`;
 
