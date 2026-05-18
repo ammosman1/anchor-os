@@ -235,11 +235,15 @@ export function buildHolisticContext({
   // Recent reviews
   const recentReviews = weeklyReviews.slice(0, 3);
   if (recentReviews.length > 0) {
-    lines.push(`\nRECENT REVIEWS:`);
+    lines.push(`\nRECENT WEEKLY REVIEWS:`);
     recentReviews.forEach((r, i) => {
-      const wins = (r.wins || []).slice(0, 2).join('; ');
-      const blocks = (r.bottlenecks || []).slice(0, 2).join('; ');
-      lines.push(`  [Review ${i + 1}] energy:${r.energyScore || '?'}/100 execution:${r.executionScore || '?'}/100${wins ? ' | wins: ' + wins : ''}${blocks ? ' | blockers: ' + blocks : ''}`);
+      const ratingStr = r.weekRating != null
+        ? `rating:${r.weekRating}/5`
+        : (r.energyScore != null ? `energy:${r.energyScore}/100 execution:${r.executionScore}/100` : 'unrated');
+      const wins = Array.isArray(r.wins) ? r.wins.slice(0, 2).join('; ') : (r.wins || '');
+      const blocks = Array.isArray(r.stalled) ? r.stalled.slice(0, 2).join('; ') : (r.bottlenecks || '');
+      const intention = r.intention ? ` | intention: ${r.intention}` : '';
+      lines.push(`  [Week ${i + 1}] ${ratingStr}${wins ? ' | wins: ' + wins : ''}${blocks ? ' | stalled: ' + blocks : ''}${intention}`);
     });
   }
 

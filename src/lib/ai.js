@@ -172,6 +172,50 @@ Give me a sharp executive summary of this week and the single most important shi
   return callAI({ messages: [{ role: 'user', content }], maxTokens: 300 });
 }
 
+export async function generateWeeklySummary({ weekMetrics, goals }) {
+  const activeGoals = (goals || []).filter(g => g.status === 'active');
+  const atRiskGoals = activeGoals.filter(g => g.likelihoodScore != null && g.likelihoodScore < 50);
+
+  const content = `Analyze this past week for Andrew and produce a structured summary.
+
+WEEK METRICS:
+- Tasks completed: ${weekMetrics.completed}
+- Tasks missed/unfinished: ${weekMetrics.missed}
+- Tasks pushed (backlog): ${weekMetrics.pushed}
+- Context breakdown (completed): ${Object.entries(weekMetrics.byContext || {}).map(([k, v]) => `${k}:${v}`).join(', ') || 'none'}
+- Goals with task activity: ${weekMetrics.activeGoalTitles?.join(', ') || 'none'}
+- Stalled projects: ${weekMetrics.stalledProjects?.join(', ') || 'none'}
+
+ACTIVE GOALS (${activeGoals.length}):
+${activeGoals.map(g => `- "${g.title}" (${g.likelihoodScore ?? 'unscored'}/100)`).join('\n') || 'none'}
+
+AT-RISK GOALS:
+${atRiskGoals.map(g => `- "${g.title}": ${g.likelihoodScore}/100`).join('\n') || 'none'}
+
+Return ONLY valid JSON:
+{
+  "narrative": "2-3 sentence honest read of the week — what actually happened, no fluff",
+  "wins": ["Specific win 1", "Specific win 2"],
+  "stalled": ["What stalled and why it matters for the goals"],
+  "goalAlignment": "One sentence: were you working on the right things this week?",
+  "nextWeekFocus": ["Priority 1 (specific, verb-first)", "Priority 2", "Priority 3"]
+}`;
+
+  const raw = await callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 600,
+    systemExtra: 'Return ONLY valid JSON. No markdown. No explanation.',
+  });
+
+  try {
+    const clean = (raw || '{}').replace(/```json|```/g, '').trim();
+    const match = clean.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function evaluateIdea(idea) {
   const content = `Evaluate this idea for Andrew given his current context (rebuilding financially, strong operator background, limited bandwidth):
 Idea: "${idea.title}"
@@ -460,7 +504,7 @@ ${atRiskGoals.map(g => `- ${g.title}: ${g.likelihoodScore}/100`).join('\n') || '
 HIGH PRIORITY OPEN TASKS:
 ${highPriorityTasks.map(t => `- ${t.title} [${t.priority}]`).join('\n') || 'none'}
 
-${recentReview ? `LAST WEEKLY REVIEW: energy ${recentReview.energyScore}/100, execution ${recentReview.executionScore}/100\nBottlenecks: ${(recentReview.bottlenecks || []).join(', ')}` : ''}
+${recentReview ? `LAST WEEKLY REVIEW: ${recentReview.weekRating != null ? `rated ${recentReview.weekRating}/5` : `energy ${recentReview.energyScore ?? '?'}/100`}\nStalled/Blockers: ${(Array.isArray(recentReview.stalled) ? recentReview.stalled : recentReview.bottlenecks ? [recentReview.bottlenecks] : []).join(', ') || 'none'}` : ''}
 
 Return ONLY valid JSON:
 {
@@ -489,10 +533,9 @@ export async function generateGoalInsights({ goal, linkedTasks, completedTasks, 
     ? Math.round((completedTasks.length / linkedTasks.length) * 100) : null;
 
   const recentReviews = (weeklyReviews || []).slice(0, 4);
-  const avgEnergy = recentReviews.length
-    ? Math.round(recentReviews.reduce((s, r) => s + (r.energyScore || 50), 0) / recentReviews.length) : null;
-  const avgExecution = recentReviews.length
-    ? Math.round(recentReviews.reduce((s, r) => s + (r.executionScore || 50), 0) / recentReviews.length) : null;
+  // Support both new weekRating (1-5, multiply by 20) and old energyScore (0-100)
+  const avgRating = recentReviews.length
+    ? Math.round(recentReviews.reduce((s, r) => s + (r.weekRating != null ? r.weekRating * 20 : (r.energyScore || 50)), 0) / recentReviews.length) : null;
 
   const content = `Analyze this goal for Andrew and answer five critical questions.
 
@@ -516,8 +559,7 @@ ${linkedTasks.filter(t => !t.done).length > 0 ? linkedTasks.filter(t => !t.done)
 CRITICAL: thisWeekActions must be genuinely new actions not already captured above. If all necessary actions are already tracked as tasks, suggest only what is missing or what would accelerate progress beyond what is already planned.
 
 EXECUTION DATA (last 4 weeks):
-- Avg energy: ${avgEnergy ?? 'n/a'}/100
-- Avg execution: ${avgExecution ?? 'n/a'}/100
+- Avg weekly rating: ${avgRating ?? 'n/a'}/100 (normalized)
 ${plaidData ? `PLAID: Monthly surplus $${plaidData.monthlySurplus?.toLocaleString()}, spending $${plaidData.monthlySpending?.toLocaleString()}` : ''}
 
 Return ONLY valid JSON:

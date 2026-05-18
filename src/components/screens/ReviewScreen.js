@@ -1,11 +1,11 @@
 // src/components/screens/ReviewScreen.js
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { callAI, getWeeklyReviewInsight, scoreGoals } from '../../lib/ai';
+import { callAI, generateWeeklySummary, scoreGoals } from '../../lib/ai';
 import { saveWeeklyReview, saveDailyReview, addTask, updateTask, updateGoal } from '../../lib/db';
-import { Card, Button, Input, SectionLabel, AICard } from '../ui';
+import { Button, AICard } from '../ui';
 
 const weekKey  = (() => { const d = new Date(); const s = new Date(d.setDate(d.getDate() - d.getDay())); return s.toISOString().split('T')[0]; })();
 const todayKey = new Date().toDateString();
@@ -366,104 +366,204 @@ function EODReview({ tasks, projects, onSave }) {
 function WeeklyReview({ tasks, projects }) {
   const { user } = useAuth();
   const { goals, brainDumps, weeklyReviews } = useData();
-  const [form,      setForm]      = useState({ wins: '', bottlenecks: '', energyScore: 65, executionScore: 70, notes: '' });
-  const [aiText,    setAiText]    = useState('');
+
+  const cacheKey = `weeklyReviewSummary_${weekKey}`;
+
+  const weekMetrics = useMemo(() => {
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const completedThisWeek = tasks.filter(t => {
+      if (!t.done) return false;
+      const ms = t.updatedAt?.toMillis?.() || (t.updatedAt ? new Date(t.updatedAt).getTime() : 0);
+      return ms > sevenDaysAgo;
+    });
+
+    const missedThisWeek = tasks.filter(t => {
+      if (t.done) return false;
+      const sDate = t.scheduledDate;
+      if (!sDate) return false;
+      return sDate >= weekKey && sDate <= todayStr;
+    });
+
+    const pushedTasks = tasks.filter(t => !t.done && (t.pushCount || 0) >= 1);
+
+    const byContext = {};
+    completedThisWeek.forEach(t => {
+      const ctx = t.context || 'untagged';
+      byContext[ctx] = (byContext[ctx] || 0) + 1;
+    });
+
+    const goalIdsWithActivity = [...new Set(completedThisWeek.filter(t => t.goalId).map(t => t.goalId))];
+    const activeGoalTitles = goals.filter(g => goalIdsWithActivity.includes(g.id)).map(g => g.title);
+    const stalledProjects = projects.filter(p => p.status === 'stalled').map(p => p.title);
+
+    return { completed: completedThisWeek.length, missed: missedThisWeek.length, pushed: pushedTasks.length, byContext, activeGoalTitles, stalledProjects };
+  }, [tasks, projects, goals]);
+
+  const [aiSummary, setAiSummary] = useState(() => {
+    try { const c = localStorage.getItem(cacheKey); return c ? JSON.parse(c) : null; } catch { return null; }
+  });
   const [aiLoading, setAiLoading] = useState(false);
-  const [saved,     setSaved]     = useState(false);
-  const [suggestedTasks, setSuggestedTasks] = useState([]);
-  const [addedTasks,     setAddedTasks]     = useState([]);
+  const [weekRating, setWeekRating] = useState(3);
+  const [reflection, setReflection] = useState('');
+  const [intention,  setIntention]  = useState('');
+  const [saved,      setSaved]      = useState(false);
 
-  const doneTasks   = tasks.filter(t => t.done);
-  const stalledProj = projects.filter(p => p.status === 'stalled');
-
-  const generateInsight = async () => {
+  const generateSummary = async () => {
     setAiLoading(true);
-    const reviewText = `Wins: ${form.wins}\nBottlenecks: ${form.bottlenecks}\nNotes: ${form.notes}`;
-    const [text, suggestedTaskList] = await Promise.all([
-      getWeeklyReviewInsight({ wins: form.wins.split('\n').filter(Boolean), bottlenecks: form.bottlenecks.split('\n').filter(Boolean), energyScore: form.energyScore, executionScore: form.executionScore }),
-      generateTasksFromReview(user?.uid, reviewText, callAI, projects),
-    ]);
-    setAiText(text || 'Solid data for the week.');
-    setSuggestedTasks(suggestedTaskList);
+    const result = await generateWeeklySummary({ weekMetrics, goals });
+    if (result) {
+      setAiSummary(result);
+      try { localStorage.setItem(cacheKey, JSON.stringify(result)); } catch {}
+    }
     setAiLoading(false);
   };
 
-  const addSuggestedTask = async (task) => {
-    const linkedProject = projects.find(p => p.title.toLowerCase() === task.project?.toLowerCase());
-    await addTask(user.uid, { title: task.title, priority: task.priority || 'medium', project: linkedProject?.title || 'Inbox', projectId: linkedProject?.id || null, source: 'review' });
-    setAddedTasks(prev => [...prev, task.title]);
+  // Auto-generate on mount if no cached summary
+  useEffect(() => {
+    if (!aiSummary && tasks.length > 0) generateSummary();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleRefresh = () => {
+    try { localStorage.removeItem(cacheKey); } catch {}
+    setAiSummary(null);
+    generateSummary();
   };
 
   const handleSave = async () => {
-    await saveWeeklyReview(user.uid, weekKey, { ...form, aiInsight: aiText, weekKey, displayDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) });
+    await saveWeeklyReview(user.uid, weekKey, {
+      weekRating, reflection, intention,
+      nextFocus: aiSummary?.nextWeekFocus || [],
+      narrative: aiSummary?.narrative || '',
+      wins: aiSummary?.wins || [],
+      stalled: aiSummary?.stalled || [],
+      goalAlignment: aiSummary?.goalAlignment || '',
+      metrics: { completed: weekMetrics.completed, missed: weekMetrics.missed, pushed: weekMetrics.pushed, byContext: weekMetrics.byContext },
+      weekKey,
+      displayDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
+    });
     setSaved(true);
-    // Auto-score goals in the background — don't block the save confirmation
     const activeGoals = goals.filter(g => g.status === 'active');
     if (activeGoals.length > 0) {
       scoreGoals({ goals: activeGoals, tasks, brainDumps, reviewHistory: weeklyReviews })
         .then(scores => Promise.all(scores.map(s => updateGoal(user.uid, s.goalId, { likelihoodScore: s.score, likelihoodTrend: s.trend }))))
-        .catch(() => {}); // silent — scoring failure shouldn't affect save
+        .catch(() => {});
     }
   };
 
   return (
     <div>
-      {(doneTasks.length > 0 || stalledProj.length > 0) && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
-          <Card>
-            <SectionLabel>Completed Tasks</SectionLabel>
-            {doneTasks.slice(0, 4).map(t => <div key={t.id} style={{ fontSize: '12px', color: tokens.textSecondary, marginBottom: '5px', display: 'flex', gap: '6px' }}><span style={{ color: tokens.green }}>✓</span>{t.title}</div>)}
-            {doneTasks.length > 4 && <div style={{ fontSize: '11px', color: tokens.textMuted }}>+{doneTasks.length - 4} more</div>}
-          </Card>
-          <Card>
-            <SectionLabel>Stalled Projects</SectionLabel>
-            {stalledProj.length === 0 ? <div style={{ fontSize: '12px', color: tokens.green }}>✓ Nothing stalled</div> : stalledProj.map(p => <div key={p.id} style={{ fontSize: '12px', color: tokens.textSecondary, marginBottom: '5px', display: 'flex', gap: '6px' }}><span style={{ color: tokens.red }}>⚑</span>{p.title}</div>)}
-          </Card>
-        </div>
-      )}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
-        {[{ label: 'Energy Score', field: 'energyScore', color: tokens.green }, { label: 'Execution Score', field: 'executionScore', color: tokens.blue }].map(item => (
-          <Card key={item.field}>
-            <SectionLabel>{item.label}</SectionLabel>
-            <div style={{ fontFamily: fonts.display, fontSize: '36px', fontWeight: 700, color: item.color, lineHeight: 1, marginBottom: '10px' }}>{form[item.field]}</div>
-            <input type="range" min={0} max={100} value={form[item.field]} onChange={e => setForm(f => ({ ...f, [item.field]: Number(e.target.value) }))} style={{ width: '100%', accentColor: item.color }} />
-          </Card>
+      {/* Metrics row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', marginBottom: '14px' }}>
+        {[
+          { label: 'Completed', val: weekMetrics.completed, color: tokens.green },
+          { label: 'Missed',    val: weekMetrics.missed,    color: weekMetrics.missed > 0 ? tokens.amber : tokens.green },
+          { label: 'Pushed',    val: weekMetrics.pushed,    color: weekMetrics.pushed > 3 ? tokens.red : tokens.textMuted },
+        ].map(item => (
+          <div key={item.label} style={{ padding: '12px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '10px', textAlign: 'center' }}>
+            <div style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: item.color, lineHeight: 1 }}>{item.val}</div>
+            <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '4px' }}>{item.label}</div>
+          </div>
         ))}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '14px' }}>
-        <Input label="Key Wins (one per line)" value={form.wins} onChange={v => setForm(f => ({ ...f, wins: v }))} placeholder="Sent proposal&#10;Ran 4x this week" multiline rows={4} />
-        <Input label="Bottlenecks (one per line)" value={form.bottlenecks} onChange={v => setForm(f => ({ ...f, bottlenecks: v }))} placeholder="Contractor unresolved" multiline rows={3} />
-        <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Anything worth capturing..." multiline rows={2} />
-      </div>
-      {aiText ? (
-        <div style={{ marginBottom: '14px' }}>
-          <AICard text={aiText} loading={aiLoading} onRefresh={generateInsight} label="EXECUTIVE SUMMARY" />
-          {suggestedTasks.length > 0 && (
-            <div style={{ marginTop: '12px', padding: '14px 16px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '10px' }}>
-              <div style={{ fontSize: '11px', color: tokens.accent, fontWeight: 700, letterSpacing: '0.08em', marginBottom: '10px' }}>✦ TASKS FROM THIS REVIEW</div>
-              {suggestedTasks.map((task, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: i < suggestedTasks.length - 1 ? '8px' : 0 }}>
-                  <div>
-                    <div style={{ fontSize: '13px', color: tokens.textPrimary }}>{task.title}</div>
-                    <div style={{ fontSize: '10px', color: tokens.textMuted }}>{task.project || 'Inbox'} · {task.priority}</div>
-                  </div>
-                  {addedTasks.includes(task.title)
-                    ? <span style={{ fontSize: '11px', color: tokens.green }}>✓ Added</span>
-                    : <button onClick={() => addSuggestedTask(task)} style={{ fontSize: '11px', color: tokens.accent, background: tokens.accentDim, border: 'none', borderRadius: '4px', padding: '3px 10px', cursor: 'pointer', fontFamily: fonts.body }}>+ Add</button>
-                  }
-                </div>
-              ))}
-            </div>
-          )}
+
+      {/* Context breakdown chips */}
+      {Object.keys(weekMetrics.byContext).length > 0 && (
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '14px' }}>
+          {Object.entries(weekMetrics.byContext).map(([ctx, count]) => (
+            <span key={ctx} style={{ fontSize: '11px', color: tokens.textSecondary, background: tokens.bgCard, border: `1px solid ${tokens.border}`, padding: '3px 9px', borderRadius: '20px' }}>
+              {ctx}: {count}
+            </span>
+          ))}
         </div>
-      ) : (
-        <button onClick={generateInsight} disabled={aiLoading}
-          style={{ width: '100%', padding: '16px', background: 'transparent', border: `1px dashed rgba(200,169,110,0.3)`, borderRadius: '12px', cursor: 'pointer', color: tokens.accent, fontSize: '14px', fontWeight: 600, fontFamily: fonts.body, marginBottom: '14px' }}
-          onMouseEnter={e => e.target.style.background = tokens.accentDim}
-          onMouseLeave={e => e.target.style.background = 'transparent'}
-        >{aiLoading ? 'Generating...' : '✦ Generate AI Executive Summary'}</button>
       )}
-      <Button onClick={handleSave} disabled={saved}>{saved ? '✓ Saved' : 'Save Weekly Review'}</Button>
+
+      {/* AI narrative card */}
+      <div style={{ marginBottom: '14px', padding: '16px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.08em' }}>✦ WEEK NARRATIVE</span>
+          <button onClick={handleRefresh} disabled={aiLoading}
+            style={{ fontSize: '10px', color: tokens.textMuted, background: 'none', border: 'none', cursor: aiLoading ? 'default' : 'pointer', fontFamily: fonts.body, opacity: aiLoading ? 0.4 : 1 }}>
+            ↺ Refresh
+          </button>
+        </div>
+        {aiLoading ? (
+          <div style={{ color: tokens.textMuted, fontSize: '13px', fontStyle: 'italic' }}>Generating your week summary...</div>
+        ) : aiSummary ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <p style={{ margin: 0, fontSize: '14px', color: tokens.textPrimary, lineHeight: 1.7 }}>{aiSummary.narrative}</p>
+            {aiSummary.wins?.length > 0 && (
+              <div>
+                <div style={{ fontSize: '10px', color: tokens.green, fontWeight: 700, letterSpacing: '0.08em', marginBottom: '5px' }}>WINS</div>
+                {aiSummary.wins.map((w, i) => (
+                  <div key={i} style={{ fontSize: '13px', color: tokens.textSecondary, display: 'flex', gap: '6px', marginBottom: '3px' }}>
+                    <span style={{ color: tokens.green, flexShrink: 0 }}>✓</span>{w}
+                  </div>
+                ))}
+              </div>
+            )}
+            {aiSummary.stalled?.length > 0 && (
+              <div>
+                <div style={{ fontSize: '10px', color: tokens.amber, fontWeight: 700, letterSpacing: '0.08em', marginBottom: '5px' }}>STALLED</div>
+                {aiSummary.stalled.map((s, i) => (
+                  <div key={i} style={{ fontSize: '13px', color: tokens.textSecondary, display: 'flex', gap: '6px', marginBottom: '3px' }}>
+                    <span style={{ color: tokens.amber, flexShrink: 0 }}>⚠</span>{s}
+                  </div>
+                ))}
+              </div>
+            )}
+            {aiSummary.goalAlignment && (
+              <div style={{ fontSize: '12px', color: tokens.textMuted, fontStyle: 'italic', borderTop: `1px solid ${tokens.border}`, paddingTop: '10px' }}>
+                {aiSummary.goalAlignment}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ color: tokens.textMuted, fontSize: '13px' }}>Could not generate summary. <button onClick={handleRefresh} style={{ color: tokens.accent, background: 'none', border: 'none', cursor: 'pointer', fontFamily: fonts.body, fontSize: '13px', padding: 0 }}>Try again →</button></div>
+        )}
+      </div>
+
+      {/* Next week focus from AI */}
+      {aiSummary?.nextWeekFocus?.length > 0 && (
+        <div style={{ marginBottom: '14px', padding: '14px 16px', background: tokens.accentDim, border: `1px solid rgba(200,169,110,0.2)`, borderRadius: '12px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.08em', marginBottom: '10px' }}>GOING INTO NEXT WEEK</div>
+          {aiSummary.nextWeekFocus.map((f, i) => (
+            <div key={i} style={{ fontSize: '13px', color: tokens.textPrimary, display: 'flex', gap: '8px', marginBottom: i < aiSummary.nextWeekFocus.length - 1 ? '7px' : 0, alignItems: 'flex-start' }}>
+              <span style={{ color: tokens.accent, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>{f}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Star rating */}
+      <div style={{ marginBottom: '14px', padding: '14px 16px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '12px' }}>
+        <div style={{ fontSize: '12px', color: tokens.textSecondary, marginBottom: '10px' }}>How was the week overall?</div>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          {[1, 2, 3, 4, 5].map(star => (
+            <button key={star} onClick={() => setWeekRating(star)}
+              style={{ fontSize: '28px', background: 'none', border: 'none', cursor: 'pointer', color: star <= weekRating ? tokens.accent : tokens.border, padding: '0 2px', lineHeight: 1, transition: 'color 0.15s', fontFamily: 'inherit' }}>
+              ★
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* User inputs */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+        <div>
+          <div style={{ fontSize: '12px', color: tokens.textMuted, marginBottom: '6px' }}>Anything to add?</div>
+          <textarea value={reflection} onChange={e => setReflection(e.target.value)} placeholder="Additional context, wins, blockers..." rows={3}
+            style={{ width: '100%', background: tokens.bgCard, border: `1px solid ${tokens.borderFocus}`, borderRadius: '10px', padding: '12px 14px', color: tokens.textPrimary, fontSize: '14px', lineHeight: 1.7, resize: 'none', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
+        </div>
+        <div>
+          <div style={{ fontSize: '12px', color: tokens.textMuted, marginBottom: '6px' }}>Your #1 intention for next week</div>
+          <textarea value={intention} onChange={e => setIntention(e.target.value)} placeholder="The one thing that would make next week a success..." rows={2}
+            style={{ width: '100%', background: tokens.bgCard, border: `1px solid ${tokens.borderFocus}`, borderRadius: '10px', padding: '12px 14px', color: tokens.textPrimary, fontSize: '14px', lineHeight: 1.7, resize: 'none', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
+        </div>
+      </div>
+
+      <Button onClick={handleSave} disabled={saved || aiLoading}>{saved ? '✓ Saved' : 'Save Weekly Review'}</Button>
     </div>
   );
 }
@@ -531,6 +631,7 @@ function ReviewHistory() {
           <div style={{ fontSize: '11px', color: tokens.textMuted, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: '8px', marginBottom: '4px' }}>Weekly Reviews</div>
           {weeklyReviews.map(review => {
             const isExpanded = expanded === review.id;
+            const isNewFormat = review.weekRating != null;
             return (
               <div key={review.id} onClick={() => setExpanded(isExpanded ? null : review.id)}
                 style={{ background: isExpanded ? 'rgba(200,169,110,0.05)' : tokens.bgCard, border: `1px solid ${isExpanded ? 'rgba(200,169,110,0.2)' : tokens.border}`, borderRadius: '10px', padding: '14px 16px', cursor: 'pointer', transition: 'all 0.18s' }}>
@@ -540,17 +641,43 @@ function ReviewHistory() {
                     <span style={{ fontSize: '13px', color: tokens.textPrimary }}>Week of {review.displayDate || review.weekKey}</span>
                   </div>
                   <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                    {review.energyScore    && <span style={{ fontSize: '11px', color: tokens.green }}>⚡{review.energyScore}</span>}
-                    {review.executionScore && <span style={{ fontSize: '11px', color: tokens.blue }}>◈{review.executionScore}</span>}
+                    {isNewFormat
+                      ? <span style={{ fontSize: '12px', color: tokens.accent }}>{'★'.repeat(review.weekRating)}{'☆'.repeat(5 - review.weekRating)}</span>
+                      : (<>
+                          {review.energyScore    && <span style={{ fontSize: '11px', color: tokens.green }}>⚡{review.energyScore}</span>}
+                          {review.executionScore && <span style={{ fontSize: '11px', color: tokens.blue }}>◈{review.executionScore}</span>}
+                        </>)
+                    }
+                    {isNewFormat && review.metrics?.completed != null && (
+                      <span style={{ fontSize: '11px', color: tokens.green }}>✓{review.metrics.completed}</span>
+                    )}
                     <span style={{ fontSize: '12px', color: tokens.textMuted }}>{isExpanded ? '▲' : '▼'}</span>
                   </div>
                 </div>
                 {isExpanded && (
                   <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: `1px solid ${tokens.border}`, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {review.wins        && <div style={{ fontSize: '13px', color: tokens.textSecondary }}><span style={{ color: tokens.green, fontWeight: 600 }}>Wins: </span>{review.wins}</div>}
-                    {review.bottlenecks && <div style={{ fontSize: '13px', color: tokens.textSecondary }}><span style={{ color: tokens.red, fontWeight: 600 }}>Bottlenecks: </span>{review.bottlenecks}</div>}
-                    {review.notes       && <div style={{ fontSize: '13px', color: tokens.textSecondary }}><span style={{ color: tokens.textMuted, fontWeight: 600 }}>Notes: </span>{review.notes}</div>}
-                    {review.aiInsight   && <div style={{ padding: '10px 12px', background: tokens.accentDim, borderRadius: '8px', fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.6 }}><span style={{ fontSize: '10px', color: tokens.accent, fontWeight: 700, display: 'block', marginBottom: '4px' }}>✦ AI SUMMARY</span>{review.aiInsight}</div>}
+                    {isNewFormat ? (<>
+                      {review.narrative && <p style={{ margin: 0, fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.7 }}>{review.narrative}</p>}
+                      {Array.isArray(review.wins) && review.wins.length > 0 && (
+                        <div style={{ fontSize: '13px', color: tokens.textSecondary }}><span style={{ color: tokens.green, fontWeight: 600 }}>Wins: </span>{review.wins.join(' · ')}</div>
+                      )}
+                      {Array.isArray(review.stalled) && review.stalled.length > 0 && (
+                        <div style={{ fontSize: '13px', color: tokens.textSecondary }}><span style={{ color: tokens.amber, fontWeight: 600 }}>Stalled: </span>{review.stalled.join(' · ')}</div>
+                      )}
+                      {review.intention && <div style={{ fontSize: '13px', color: tokens.textSecondary }}><span style={{ color: tokens.accent, fontWeight: 600 }}>Intention: </span>{review.intention}</div>}
+                      {review.reflection && <div style={{ fontSize: '13px', color: tokens.textSecondary }}><span style={{ color: tokens.textMuted, fontWeight: 600 }}>Notes: </span>{review.reflection}</div>}
+                      {Array.isArray(review.nextFocus) && review.nextFocus.length > 0 && (
+                        <div style={{ padding: '10px 12px', background: tokens.accentDim, borderRadius: '8px' }}>
+                          <div style={{ fontSize: '10px', color: tokens.accent, fontWeight: 700, marginBottom: '6px' }}>NEXT WEEK FOCUS</div>
+                          {review.nextFocus.map((f, i) => <div key={i} style={{ fontSize: '12px', color: tokens.textPrimary, marginBottom: '3px' }}>{i + 1}. {f}</div>)}
+                        </div>
+                      )}
+                    </>) : (<>
+                      {review.wins        && <div style={{ fontSize: '13px', color: tokens.textSecondary }}><span style={{ color: tokens.green, fontWeight: 600 }}>Wins: </span>{review.wins}</div>}
+                      {review.bottlenecks && <div style={{ fontSize: '13px', color: tokens.textSecondary }}><span style={{ color: tokens.red, fontWeight: 600 }}>Bottlenecks: </span>{review.bottlenecks}</div>}
+                      {review.notes       && <div style={{ fontSize: '13px', color: tokens.textSecondary }}><span style={{ color: tokens.textMuted, fontWeight: 600 }}>Notes: </span>{review.notes}</div>}
+                      {review.aiInsight   && <div style={{ padding: '10px 12px', background: tokens.accentDim, borderRadius: '8px', fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.6 }}><span style={{ fontSize: '10px', color: tokens.accent, fontWeight: 700, display: 'block', marginBottom: '4px' }}>✦ AI SUMMARY</span>{review.aiInsight}</div>}
+                    </>)}
                   </div>
                 )}
               </div>
