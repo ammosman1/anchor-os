@@ -156,8 +156,8 @@ Rules:
 }
 
 function formatTableAsText(data) {
+  if (data?.text) return data.text;
   if (data?.sheets) {
-    // Multi-sheet Excel — include all sheets with their name as a header
     return data.sheets.map(s =>
       `--- Sheet: ${s.sheetName} ---\n${s.headers.join('\t')}\n${s.rows.slice(0, 300).map(r => r.join('\t')).join('\n')}`
     ).join('\n\n');

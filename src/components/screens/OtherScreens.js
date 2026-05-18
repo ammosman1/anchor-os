@@ -357,15 +357,19 @@ export function DebtScreen() {
         if (/\.(xlsx|xls|csv)$/i.test(file.name)) {
           const arrayBuffer = await file.arrayBuffer();
           const workbook    = XLSX.read(arrayBuffer, { type: 'array' });
-          // Read ALL sheets so multi-sheet trackers don't get truncated
-          const sheets = workbook.SheetNames.map(sheetName => {
+          // Convert all sheets to plain text to stay well under Vercel's 4.5MB body limit
+          const textParts = [];
+          for (const sheetName of workbook.SheetNames) {
             const sheet    = workbook.Sheets[sheetName];
             const rows     = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-            const headers  = (rows[0] || []).map(String);
-            const dataRows = rows.slice(1).filter(r => r.some(c => c !== '' && c != null));
-            return { sheetName, headers, rows: dataRows.map(r => r.map(String)) };
-          }).filter(s => s.rows.length > 0);
-          payload = { type: 'structured', data: { sheets }, fileName: file.name };
+            const nonEmpty = rows.filter(r => r.some(c => c !== '' && c != null)).slice(0, 200);
+            if (nonEmpty.length > 0) {
+              textParts.push(`=== Sheet: ${sheetName} ===`);
+              nonEmpty.forEach(row => textParts.push(row.map(c => String(c ?? '')).join('\t')));
+            }
+          }
+          const tableText = textParts.join('\n').slice(0, 40000);
+          payload = { type: 'structured', data: { text: tableText }, fileName: file.name };
         } else if (/\.pdf$/i.test(file.name)) {
           const base64 = await fileToBase64(file);
           payload = { type: 'pdf', data: base64, fileName: file.name };
@@ -395,10 +399,11 @@ export function DebtScreen() {
       setImportLoading(false); setImportProgress(null); e.target.value = ''; return;
     }
 
-    // Merge accounts — deduplicate by name (keep highest balance when same name appears in multiple files)
+    // Merge accounts — deduplicate by normalized name (strips apostrophes/punctuation)
+    const normName = n => (n || '').toLowerCase().replace(/[''`'\s\-.,]/g, '').trim();
     const accountMap = new Map();
     for (const a of allAccounts) {
-      const key = (a.name || '').toLowerCase().trim();
+      const key = normName(a.name);
       const prev = accountMap.get(key);
       if (!prev || (parseFloat(a.balance) || 0) > (parseFloat(prev.balance) || 0)) accountMap.set(key, a);
     }
@@ -407,7 +412,7 @@ export function DebtScreen() {
       balance:        String(a.balance        || ''),
       interestRate:   String(a.interestRate   || ''),
       minimumPayment: String(a.minimumPayment || ''),
-      existingId:     a.isDuplicate ? (debtAccounts.find(e => e.name.toLowerCase() === (a.name || '').toLowerCase())?.id || null) : null,
+      existingId:     a.isDuplicate ? (debtAccounts.find(e => normName(e.name) === normName(a.name))?.id || null) : null,
     }));
 
     // Merge cash flow — average across files (handles multiple months of same bank without inflating)
