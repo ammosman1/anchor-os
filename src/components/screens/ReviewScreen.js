@@ -153,9 +153,17 @@ function TaskTriage({ tasks, uid }) {
   const todayStr = new Date().toISOString().split('T')[0];
   const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; })();
 
-  const unfinished = tasks.filter(t =>
-    !t.done && t.status === 'scheduled' && t.scheduledDate === todayStr
-  );
+  const unfinished = tasks.filter(t => {
+    if (t.done) return false;
+    if (t.scheduledDate === todayStr) return true;
+    // Also catch tasks scheduled by time slot where date derives from scheduledStart
+    if (t.scheduledStart) {
+      const d = new Date(t.scheduledStart);
+      const local = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      if (local === todayStr) return true;
+    }
+    return false;
+  });
 
   const [decisions, setDecisions] = useState({}); // { taskId: 'rolled' | 'dropped' }
 
