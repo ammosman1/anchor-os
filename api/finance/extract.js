@@ -106,42 +106,62 @@ export default async function handler(req, res) {
 }
 
 function buildPrompt(fileName, existingNames, fileType) {
-  return `Analyze this ${fileType} named "${fileName}" and extract all debt/loan account information and cash flow data.
+  return `Analyze this ${fileType} named "${fileName}" and extract debt/loan accounts and cash flow data.
 
 EXISTING ACCOUNTS ALREADY ON FILE (flag these as duplicates if found): ${existingNames}
 
-Extract and return a JSON object with this exact shape:
+WHAT TO EXTRACT — accounts where money is OWED (debts):
+- Credit cards with outstanding balances
+- Auto loans, mortgages, student loans
+- Personal loans, business loans, medical debt
+- Tax debt (IRS, state)
+- Lines of credit with outstanding balances
+
+DO NOT INCLUDE — these are NOT debts:
+- Checking accounts, savings accounts, money market accounts
+- Bank account balances (even if negative/overdrawn)
+- Transfer transactions or internal transfers between accounts
+- Investment or brokerage accounts
+- Payment receipts or confirmed payments
+
+Return a JSON object with this exact shape:
 {
   "accounts": [
     {
-      "name": "account name (e.g. IRS Tax Debt, Wells Fargo Auto Loan, Chase Sapphire)",
+      "name": "account name (e.g. IRS Tax Debt 2023, Wells Fargo Auto Loan, Chase Sapphire Card)",
       "balance": 12500.00,
       "interestRate": 18.5,
       "minimumPayment": 250.00,
       "type": "one of: tax | business | personal | credit | auto | student | mortgage | medical | other",
-      "notes": "any relevant details like account number last 4, due date, status"
+      "notes": "any relevant details like account number last 4, due date, payoff status"
     }
   ],
   "cashFlow": {
     "monthlyIncome": 8500.00,
     "monthlySpending": 6200.00,
     "monthlySurplus": 2300.00,
-    "notes": "brief note on how this was derived"
+    "notes": "brief note on how this was derived — e.g. 'From April 2026 statement: $X credits, $Y debits'"
   },
-  "summary": "One sentence describing what was found in this file"
+  "summary": "One sentence describing what was found — e.g. '3 debt accounts found in April Wells Fargo statement'"
 }
 
 Rules:
-- Only include accounts with a real balance > 0
+- Only include accounts where a balance is clearly owed (not asset accounts)
 - If interest rate not shown, use 0
 - If minimum payment not shown, use 0
-- cashFlow is null if no income/spending data is present in the file
-- For Excel debt trackers: look for columns named balance, amount owed, rate, APR, interest, minimum, payment
-- For bank statements: derive cash flow from total credits (income) vs total debits (spending) for the statement period; annualize to monthly if needed
+- cashFlow: for bank statements, use total credits as income and total debits as spending for the ONE statement period shown; do not multiply or annualize — report the single-month figures exactly as they appear
+- cashFlow is null if no transaction totals or income/spending data is present
+- For Excel debt trackers: look for columns named balance, amount owed, rate, APR, interest, minimum, payment, current balance
 - Return ONLY the JSON object. No markdown. No explanation.`;
 }
 
 function formatTableAsText(data) {
+  if (data?.sheets) {
+    // Multi-sheet Excel — include all sheets with their name as a header
+    return data.sheets.map(s =>
+      `--- Sheet: ${s.sheetName} ---\n${s.headers.join('\t')}\n${s.rows.slice(0, 300).map(r => r.join('\t')).join('\n')}`
+    ).join('\n\n');
+  }
   if (!data || !data.rows) return JSON.stringify(data);
   const { headers = [], rows = [] } = data;
   const lines = [];

@@ -357,11 +357,15 @@ export function DebtScreen() {
         if (/\.(xlsx|xls|csv)$/i.test(file.name)) {
           const arrayBuffer = await file.arrayBuffer();
           const workbook    = XLSX.read(arrayBuffer, { type: 'array' });
-          const sheet       = workbook.Sheets[workbook.SheetNames[0]];
-          const rows        = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-          const headers     = (rows[0] || []).map(String);
-          const dataRows    = rows.slice(1).filter(r => r.some(c => c !== '' && c != null));
-          payload = { type: 'structured', data: { headers, rows: dataRows.map(r => r.map(String)) }, fileName: file.name };
+          // Read ALL sheets so multi-sheet trackers don't get truncated
+          const sheets = workbook.SheetNames.map(sheetName => {
+            const sheet    = workbook.Sheets[sheetName];
+            const rows     = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+            const headers  = (rows[0] || []).map(String);
+            const dataRows = rows.slice(1).filter(r => r.some(c => c !== '' && c != null));
+            return { sheetName, headers, rows: dataRows.map(r => r.map(String)) };
+          }).filter(s => s.rows.length > 0);
+          payload = { type: 'structured', data: { sheets }, fileName: file.name };
         } else if (/\.pdf$/i.test(file.name)) {
           const base64 = await fileToBase64(file);
           payload = { type: 'pdf', data: base64, fileName: file.name };
@@ -406,12 +410,13 @@ export function DebtScreen() {
       existingId:     a.isDuplicate ? (debtAccounts.find(e => e.name.toLowerCase() === (a.name || '').toLowerCase())?.id || null) : null,
     }));
 
-    // Merge cash flow — sum income and spending across all sources (treats each file as a separate account/bank)
+    // Merge cash flow — average across files (handles multiple months of same bank without inflating)
     const mergedCF = allCashFlows.length > 0 ? (() => {
-      const inc  = Math.round(allCashFlows.reduce((s, cf) => s + (cf.monthlyIncome   || 0), 0));
-      const spen = Math.round(allCashFlows.reduce((s, cf) => s + (cf.monthlySpending || 0), 0));
+      const n    = allCashFlows.length;
+      const inc  = Math.round(allCashFlows.reduce((s, cf) => s + (cf.monthlyIncome   || 0), 0) / n);
+      const spen = Math.round(allCashFlows.reduce((s, cf) => s + (cf.monthlySpending || 0), 0) / n);
       return { monthlyIncome: inc, monthlySpending: spen, monthlySurplus: inc - spen,
-        notes: allCashFlows.length > 1 ? `Combined from ${allCashFlows.length} files` : (allCashFlows[0]?.notes || '') };
+        notes: n > 1 ? `Monthly average across ${n} statements` : (allCashFlows[0]?.notes || '') };
     })() : null;
 
     const processedCount = files.length - skipped.length;
