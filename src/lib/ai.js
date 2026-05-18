@@ -509,7 +509,11 @@ ${goal.description ? `DESCRIPTION: ${goal.description}` : ''}
 LINKED TASKS:
 - Total: ${linkedTasks.length} | Completed: ${completedTasks.length}
 - Completion rate: ${taskCompletionRate ?? 'n/a'}%
-- Active: ${linkedTasks.filter(t => !t.done).slice(0, 5).map(t => t.title).join(', ') || 'none'}
+
+EXISTING ACTIVE TASKS — do NOT re-suggest any of these in thisWeekActions, they are already being tracked:
+${linkedTasks.filter(t => !t.done).length > 0 ? linkedTasks.filter(t => !t.done).slice(0, 8).map(t => `- ${t.title}`).join('\n') : 'none'}
+
+CRITICAL: thisWeekActions must be genuinely new actions not already captured above. If all necessary actions are already tracked as tasks, suggest only what is missing or what would accelerate progress beyond what is already planned.
 
 EXECUTION DATA (last 4 weeks):
 - Avg energy: ${avgEnergy ?? 'n/a'}/100

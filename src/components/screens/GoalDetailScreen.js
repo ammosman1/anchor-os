@@ -1,5 +1,5 @@
 // src/components/screens/GoalDetailScreen.js
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
@@ -65,6 +65,24 @@ export default function GoalDetailScreen() {
   const linkedTasks     = tasks.filter(t => t.goalId === goalId);
   const completedTasks  = linkedTasks.filter(t => t.done);
   const activeTasks     = linkedTasks.filter(t => !t.done);
+
+  // All active tasks for this goal — direct link OR via a linked project
+  const allActiveGoalTasks = useMemo(() => {
+    const linkedProjectIds = projects.filter(p => p.goalId === goalId).map(p => p.id);
+    return tasks.filter(t => !t.done && (t.goalId === goalId || linkedProjectIds.includes(t.projectId)));
+  }, [tasks, projects, goalId]);
+
+  // Filter out AI-suggested actions that duplicate existing tasks
+  const dedupedActions = useMemo(() => {
+    if (!insights?.thisWeekActions) return [];
+    return insights.thisWeekActions.filter(action => {
+      const actionLower = action.toLowerCase();
+      return !allActiveGoalTasks.some(t => {
+        const tLower = t.title.toLowerCase();
+        return tLower.includes(actionLower) || actionLower.includes(tLower);
+      });
+    });
+  }, [insights, allActiveGoalTasks]);
 
   const [insights,       setInsights]       = useState(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
@@ -277,10 +295,10 @@ export default function GoalDetailScreen() {
   };
 
   const handleBulkCreate = async () => {
-    if (!insights?.thisWeekActions?.length || bulkCreating) return;
+    if (!dedupedActions.length || bulkCreating) return;
     setBulkCreating(true);
     try {
-      const remaining = insights.thisWeekActions.filter(a => !addedActions.has(a));
+      const remaining = dedupedActions.filter(a => !addedActions.has(a));
       await Promise.all(remaining.map(action =>
         addTask(user.uid, {
           title:   action,
@@ -291,7 +309,7 @@ export default function GoalDetailScreen() {
           status:  'pending',
         })
       ));
-      setAddedActions(new Set(insights.thisWeekActions));
+      setAddedActions(new Set(dedupedActions));
     } finally {
       setBulkCreating(false);
     }
@@ -539,20 +557,20 @@ export default function GoalDetailScreen() {
 
           {insights && (
             <>
-              {insights.thisWeekActions?.length > 0 && (
+              {dedupedActions.length > 0 && (
                 <div style={{ marginBottom: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                     <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary }}>Required Actions</div>
-                    {insights.thisWeekActions.filter(a => !addedActions.has(a)).length > 0 && (
+                    {dedupedActions.filter(a => !addedActions.has(a)).length > 0 && (
                       <Button size="sm" variant="ghost" onClick={handleBulkCreate} loading={bulkCreating}>
-                        + Create All ({insights.thisWeekActions.filter(a => !addedActions.has(a)).length})
+                        + Create All ({dedupedActions.filter(a => !addedActions.has(a)).length})
                       </Button>
                     )}
                   </div>
-                  {insights.thisWeekActions.map((action, i) => {
+                  {dedupedActions.map((action, i) => {
                     const added = addedActions.has(action);
                     return (
-                      <div key={i} style={{ display: 'flex', gap: '10px', padding: '8px 0', borderBottom: i < insights.thisWeekActions.length - 1 ? `1px solid ${tokens.border}` : 'none', alignItems: 'center' }}>
+                      <div key={i} style={{ display: 'flex', gap: '10px', padding: '8px 0', borderBottom: i < dedupedActions.length - 1 ? `1px solid ${tokens.border}` : 'none', alignItems: 'center' }}>
                         <span style={{ color: added ? tokens.green : tokens.accent, fontWeight: 700, fontSize: '12px', flexShrink: 0, minWidth: '16px' }}>
                           {added ? '✓' : `${i + 1}.`}
                         </span>
