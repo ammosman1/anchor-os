@@ -6,7 +6,7 @@ import {
   subscribeIdeas, subscribeDecisions, subscribeBrainDumps,
   subscribeWeeklyReviews, subscribeGoals, subscribeCalendarIntegration,
   subscribePlaidItems, subscribeProfile, subscribeDailyReviews, updateProject,
-  subscribeManualCashFlow,
+  subscribeManualCashFlow, subscribeAssetAccounts,
 } from '../lib/db';
 import { setUserPersona } from '../lib/ai';
 import { calculateMomentum } from '../lib/momentum';
@@ -28,6 +28,7 @@ export function DataProvider({ children }) {
   const [userProfile,         setUserProfile]         = useState(null);
   const [dailyReviews,        setDailyReviews]        = useState([]);
   const [manualCashFlow,      setManualCashFlow]      = useState(null);
+  const [assetAccounts,       setAssetAccounts]       = useState([]);
   const [loaded,              setLoaded]              = useState(false);
 
   useEffect(() => {
@@ -35,7 +36,7 @@ export function DataProvider({ children }) {
       setProjects([]); setTasks([]); setDebtAccounts([]);
       setIdeas([]); setDecisions([]); setBrainDumps([]);
       setWeeklyReviews([]); setGoals([]); setCalendarIntegration(null); setPlaidItems([]);
-      setDailyReviews([]); setManualCashFlow(null); setLoaded(false);
+      setDailyReviews([]); setManualCashFlow(null); setAssetAccounts([]); setLoaded(false);
       return;
     }
 
@@ -52,6 +53,7 @@ export function DataProvider({ children }) {
       subscribePlaidItems(user.uid,          setPlaidItems),
       subscribeDailyReviews(user.uid,        setDailyReviews),
       subscribeManualCashFlow(user.uid,      setManualCashFlow),
+      subscribeAssetAccounts(user.uid,       setAssetAccounts),
       subscribeProfile(user.uid, (prof) => {
         setUserProfile(prof);
         if (prof?.persona) setUserPersona(prof.persona);
@@ -107,12 +109,13 @@ export function DataProvider({ children }) {
   const stalledProjects = projects.filter(p => p.status === 'stalled');
   const todayTasks      = tasks.filter(t => !t.done && (t.priority === 'critical' || t.priority === 'high' || t.source === 'brain-dump' || !t.projectId));
   const totalDebt       = debtAccounts.reduce((s, a) => s + (a.balance || 0), 0);
+  const totalAssets     = assetAccounts.reduce((s, a) => s + (a.balance || 0), 0);
   const activeGoals     = goals.filter(g => g.status === 'active');
 
   return (
     <DataContext.Provider value={{
-      projects, tasks, debtAccounts, ideas, decisions, brainDumps, weeklyReviews, goals, calendarIntegration, plaidItems, userProfile, dailyReviews, manualCashFlow,
-      activeProjects, stalledProjects, todayTasks, totalDebt, activeGoals,
+      projects, tasks, debtAccounts, assetAccounts, ideas, decisions, brainDumps, weeklyReviews, goals, calendarIntegration, plaidItems, userProfile, dailyReviews, manualCashFlow,
+      activeProjects, stalledProjects, todayTasks, totalDebt, totalAssets, activeGoals,
       loaded,
     }}>
       {children}

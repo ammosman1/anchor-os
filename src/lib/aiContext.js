@@ -9,6 +9,7 @@ export function buildHolisticContext({
   goals = [], tasks = [], projects = [],
   brainDumps = [], weeklyReviews = [],
   userProfile = null, plaidData = null, manualCashFlow = null,
+  debtAccounts = [], assetAccounts = [],
   calendarDensity = null, calendarEvents = [],
   weatherForecast = null,
 }) {
@@ -248,15 +249,47 @@ export function buildHolisticContext({
   }
 
   const effectiveFinance = plaidData || manualCashFlow;
-  if (effectiveFinance) {
-    const src = plaidData ? 'Plaid' : 'manual import';
-    const surplus  = effectiveFinance.monthlySurplus  ?? effectiveFinance.surplus;
-    const spending = effectiveFinance.monthlySpending ?? effectiveFinance.spending;
-    const income   = effectiveFinance.monthlyIncome   ?? effectiveFinance.income;
-    lines.push(`\nFINANCIAL SNAPSHOT (source: ${src}):`);
-    if (surplus  != null) lines.push(`  Monthly surplus: $${Math.round(surplus).toLocaleString()}`);
-    if (spending != null) lines.push(`  Monthly spending: $${Math.round(spending).toLocaleString()}`);
+  const totalDebtVal   = debtAccounts.reduce((s, a) => s + (a.balance || 0), 0);
+  const totalAssetsVal = assetAccounts.reduce((s, a) => s + (a.balance || 0), 0);
+  const netWorthVal    = totalAssetsVal - totalDebtVal;
+
+  if (effectiveFinance || totalDebtVal > 0 || totalAssetsVal > 0) {
+    const src     = plaidData ? 'Plaid' : manualCashFlow ? 'manual import' : null;
+    const surplus  = effectiveFinance?.monthlySurplus  ?? effectiveFinance?.surplus;
+    const spending = effectiveFinance?.monthlySpending ?? effectiveFinance?.spending;
+    const income   = effectiveFinance?.monthlyIncome   ?? effectiveFinance?.income;
+
+    lines.push(`\nFINANCIAL SNAPSHOT${src ? ` (cash flow via ${src})` : ''}:`);
     if (income   != null) lines.push(`  Monthly income: $${Math.round(income).toLocaleString()}`);
+    if (spending != null) lines.push(`  Monthly spending: $${Math.round(spending).toLocaleString()}`);
+    if (surplus  != null) lines.push(`  Monthly surplus: $${Math.round(surplus).toLocaleString()}`);
+    if (totalDebtVal > 0)   lines.push(`  Total debt: $${totalDebtVal.toLocaleString()} across ${debtAccounts.length} account(s)`);
+    if (totalAssetsVal > 0) lines.push(`  Total assets: $${totalAssetsVal.toLocaleString()} across ${assetAccounts.length} account(s)`);
+    if (totalDebtVal > 0 || totalAssetsVal > 0) {
+      lines.push(`  Net worth: ${netWorthVal >= 0 ? '+' : ''}$${netWorthVal.toLocaleString()}`);
+    }
+
+    // Debt payoff progress (accounts with balance history show trends)
+    const withHistory = debtAccounts.filter(a => Array.isArray(a.balanceHistory) && a.balanceHistory.length >= 2);
+    if (withHistory.length > 0) {
+      const progressParts = [];
+      withHistory.slice(0, 4).forEach(a => {
+        const sorted  = [...a.balanceHistory].sort((x, y) => x.date.localeCompare(y.date));
+        const oldest  = sorted[0];
+        const newest  = sorted[sorted.length - 1];
+        const paid    = oldest.balance - newest.balance;
+        if (paid > 0) progressParts.push(`${a.name}: -$${paid.toLocaleString()} paid down`);
+      });
+      if (progressParts.length > 0) lines.push(`  Payoff progress: ${progressParts.join(' | ')}`);
+    }
+
+    // Asset breakdown by type
+    if (assetAccounts.length > 0) {
+      const byType = {};
+      assetAccounts.forEach(a => { byType[a.type] = (byType[a.type] || 0) + (a.balance || 0); });
+      const breakdown = Object.entries(byType).map(([t, v]) => `${t}:$${v.toLocaleString()}`).join(' | ');
+      lines.push(`  Asset breakdown: ${breakdown}`);
+    }
   }
 
   // Past feedback corrections — always enforced

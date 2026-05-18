@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { getDebtAdvice } from '../../lib/ai';
 import { auth } from '../../lib/firebase';
-import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask } from '../../lib/db';
+import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask, addAssetAccount, updateAssetAccount, deleteAssetAccount, addDebtBalanceSnapshot } from '../../lib/db';
 import { openPlaidLink, calcCashFlow, formatTxAmount, formatTxDate } from '../../lib/plaid';
 import { Card, Button, Input, Select, SectionLabel, MomentumBar, Modal, AICard, EmptyState } from '../ui';
 
@@ -163,7 +163,26 @@ const DEBT_TYPES = [
   { value: 'other',    label: 'Other'         },
 ];
 
-const emptyForm = { name: '', balance: '', interestRate: '', type: 'personal', minimumPayment: '', notes: '' };
+const ASSET_TYPES = [
+  { value: 'checking',   label: 'Checking Account'    },
+  { value: 'savings',    label: 'Savings Account'     },
+  { value: 'retirement', label: 'Retirement (401k/IRA)' },
+  { value: 'investment', label: 'Investment Account'  },
+  { value: 'property',   label: 'Real Estate / Property' },
+  { value: 'other',      label: 'Other Asset'         },
+];
+
+const assetTypeColors = {
+  checking:   { bg: 'rgba(91,143,212,0.12)',  text: '#5B8FD4' },
+  savings:    { bg: 'rgba(109,191,158,0.12)', text: '#6DBF9E' },
+  retirement: { bg: 'rgba(155,133,201,0.12)', text: '#9B85C9' },
+  investment: { bg: 'rgba(200,169,110,0.12)', text: '#C8A96E' },
+  property:   { bg: 'rgba(109,191,158,0.15)', text: '#5BAF8E' },
+  other:      { bg: 'rgba(28,24,20,0.07)',    text: 'rgba(28,24,20,0.42)' },
+};
+
+const emptyForm      = { name: '', balance: '', interestRate: '', type: 'personal', minimumPayment: '', notes: '' };
+const emptyAssetForm = { name: '', balance: '', type: 'checking', notes: '' };
 
 const typeColors = {
   tax:      { bg: 'rgba(212,122,107,0.12)', text: '#D47A6B' },
@@ -196,7 +215,7 @@ function fmtImportDate(ts) {
 
 export function DebtScreen() {
   const { user }                                                    = useAuth();
-  const { debtAccounts, totalDebt, plaidItems, manualCashFlow, goals } = useData();
+  const { debtAccounts, totalDebt, assetAccounts, totalAssets, plaidItems, manualCashFlow, goals } = useData();
 
   // ── Existing account modal ────────────────────────────────────────────────
   const [showModal,     setShowModal]     = useState(false);
@@ -227,6 +246,17 @@ export function DebtScreen() {
   const [editableCF,       setEditableCF]       = useState({ monthlyIncome: '', monthlySpending: '', monthlySurplus: '' });
   const [importSaving,     setImportSaving]     = useState(false);
   const [importProgress,   setImportProgress]   = useState(null); // { current, total }
+
+  // ── Asset account modal ───────────────────────────────────────────────────
+  const [showAssetModal, setShowAssetModal] = useState(false);
+  const [assetForm,      setAssetForm]      = useState(emptyAssetForm);
+  const [editingAsset,   setEditingAsset]   = useState(null);
+  const [savingAsset,    setSavingAsset]    = useState(false);
+
+  // ── Clarification modal (pre-import: smart account matching) ─────────────
+  const [showClarifyModal, setShowClarifyModal] = useState(false);
+  const [clarifyData,      setClarifyData]      = useState(null);  // { matches, questions, insights }
+  const [clarifyAnswers,   setClarifyAnswers]   = useState({});    // { [extractedIndex]: 'yes'|'no' }
 
   // ── Plaid load ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -280,6 +310,7 @@ export function DebtScreen() {
   const coveragePct        = totalMinimums > 0 ? Math.round((surplus / totalMinimums) * 100) : null;
   const isDanger           = effectiveFlow && surplus < 0;
   const isWarning          = effectiveFlow && !isDanger && totalMinimums > 0 && surplus < totalMinimums;
+  const netWorth           = (totalAssets || 0) - totalDebt;
 
   // Goal alignment (active financial goal pace)
   const finGoal = useMemo(() => goals.find(g => g.status === 'active' && g.goalType === 'financial'), [goals]);
@@ -429,18 +460,59 @@ export function DebtScreen() {
       ? `Processed ${processedCount} of ${files.length} file${files.length !== 1 ? 's' : ''} — found ${mergedAccounts.length} account${mergedAccounts.length !== 1 ? 's' : ''}${allCashFlows.length > 0 ? ` and cash flow from ${allCashFlows.length} source${allCashFlows.length !== 1 ? 's' : ''}` : ''}${skipped.length > 0 ? `. Skipped: ${skipped.join(', ')}` : ''}.`
       : (summaries[0] || `Found ${mergedAccounts.length} accounts.`);
 
-    setEditableAccounts(mergedAccounts);
-    setSelectedIndices(new Set(mergedAccounts.map((_, i) => i)));
+    const cfForState = mergedCF ? {
+      monthlyIncome: String(mergedCF.monthlyIncome), monthlySpending: String(mergedCF.monthlySpending), monthlySurplus: String(mergedCF.monthlySurplus),
+    } : { monthlyIncome: '', monthlySpending: '', monthlySurplus: '' };
+
+    // ── Smart account matching (clarify API) ───────────────────────────────
+    let finalAccounts = mergedAccounts;
+    let clarifyResult = null;
+
+    if (debtAccounts.length > 0 && mergedAccounts.length > 0) {
+      try {
+        const cRes = await fetch('/api/finance/clarify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ extractedAccounts: mergedAccounts, existingAccounts: debtAccounts }),
+        });
+        if (cRes.ok) {
+          clarifyResult = await cRes.json();
+          // Auto-apply exact matches (no user confirmation needed)
+          finalAccounts = mergedAccounts.map((a, i) => {
+            const match = (clarifyResult.matches || []).find(m => m.extractedIndex === i);
+            if (match?.matchType === 'exact' && match.existingIndex != null && match.existingIndex < debtAccounts.length) {
+              return { ...a, isDuplicate: true, existingId: debtAccounts[match.existingIndex].id };
+            }
+            return a;
+          });
+        }
+      } catch (err) {
+        console.error('Clarify API error:', err);
+      }
+    }
+
+    // Stage common state regardless of which modal comes next
+    setEditableAccounts(finalAccounts);
+    setSelectedIndices(new Set(finalAccounts.map((_, i) => i)));
     setImportCashFlow(mergedCF);
     setIncludeCashFlow(!!mergedCF);
-    setEditableCF(mergedCF
-      ? { monthlyIncome: String(mergedCF.monthlyIncome), monthlySpending: String(mergedCF.monthlySpending), monthlySurplus: String(mergedCF.monthlySurplus) }
-      : { monthlyIncome: '', monthlySpending: '', monthlySurplus: '' });
+    setEditableCF(cfForState);
     setImportSummary(combinedSummary);
     setImportFileName(files.map(f => f.name).join(', '));
-    setShowImportModal(true);
     setImportLoading(false); setImportProgress(null);
     e.target.value = '';
+
+    const questions = clarifyResult?.questions || [];
+    if (questions.length > 0) {
+      // Show clarification step first — stash clarify data for handleClarifyComplete
+      setClarifyData(clarifyResult);
+      setClarifyAnswers({});
+      setShowClarifyModal(true);
+    } else {
+      // No questions — surface any insights inline then go straight to review
+      if (clarifyResult) setClarifyData(clarifyResult);
+      setShowImportModal(true);
+    }
   };
 
   const toggleImportIndex = (i) => {
@@ -456,14 +528,55 @@ export function DebtScreen() {
     else setSelectedIndices(new Set(editableAccounts.map((_, i) => i)));
   };
 
+  // Apply user's answers from the clarify modal then open the review modal
+  const handleClarifyComplete = () => {
+    setEditableAccounts(prev => prev.map((a, i) => {
+      const q = (clarifyData?.questions || []).find(q => q.extractedIndex === i);
+      if (!q) return a;
+      if (clarifyAnswers[i] === 'yes' && q.existingIndex != null && q.existingIndex < debtAccounts.length) {
+        return { ...a, isDuplicate: true, existingId: debtAccounts[q.existingIndex].id };
+      }
+      return a; // user said "no" — treat as new account
+    }));
+    setShowClarifyModal(false);
+    setClarifyData(null);
+    setClarifyAnswers({});
+    setShowImportModal(true);
+  };
+
+  // ── Asset account handlers ────────────────────────────────────────────────
+  const openAssetNew  = () => { setAssetForm(emptyAssetForm); setEditingAsset(null); setShowAssetModal(true); };
+  const openAssetEdit = (a) => {
+    setAssetForm({ name: a.name || '', balance: String(a.balance || ''), type: a.type || 'checking', notes: a.notes || '' });
+    setEditingAsset(a.id); setShowAssetModal(true);
+  };
+  const handleAssetSave = async () => {
+    if (!assetForm.name.trim() || !assetForm.balance) return;
+    setSavingAsset(true);
+    const data = { name: assetForm.name.trim(), balance: parseFloat(assetForm.balance) || 0, type: assetForm.type, notes: assetForm.notes };
+    if (editingAsset) await updateAssetAccount(user.uid, editingAsset, data);
+    else              await addAssetAccount(user.uid, data);
+    setSavingAsset(false); setShowAssetModal(false);
+  };
+  const handleAssetDelete = async (id) => {
+    if (!window.confirm('Remove this asset account?')) return;
+    await deleteAssetAccount(user.uid, id);
+  };
+
   const handleImportConfirm = async () => {
     setImportSaving(true);
     try {
+      const today = new Date().toISOString().split('T')[0];
       for (const idx of selectedIndices) {
         const a    = editableAccounts[idx];
-        const data = { name: (a.name || '').trim(), balance: parseFloat(a.balance) || 0, interestRate: parseFloat(a.interestRate) || 0, minimumPayment: parseFloat(a.minimumPayment) || 0, type: a.type || 'other', notes: a.notes || '' };
-        if (a.isDuplicate && a.existingId) { await updateDebtAccount(user.uid, a.existingId, data); }
-        else                               { await addDebtAccount(user.uid, data); }
+        const bal  = parseFloat(a.balance) || 0;
+        const data = { name: (a.name || '').trim(), balance: bal, interestRate: parseFloat(a.interestRate) || 0, minimumPayment: parseFloat(a.minimumPayment) || 0, type: a.type || 'other', notes: a.notes || '' };
+        if (a.isDuplicate && a.existingId) {
+          await updateDebtAccount(user.uid, a.existingId, data);
+          await addDebtBalanceSnapshot(user.uid, a.existingId, bal);
+        } else {
+          await addDebtAccount(user.uid, { ...data, balanceHistory: [{ date: today, balance: bal }] });
+        }
       }
 
       if (includeCashFlow) {
@@ -479,7 +592,7 @@ export function DebtScreen() {
       const dueDate  = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-15`;
       await addTask(user.uid, { title: `Upload ${monthLbl} bank statements`, priority: 'medium', dueDate, goalId: finGoal?.id || null, source: 'finance-import' });
 
-      setShowImportModal(false); setAiText('');
+      setShowImportModal(false); setClarifyData(null); setAiText('');
     } catch (err) { console.error('Import save error:', err); }
     finally { setImportSaving(false); }
   };
@@ -667,6 +780,29 @@ export function DebtScreen() {
         </div>
       )}
 
+      {/* ── Net Worth ── */}
+      {(totalDebt > 0 || (assetAccounts || []).length > 0) && (
+        <div className="fade-up stagger-3" style={{ marginBottom: '16px' }}>
+          <Card>
+            <SectionLabel>Net Worth</SectionLabel>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', textAlign: 'center' }}>
+              {[
+                { label: 'Assets', val: totalAssets || 0, color: tokens.green, prefix: '+$' },
+                { label: 'Debts',  val: totalDebt,        color: tokens.red,   prefix: '-$' },
+                { label: 'Net Worth', val: Math.abs(netWorth), color: netWorth >= 0 ? tokens.accent : tokens.red, prefix: netWorth >= 0 ? '+$' : '-$' },
+              ].map(item => (
+                <div key={item.label}>
+                  <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{item.label}</div>
+                  <div style={{ fontFamily: fonts.display, fontSize: '22px', fontWeight: 700, color: item.color }}>
+                    {item.prefix}{item.val.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
       {/* ── Recent Transactions (Plaid only) ── */}
       {transactions.length > 0 && (
         <div className="fade-up stagger-3" style={{ marginBottom: '16px' }}>
@@ -797,6 +933,17 @@ export function DebtScreen() {
             </div>
           )}
 
+          {/* Insights from clarify step (shown when questions were skipped) */}
+          {(clarifyData?.insights || []).length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              {clarifyData.insights.map((insight, i) => (
+                <div key={i} style={{ padding: '7px 12px', background: 'rgba(109,191,158,0.08)', border: '1px solid rgba(109,191,158,0.2)', borderRadius: '8px', fontSize: '12px', color: tokens.textSecondary }}>
+                  💡 {insight}
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Accounts section */}
           {editableAccounts.length > 0 && (
             <div>
@@ -906,6 +1053,133 @@ export function DebtScreen() {
           </div>
         </div>
       </Modal>
+
+      {/* ── Clarification Modal (pre-import: smart account matching) ── */}
+      <Modal open={showClarifyModal} onClose={() => { setShowClarifyModal(false); setClarifyData(null); setClarifyAnswers({}); }} title="Verify Accounts">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ fontSize: '13px', color: tokens.textSecondary }}>
+            I found some accounts that might match your existing records. Confirm before importing.
+          </div>
+
+          {/* Insights (balance changes) */}
+          {(clarifyData?.insights || []).length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {clarifyData.insights.map((insight, i) => (
+                <div key={i} style={{ padding: '8px 12px', background: tokens.accentDim, borderRadius: '8px', fontSize: '12px', color: tokens.textSecondary }}>
+                  💡 {insight}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Questions */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {(clarifyData?.questions || []).map((q, qi) => (
+              <div key={qi} style={{ padding: '14px', background: tokens.bgCardHover, borderRadius: '10px', border: `1px solid ${tokens.border}` }}>
+                <div style={{ fontSize: '13px', color: tokens.textPrimary, marginBottom: '12px', fontWeight: 500 }}>{q.question}</div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {(q.options || []).map((opt, oi) => {
+                    const chosen = clarifyAnswers[q.extractedIndex] === (oi === 0 ? 'yes' : 'no');
+                    return (
+                      <button key={oi}
+                        onClick={() => setClarifyAnswers(prev => ({ ...prev, [q.extractedIndex]: oi === 0 ? 'yes' : 'no' }))}
+                        style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer', fontFamily: fonts.body, fontWeight: 600, transition: 'all 0.15s',
+                          background: chosen ? tokens.accent : tokens.bgInput,
+                          color:      chosen ? '#fff' : tokens.textSecondary,
+                          border:     `1px solid ${chosen ? tokens.accent : tokens.border}`,
+                        }}>
+                        {opt}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', paddingTop: '4px' }}>
+            <Button onClick={() => { setShowClarifyModal(false); setClarifyData(null); setClarifyAnswers({}); }} variant="ghost">Cancel</Button>
+            <Button
+              onClick={handleClarifyComplete}
+              disabled={(clarifyData?.questions || []).some(q => !clarifyAnswers[q.extractedIndex])}
+            >
+              Continue to Review →
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Asset Account Modal ── */}
+      <Modal open={showAssetModal} onClose={() => setShowAssetModal(false)} title={editingAsset ? 'Edit Asset' : 'Add Asset Account'}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <Input label="Account Name" value={assetForm.name} onChange={v => setAssetForm(f => ({ ...f, name: v }))} placeholder="e.g. Veridian Checking, 401k, Home Equity" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <Input label="Current Balance ($)" value={assetForm.balance} onChange={v => setAssetForm(f => ({ ...f, balance: v }))} placeholder="15000" type="number" />
+            <Select label="Type" value={assetForm.type} onChange={v => setAssetForm(f => ({ ...f, type: v }))} options={ASSET_TYPES} />
+          </div>
+          <Input label="Notes" value={assetForm.notes} onChange={v => setAssetForm(f => ({ ...f, notes: v }))} placeholder="Institution, account number last 4..." multiline rows={2} />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+            <Button onClick={() => setShowAssetModal(false)} variant="ghost">Cancel</Button>
+            <Button onClick={handleAssetSave} loading={savingAsset} disabled={!assetForm.name.trim() || !assetForm.balance}>
+              {editingAsset ? 'Save' : 'Add Asset'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Asset Accounts Section ── */}
+      <div className="fade-up stagger-6" style={{ marginTop: '32px', paddingTop: '24px', borderTop: `1px solid ${tokens.border}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+          <div>
+            <SectionLabel style={{ marginBottom: '2px' }}>Assets</SectionLabel>
+            <p style={{ fontSize: '12px', color: tokens.textMuted, margin: 0 }}>Checking, savings, retirement, investments</p>
+          </div>
+          <Button onClick={openAssetNew} size="sm">+ Add Asset</Button>
+        </div>
+
+        {(assetAccounts || []).length === 0 ? (
+          <EmptyState icon="◈" title="No asset accounts tracked" subtitle="Add checking, savings, retirement, and investment accounts for a complete net worth picture." action={
+            <Button onClick={openAssetNew} variant="ghost">+ Add Asset Account</Button>
+          } />
+        ) : (
+          <>
+            <div className="fade-up" style={{ marginBottom: '10px' }}>
+              <Card accent>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <SectionLabel>Total Assets</SectionLabel>
+                    <div style={{ fontFamily: fonts.display, fontSize: '38px', fontWeight: 700, color: tokens.green, lineHeight: 1 }}>${(totalAssets || 0).toLocaleString()}</div>
+                    <div style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '4px' }}>{assetAccounts.length} account{assetAccounts.length !== 1 ? 's' : ''}</div>
+                  </div>
+                </div>
+              </Card>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {assetAccounts.map(account => {
+                const tc = assetTypeColors[account.type] || assetTypeColors.other;
+                return (
+                  <Card key={account.id}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: '14px', color: tokens.textPrimary }}>{account.name}</div>
+                        {account.notes && <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>{account.notes}</div>}
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0, marginLeft: '12px' }}>
+                        <span style={{ fontFamily: fonts.display, fontSize: '20px', fontWeight: 700, color: tokens.green }}>${(account.balance || 0).toLocaleString()}</span>
+                        <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: tc.bg, color: tc.text, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{account.type}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', marginTop: '10px' }}>
+                      <Button onClick={() => openAssetEdit(account)} variant="ghost" size="sm">Edit</Button>
+                      <Button onClick={() => handleAssetDelete(account.id)} variant="danger" size="sm">Remove</Button>
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -4,7 +4,7 @@
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDoc, getDocs, onSnapshot, query, orderBy, limit, where,
-  serverTimestamp,
+  serverTimestamp, arrayUnion,
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -217,6 +217,36 @@ export const subscribePlaidItems = (uid, cb) =>
     collection(db, 'users', uid, 'plaidItems'),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+
+// ─── Asset Accounts ───────────────────────────────────────────────────────────
+export const addAssetAccount = (uid, data) =>
+  addDoc(collection(db, 'users', uid, 'assetAccounts'), {
+    ...data,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+export const updateAssetAccount = (uid, accountId, data) =>
+  updateDoc(doc(db, 'users', uid, 'assetAccounts', accountId), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+
+export const deleteAssetAccount = (uid, accountId) =>
+  deleteDoc(doc(db, 'users', uid, 'assetAccounts', accountId));
+
+export const subscribeAssetAccounts = (uid, cb) =>
+  onSnapshot(
+    query(collection(db, 'users', uid, 'assetAccounts'), orderBy('createdAt', 'asc')),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  );
+
+// Appends a balance snapshot to a debt account's history array (for progress tracking)
+export const addDebtBalanceSnapshot = (uid, accountId, balance) =>
+  updateDoc(doc(db, 'users', uid, 'debtAccounts', accountId), {
+    balanceHistory: arrayUnion({ date: new Date().toISOString().split('T')[0], balance }),
+    updatedAt: serverTimestamp(),
+  });
 
 // ─── Manual Cash Flow ─────────────────────────────────────────────────────────
 export const saveManualCashFlow = (uid, data) =>

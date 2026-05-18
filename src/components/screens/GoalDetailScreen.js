@@ -59,7 +59,7 @@ export default function GoalDetailScreen() {
   const { goalId }   = useParams();
   const navigate     = useNavigate();
   const { user }     = useAuth();
-  const { goals, tasks, weeklyReviews, projects, plaidItems, brainDumps, userProfile, manualCashFlow } = useData();
+  const { goals, tasks, weeklyReviews, projects, plaidItems, brainDumps, userProfile, manualCashFlow, debtAccounts, assetAccounts } = useData();
 
   const goal            = goals.find(g => g.id === goalId);
   const linkedTasks     = tasks.filter(t => t.goalId === goalId);
@@ -141,10 +141,12 @@ export default function GoalDetailScreen() {
         tasks,
         projects,
         brainDumps:    brainDumps || [],
-        weeklyReviews:  weeklyReviews || [],
-        userProfile:    userProfile,
+        weeklyReviews: weeklyReviews || [],
+        userProfile,
         plaidData,
         manualCashFlow,
+        debtAccounts:  debtAccounts || [],
+        assetAccounts: assetAccounts || [],
       });
       const result = await generateGoalInsights({
         goal,
