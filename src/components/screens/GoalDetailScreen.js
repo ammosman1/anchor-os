@@ -66,24 +66,6 @@ export default function GoalDetailScreen() {
   const completedTasks  = linkedTasks.filter(t => t.done);
   const activeTasks     = linkedTasks.filter(t => !t.done);
 
-  // All active tasks for this goal — direct link OR via a linked project
-  const allActiveGoalTasks = useMemo(() => {
-    const linkedProjectIds = projects.filter(p => p.goalId === goalId).map(p => p.id);
-    return tasks.filter(t => !t.done && (t.goalId === goalId || linkedProjectIds.includes(t.projectId)));
-  }, [tasks, projects, goalId]);
-
-  // Filter out AI-suggested actions that duplicate existing tasks
-  const dedupedActions = useMemo(() => {
-    if (!insights?.thisWeekActions) return [];
-    return insights.thisWeekActions.filter(action => {
-      const actionLower = action.toLowerCase();
-      return !allActiveGoalTasks.some(t => {
-        const tLower = t.title.toLowerCase();
-        return tLower.includes(actionLower) || actionLower.includes(tLower);
-      });
-    });
-  }, [insights, allActiveGoalTasks]);
-
   const [insights,       setInsights]       = useState(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
 
@@ -117,6 +99,24 @@ export default function GoalDetailScreen() {
   const [newBalance,      setNewBalance]      = useState('');
   const [plaidAccounts,   setPlaidAccounts]   = useState([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+
+  // All active tasks for this goal — direct link OR via a linked project
+  const allActiveGoalTasks = useMemo(() => {
+    const linkedProjectIds = projects.filter(p => p.goalId === goalId).map(p => p.id);
+    return tasks.filter(t => !t.done && (t.goalId === goalId || linkedProjectIds.includes(t.projectId)));
+  }, [tasks, projects, goalId]);
+
+  // Filter out AI-suggested actions that duplicate existing tasks
+  const dedupedActions = useMemo(() => {
+    if (!insights?.thisWeekActions) return [];
+    return insights.thisWeekActions.filter(action => {
+      const actionLower = action.toLowerCase();
+      return !allActiveGoalTasks.some(t => {
+        const tLower = t.title.toLowerCase();
+        return tLower.includes(actionLower) || actionLower.includes(tLower);
+      });
+    });
+  }, [insights, allActiveGoalTasks]);
 
   const loadInsights = useCallback(async (force = false) => {
     if (!goal || insightsLoading) return;
