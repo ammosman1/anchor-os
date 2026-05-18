@@ -398,6 +398,7 @@ export default function CalendarScreen() {
       project:          task.project || 'Inbox',
       projectId:        task.projectId || null,
       goalId:           task.goalId || '',
+      context:          task.context || 'personal',
       focusType:        task.focusType || 'deep',
       tags:             Array.isArray(task.tags) ? task.tags.join(', ') : task.tags || '',
       recurrence:       task.recurrence || 'none',
@@ -422,6 +423,7 @@ export default function CalendarScreen() {
         project:          editForm.project,
         projectId:        linked?.id || editForm.projectId || null,
         goalId:           editForm.goalId || null,
+        context:          editForm.context || null,
         focusType:        editForm.focusType || null,
         tags:             tagsArr.length ? tagsArr : null,
         recurrence:       editForm.recurrence !== 'none' ? editForm.recurrence : null,
@@ -1325,6 +1327,18 @@ export default function CalendarScreen() {
                 </select>
               </div>
             )}
+
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Context</label>
+              <select value={editForm.context} onChange={e => setEditForm(p => ({ ...p, context: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+                <option value="work">Work</option>
+                <option value="personal">Personal</option>
+                <option value="home">Home</option>
+                <option value="financial">Financial</option>
+                <option value="health">Health</option>
+              </select>
+            </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div>

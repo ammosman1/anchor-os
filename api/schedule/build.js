@@ -30,6 +30,7 @@ export default async function handler(req, res) {
     }
     if (t.pushCount >= 2) notes.push(`pushed ${t.pushCount}x — must be scheduled`);
     if (t.outdoor) notes.push('OUTDOOR TASK');
+    if (t.context === 'work') notes.push('WORK TASK — schedule Mon–Fri business hours only');
     return { ...t, urgencyNotes: notes.join(' | ') };
   });
 
@@ -62,6 +63,7 @@ ${weatherNote}
 ENERGY CONTEXT: ${energyNote}
 
 RULES:
+- Tasks marked WORK TASK must only be scheduled Monday–Friday during typical business hours (8am–5pm)
 - Tasks marked OVERDUE or pushed 2+ times must be scheduled first, today if possible
 - Tasks with due dates within 2 days get top priority in the schedule
 - Critical and high priority tasks get the earliest, best available slots

@@ -27,9 +27,35 @@ const FOCUS_TYPE_COLORS = {
   admin:   { bg: '#1f1a2e', text: '#9B59B6' },
 };
 
+const CONTEXT_OPTIONS = [
+  { value: 'work',      label: 'Work'      },
+  { value: 'personal',  label: 'Personal'  },
+  { value: 'home',      label: 'Home'      },
+  { value: 'financial', label: 'Financial' },
+  { value: 'health',    label: 'Health'    },
+];
+
+const CONTEXT_COLORS = {
+  work:      { bg: 'rgba(91,143,212,0.15)',  text: '#5B8FD4' },
+  personal:  { bg: 'rgba(155,133,201,0.15)', text: '#9B85C9' },
+  home:      { bg: 'rgba(109,191,158,0.15)', text: '#6DBF9E' },
+  financial: { bg: 'rgba(200,169,110,0.15)', text: '#C8A96E' },
+  health:    { bg: 'rgba(78,168,168,0.15)',  text: '#4EA8A8' },
+};
+
+const CATEGORY_TO_CONTEXT = {
+  work:     'work',
+  personal: 'personal',
+  home:     'home',
+  finance:  'financial',
+  health:   'health',
+  creative: 'personal',
+  business: 'work',
+};
+
 const STATUS_FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'done'];
 
-const emptyForm = { title: '', priority: 'high', projectId: '', goalId: '', notes: '', estimatedMinutes: '', tags: '', recurrence: 'none', focusType: 'deep', dueDate: '' };
+const emptyForm = { title: '', priority: 'high', projectId: '', goalId: '', context: 'personal', notes: '', estimatedMinutes: '', tags: '', recurrence: 'none', focusType: 'deep', dueDate: '' };
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -48,9 +74,10 @@ function parseTags(str) {
 export default function TasksScreen() {
   const { user }                        = useAuth();
   const { tasks, projects, goals, calendarIntegration } = useData();
-  const [filter,     setFilter]         = useState('all');
-  const [filterTag,  setFilterTag]      = useState('');
-  const [filterProject, setFilterProject] = useState('');
+  const [filter,         setFilter]         = useState('all');
+  const [filterTag,      setFilterTag]      = useState('');
+  const [filterProject,  setFilterProject]  = useState('');
+  const [filterContext,  setFilterContext]  = useState('');
   const [showModal,  setShowModal]      = useState(false);
   const [form,       setForm]           = useState(emptyForm);
   const [saving,     setSaving]         = useState(false);
@@ -102,6 +129,7 @@ export default function TasksScreen() {
     if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterTag && !(t.tags || []).includes(filterTag)) return false;
     if (filterProject && t.projectId !== filterProject) return false;
+    if (filterContext && t.context !== filterContext) return false;
     switch (filter) {
       case 'inbox':      return !t.done && (!t.projectId || t.project === 'Inbox');
       case 'brain-dump': return !t.done && t.source === 'brain-dump';
@@ -154,6 +182,7 @@ export default function TasksScreen() {
       priority:         task.priority         || 'high',
       projectId:        task.projectId        || '',
       goalId:           task.goalId           || '',
+      context:          task.context          || 'personal',
       notes:            task.notes            || '',
       estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : '',
       tags:             task.tags?.join(', ') || '',
@@ -170,12 +199,16 @@ export default function TasksScreen() {
     setSaving(true);
 
     const linkedProject = projects.find(p => p.id === form.projectId);
+    const derivedContext = linkedProject
+      ? (CATEGORY_TO_CONTEXT[linkedProject.category] || form.context || 'personal')
+      : (form.context || 'personal');
     const taskData = {
       title:            form.title.trim(),
       priority:         form.priority,
       projectId:        form.projectId || null,
       goalId:           form.goalId || null,
       project:          linkedProject ? linkedProject.title : 'Inbox',
+      context:          derivedContext,
       notes:            form.notes,
       estimatedMinutes: parseInt(form.estimatedMinutes) || null,
       tags:             parseTags(form.tags),
@@ -261,6 +294,20 @@ export default function TasksScreen() {
         ))}
       </div>
 
+      {/* Context filters */}
+      <div className="fade-up stagger-1" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+        {CONTEXT_OPTIONS.map(opt => {
+          const cc = CONTEXT_COLORS[opt.value];
+          const active = filterContext === opt.value;
+          return (
+            <button key={opt.value} onClick={() => setFilterContext(active ? '' : opt.value)}
+              style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 12px', borderRadius: '99px', background: active ? cc.bg : 'transparent', color: active ? cc.text : tokens.textMuted, border: `1px solid ${active ? cc.text + '40' : tokens.border}`, cursor: 'pointer', transition: 'all 0.15s', fontFamily: fonts.body }}>
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Project + Tag filters */}
       <div className="fade-up stagger-1" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px', alignItems: 'center' }}>
         {projects.length > 0 && (
@@ -276,8 +323,8 @@ export default function TasksScreen() {
             #{tag}
           </button>
         ))}
-        {(filterTag || filterProject) && (
-          <button onClick={() => { setFilterTag(''); setFilterProject(''); }}
+        {(filterTag || filterProject || filterContext) && (
+          <button onClick={() => { setFilterTag(''); setFilterProject(''); setFilterContext(''); }}
             style={{ fontSize: '10px', color: tokens.textMuted, background: 'none', border: 'none', cursor: 'pointer', fontFamily: fonts.body }}>
             Clear ✕
           </button>
@@ -348,6 +395,11 @@ export default function TasksScreen() {
                   </div>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '11px', color: tokens.textMuted }}>{projectName(task)}</span>
+                    {task.context && CONTEXT_COLORS[task.context] && (
+                      <span style={{ fontSize: '10px', fontWeight: 600, color: CONTEXT_COLORS[task.context].text, background: CONTEXT_COLORS[task.context].bg, padding: '1px 6px', borderRadius: '4px' }}>
+                        {task.context}
+                      </span>
+                    )}
                     {source && <span style={{ fontSize: '10px', color: source.color, fontWeight: 600 }}>· {source.label}</span>}
                     <span style={{ fontSize: '10px', color: tokens.textMuted }}>· {timeAgo(task.createdAt)}</span>
                     {task.estimatedMinutes && (
@@ -439,7 +491,18 @@ export default function TasksScreen() {
           <Input label="Task" value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="What needs to get done?" />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <Select label="Priority" value={form.priority} onChange={v => setForm(f => ({ ...f, priority: v }))} options={PRIORITIES} />
-            <Select label="Project" value={form.projectId} onChange={v => setForm(f => ({ ...f, projectId: v }))} options={projectOptions} />
+            <Select label="Project" value={form.projectId} onChange={v => {
+              const proj = projects.find(p => p.id === v);
+              const inherited = proj ? (CATEGORY_TO_CONTEXT[proj.category] || form.context) : form.context;
+              setForm(f => ({ ...f, projectId: v, context: inherited }));
+            }} options={projectOptions} />
+          </div>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Context</label>
+            <select value={form.context} onChange={e => setForm(f => ({ ...f, context: e.target.value }))}
+              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
+              {CONTEXT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
           </div>
           {(goals || []).filter(g => g.status === 'active').length > 0 && (
             <div>

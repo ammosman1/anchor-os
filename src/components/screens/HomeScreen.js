@@ -740,7 +740,12 @@ export default function HomeScreen() {
                   <div style={{ fontSize: '13px', color: tokens.textPrimary, fontWeight: 500, textDecoration: task.done ? 'line-through' : 'none', opacity: task.done ? 0.5 : 1 }}>
                     {task.title}
                   </div>
-                  <div style={{ fontSize: '11px', color: tokens.textMuted }}>{task.project}</div>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '11px', color: tokens.textMuted }}>{task.project}</span>
+                    {task.context === 'work' && (
+                      <span style={{ fontSize: '10px', fontWeight: 600, color: '#5B8FD4', background: 'rgba(91,143,212,0.15)', padding: '1px 5px', borderRadius: '3px' }}>work</span>
+                    )}
+                  </div>
                 </div>
                 <Tag label={task.priority} color={priorityColors[task.priority]?.bg} textColor={priorityColors[task.priority]?.text} />
               </div>

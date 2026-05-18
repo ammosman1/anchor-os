@@ -142,6 +142,29 @@ export function buildHolisticContext({
     });
   }
 
+  // Context breakdown — work vs personal task load
+  const openTasks = tasks.filter(t => !t.done);
+  const workTasks     = openTasks.filter(t => t.context === 'work');
+  const personalTasks = openTasks.filter(t => t.context === 'personal');
+  const homeTasks     = openTasks.filter(t => t.context === 'home');
+  const financialTasks = openTasks.filter(t => t.context === 'financial');
+  const healthTasks   = openTasks.filter(t => t.context === 'health');
+  const untaggedTasks = openTasks.filter(t => !t.context);
+  if (openTasks.length > 0) {
+    const parts = [];
+    if (workTasks.length)     parts.push(`work:${workTasks.length}`);
+    if (personalTasks.length) parts.push(`personal:${personalTasks.length}`);
+    if (homeTasks.length)     parts.push(`home:${homeTasks.length}`);
+    if (financialTasks.length) parts.push(`financial:${financialTasks.length}`);
+    if (healthTasks.length)   parts.push(`health:${healthTasks.length}`);
+    if (untaggedTasks.length) parts.push(`untagged:${untaggedTasks.length}`);
+    lines.push(`\nTASK LOAD BY CONTEXT: ${parts.join(' | ')} (total open: ${openTasks.length})`);
+    if (workTasks.length > 0) {
+      const workHigh = workTasks.filter(t => t.priority === 'critical' || t.priority === 'high');
+      lines.push(`  Work — ${workHigh.length} high/critical, ${workTasks.length - workHigh.length} medium/low`);
+    }
+  }
+
   // Stale inbox tasks (not updated in 14+ days, no project)
   const staleInbox = tasks.filter(t => {
     if (t.done || (t.projectId && t.project !== 'Inbox')) return false;
