@@ -205,6 +205,28 @@ export default function HomeScreen() {
     return (dailyReviews || []).some(r => r.type === 'eod' && r.date === todayDateStr);
   }, [dailyReviews]);
 
+  const morningDoneToday = useMemo(() => {
+    const todayDateStr = new Date().toDateString();
+    return (dailyReviews || []).some(r => r.type === 'morning' && r.date === todayDateStr);
+  }, [dailyReviews]);
+
+  // Weather alert — outdoor tasks scheduled on bad-weather days
+  const weatherAlertData = useMemo(() => {
+    if (!weatherForecast) return null;
+    const tomorrow = weatherForecast.forecast?.[1];
+    const outdoorTasksScheduled = tasks.filter(t =>
+      !t.done && isOutdoorTask(t) &&
+      (t.scheduledDate === todayStr || t.scheduledDate === tomorrow?.date)
+    );
+    const badDayTasks = outdoorTasksScheduled.filter(t => {
+      const dayForecast = weatherForecast.forecast?.find(d => d.date === t.scheduledDate);
+      return dayForecast && !dayForecast.outdoorFriendly;
+    });
+    if (badDayTasks.length === 0) return null;
+    const badDay = weatherForecast.forecast?.find(d => d.date === badDayTasks[0].scheduledDate);
+    return { badDay, badDayTasks };
+  }, [weatherForecast, tasks, todayStr]);
+
   // Action Center items — single source of truth for all standing to-dos
   const actionItems = useMemo(() => {
     const items = [];
@@ -224,6 +246,15 @@ export default function HomeScreen() {
         actionLabel: 'Schedule →', actionFn: () => setPlanOpen(true),
       });
     }
+    if (weatherAlertData) {
+      const { badDay, badDayTasks } = weatherAlertData;
+      items.push({
+        id: 'weather-alert', icon: '🌧', urgency: 'high',
+        label: 'Weather alert — outdoor tasks need rescheduling',
+        detail: `${badDay?.label}, ${badDay?.maxTemp}°F, ${badDay?.precipProbability}% rain on ${badDay?.date} · ${badDayTasks.map(t => t.title).join(', ')}`,
+        actionLabel: 'Reschedule →', actionFn: () => setPlanOpen(true),
+      });
+    }
     if (driftingGoals.length > 0) {
       items.push({
         id: 'drifting-goals', icon: '⚠', urgency: 'medium',
@@ -238,6 +269,14 @@ export default function HomeScreen() {
         label: 'Weekly review overdue',
         detail: weeklyReviews?.length === 0 ? 'No reviews yet — start your first weekly review' : 'Last review was over a week ago',
         actionLabel: 'Review →', actionFn: () => navigate('/review'),
+      });
+    }
+    if (!isAfter5pm && !morningDoneToday) {
+      items.push({
+        id: 'morning-review', icon: '☀', urgency: 'medium',
+        label: 'Morning review not done',
+        detail: 'Set your priorities and must-win for today',
+        actionLabel: 'Start →', actionFn: () => navigate('/review'),
       });
     }
     if (staleInboxTasks.length >= 3) {
@@ -257,7 +296,7 @@ export default function HomeScreen() {
       });
     }
     return items;
-  }, [atRiskThisWeek, deadlineRiskTasks, driftingGoals, reviewReminderDue, staleInboxTasks, isAfter5pm, eodDoneToday, weeklyReviews, navigate, setPlanOpen]); // eslint-disable-line
+  }, [atRiskThisWeek, deadlineRiskTasks, weatherAlertData, driftingGoals, reviewReminderDue, morningDoneToday, staleInboxTasks, isAfter5pm, eodDoneToday, weeklyReviews, navigate, setPlanOpen]); // eslint-disable-line
 
   // Compute display-active projects: includes stalled projects with momentum > 50
   // (same displayStatus logic as ProjectsScreen, avoids DataContext auto-stall hiding real activity)
@@ -583,35 +622,6 @@ export default function HomeScreen() {
         </div>
       )}
 
-      {/* Outdoor task weather warning */}
-      {weatherForecast && (() => {
-        const tomorrow = weatherForecast.forecast?.[1];
-        const outdoorTasksScheduled = tasks.filter(t => !t.done && isOutdoorTask(t) && (t.scheduledDate === todayStr || t.scheduledDate === (tomorrow?.date)));
-        const badDayTasks = outdoorTasksScheduled.filter(t => {
-          const dayForecast = weatherForecast.forecast?.find(d => d.date === t.scheduledDate);
-          return dayForecast && !dayForecast.outdoorFriendly;
-        });
-        if (badDayTasks.length === 0) return null;
-        const badDay = weatherForecast.forecast?.find(d => d.date === badDayTasks[0].scheduledDate);
-        return (
-          <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '12px 18px', background: tokens.blueDim, border: `1px solid ${tokens.blue}30`, borderRadius: '12px' }}>
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.blue, marginBottom: '2px' }}>
-                  🌧 Weather alert — outdoor tasks may need rescheduling
-                </div>
-                <div style={{ fontSize: '12px', color: tokens.textSecondary }}>
-                  {badDay?.label}, {badDay?.maxTemp}°F, {badDay?.precipProbability}% rain on {badDay?.date} · {badDayTasks.map(t => t.title).join(', ')}
-                </div>
-              </div>
-              <button onClick={() => setPlanOpen(true)}
-                style={{ background: tokens.blue, color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
-                Reschedule →
-              </button>
-            </div>
-          </div>
-        );
-      })()}
 
 
       {/* Quick Capture */}
