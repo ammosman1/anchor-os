@@ -226,6 +226,7 @@ export function DebtScreen() {
   const [includeCashFlow,  setIncludeCashFlow]  = useState(false);
   const [editableCF,       setEditableCF]       = useState({ monthlyIncome: '', monthlySpending: '', monthlySurplus: '' });
   const [importSaving,     setImportSaving]     = useState(false);
+  const [importProgress,   setImportProgress]   = useState(null); // { current, total }
 
   // ── Plaid load ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -336,65 +337,100 @@ export function DebtScreen() {
 
   useEffect(() => { if (debtAccounts.length > 0 && !aiText) fetchAI(); }, []); // eslint-disable-line
 
-  // ── File import ───────────────────────────────────────────────────────────
+  // ── File import (up to 10 files) ─────────────────────────────────────────
   const handleFileSelect = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImportLoading(true); setImportError('');
-    try {
-      let payload;
-      if (/\.(xlsx|xls|csv)$/i.test(file.name)) {
-        const arrayBuffer = await file.arrayBuffer();
-        const workbook    = XLSX.read(arrayBuffer, { type: 'array' });
-        const sheet       = workbook.Sheets[workbook.SheetNames[0]];
-        const rows        = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-        const headers     = (rows[0] || []).map(String);
-        const dataRows    = rows.slice(1).filter(r => r.some(c => c !== '' && c != null));
-        payload = { type: 'structured', data: { headers, rows: dataRows.map(r => r.map(String)) }, fileName: file.name };
-      } else if (/\.pdf$/i.test(file.name)) {
-        const base64 = await fileToBase64(file);
-        payload = { type: 'pdf', data: base64, fileName: file.name };
-      } else {
-        setImportError('Unsupported file type. Please upload an Excel, CSV, or PDF file.');
-        return;
+    const files = Array.from(e.target.files || []).slice(0, 10);
+    if (!files.length) return;
+    setImportLoading(true); setImportError(''); setImportProgress(null);
+
+    const token        = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+    const allAccounts  = [];
+    const allCashFlows = [];
+    const summaries    = [];
+    const skipped      = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setImportProgress({ current: i + 1, total: files.length });
+      try {
+        let payload;
+        if (/\.(xlsx|xls|csv)$/i.test(file.name)) {
+          const arrayBuffer = await file.arrayBuffer();
+          const workbook    = XLSX.read(arrayBuffer, { type: 'array' });
+          const sheet       = workbook.Sheets[workbook.SheetNames[0]];
+          const rows        = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+          const headers     = (rows[0] || []).map(String);
+          const dataRows    = rows.slice(1).filter(r => r.some(c => c !== '' && c != null));
+          payload = { type: 'structured', data: { headers, rows: dataRows.map(r => r.map(String)) }, fileName: file.name };
+        } else if (/\.pdf$/i.test(file.name)) {
+          const base64 = await fileToBase64(file);
+          payload = { type: 'pdf', data: base64, fileName: file.name };
+        } else {
+          skipped.push(file.name); continue;
+        }
+
+        const res  = await fetch('/api/finance/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ ...payload, existingAccounts: debtAccounts }),
+        });
+        const data = await res.json();
+        if (!res.ok) { skipped.push(file.name); continue; }
+
+        if (data.accounts?.length) allAccounts.push(...data.accounts);
+        if (data.cashFlow)         allCashFlows.push(data.cashFlow);
+        if (data.summary)          summaries.push(data.summary);
+      } catch (err) {
+        console.error(`Error processing ${file.name}:`, err);
+        skipped.push(file.name);
       }
-
-      const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
-      const res   = await fetch('/api/finance/extract', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ ...payload, existingAccounts: debtAccounts }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Extraction failed');
-
-      const accounts = (data.accounts || []).map(a => ({
-        ...a,
-        balance:        String(a.balance || ''),
-        interestRate:   String(a.interestRate || ''),
-        minimumPayment: String(a.minimumPayment || ''),
-        existingId:     a.isDuplicate ? (debtAccounts.find(e => e.name.toLowerCase() === (a.name || '').toLowerCase())?.id || null) : null,
-      }));
-
-      setEditableAccounts(accounts);
-      setSelectedIndices(new Set(accounts.map((_, i) => i)));
-      setImportCashFlow(data.cashFlow || null);
-      setIncludeCashFlow(!!data.cashFlow);
-      setEditableCF(data.cashFlow ? {
-        monthlyIncome:   String(data.cashFlow.monthlyIncome   || ''),
-        monthlySpending: String(data.cashFlow.monthlySpending || ''),
-        monthlySurplus:  String(data.cashFlow.monthlySurplus  || ''),
-      } : { monthlyIncome: '', monthlySpending: '', monthlySurplus: '' });
-      setImportSummary(data.summary || '');
-      setImportFileName(file.name);
-      setShowImportModal(true);
-    } catch (err) {
-      console.error('Import error:', err);
-      setImportError(err.message || 'Failed to process file. Please try again.');
-    } finally {
-      setImportLoading(false);
-      e.target.value = '';
     }
+
+    if (allAccounts.length === 0 && allCashFlows.length === 0) {
+      setImportError('No financial data found in the selected files. Check that the files contain account or transaction data.');
+      setImportLoading(false); setImportProgress(null); e.target.value = ''; return;
+    }
+
+    // Merge accounts — deduplicate by name (keep highest balance when same name appears in multiple files)
+    const accountMap = new Map();
+    for (const a of allAccounts) {
+      const key = (a.name || '').toLowerCase().trim();
+      const prev = accountMap.get(key);
+      if (!prev || (parseFloat(a.balance) || 0) > (parseFloat(prev.balance) || 0)) accountMap.set(key, a);
+    }
+    const mergedAccounts = Array.from(accountMap.values()).map(a => ({
+      ...a,
+      balance:        String(a.balance        || ''),
+      interestRate:   String(a.interestRate   || ''),
+      minimumPayment: String(a.minimumPayment || ''),
+      existingId:     a.isDuplicate ? (debtAccounts.find(e => e.name.toLowerCase() === (a.name || '').toLowerCase())?.id || null) : null,
+    }));
+
+    // Merge cash flow — sum income and spending across all sources (treats each file as a separate account/bank)
+    const mergedCF = allCashFlows.length > 0 ? (() => {
+      const inc  = Math.round(allCashFlows.reduce((s, cf) => s + (cf.monthlyIncome   || 0), 0));
+      const spen = Math.round(allCashFlows.reduce((s, cf) => s + (cf.monthlySpending || 0), 0));
+      return { monthlyIncome: inc, monthlySpending: spen, monthlySurplus: inc - spen,
+        notes: allCashFlows.length > 1 ? `Combined from ${allCashFlows.length} files` : (allCashFlows[0]?.notes || '') };
+    })() : null;
+
+    const processedCount = files.length - skipped.length;
+    const combinedSummary = files.length > 1
+      ? `Processed ${processedCount} of ${files.length} file${files.length !== 1 ? 's' : ''} — found ${mergedAccounts.length} account${mergedAccounts.length !== 1 ? 's' : ''}${allCashFlows.length > 0 ? ` and cash flow from ${allCashFlows.length} source${allCashFlows.length !== 1 ? 's' : ''}` : ''}${skipped.length > 0 ? `. Skipped: ${skipped.join(', ')}` : ''}.`
+      : (summaries[0] || `Found ${mergedAccounts.length} accounts.`);
+
+    setEditableAccounts(mergedAccounts);
+    setSelectedIndices(new Set(mergedAccounts.map((_, i) => i)));
+    setImportCashFlow(mergedCF);
+    setIncludeCashFlow(!!mergedCF);
+    setEditableCF(mergedCF
+      ? { monthlyIncome: String(mergedCF.monthlyIncome), monthlySpending: String(mergedCF.monthlySpending), monthlySurplus: String(mergedCF.monthlySurplus) }
+      : { monthlyIncome: '', monthlySpending: '', monthlySurplus: '' });
+    setImportSummary(combinedSummary);
+    setImportFileName(files.map(f => f.name).join(', '));
+    setShowImportModal(true);
+    setImportLoading(false); setImportProgress(null);
+    e.target.value = '';
   };
 
   const toggleImportIndex = (i) => {
@@ -450,9 +486,9 @@ export function DebtScreen() {
           <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '6px' }}>Real accounts. Real numbers. No guessing.</p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf" onChange={handleFileSelect} style={{ display: 'none' }} />
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
           <Button onClick={() => fileInputRef.current?.click()} loading={importLoading} variant="ghost" size="sm">
-            {importLoading ? 'Reading...' : '↑ Import File'}
+            {importLoading ? (importProgress ? `Reading ${importProgress.current}/${importProgress.total}...` : 'Reading...') : '↑ Import Files'}
           </Button>
           <Button onClick={openNew} variant="ghost" size="sm">+ Manual</Button>
         </div>
