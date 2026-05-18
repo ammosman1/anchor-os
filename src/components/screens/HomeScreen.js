@@ -162,6 +162,33 @@ export default function HomeScreen() {
     });
   }, [tasks]);
 
+  // Goal health — active goals drifting: low score OR approaching deadline with no activity this week
+  const driftingGoals = useMemo(() => {
+    const now = new Date();
+    const in60 = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return goals.filter(g => {
+      if (g.status !== 'active') return false;
+      const lowScore = g.likelihoodScore != null && g.likelihoodScore < 40;
+      const approachingDeadline = g.targetDate && (() => {
+        const [y, m] = g.targetDate.split('-').map(Number);
+        const target = new Date(y, m - 1, 1);
+        return target <= in60;
+      })();
+      if (!lowScore && !approachingDeadline) return false;
+      // Check if any tasks linked to this goal (or its projects) were updated this week
+      const linkedProjectIds = projects.filter(p => p.goalId === g.id).map(p => p.id);
+      const hasActivityThisWeek = tasks.some(t => {
+        if (t.done) return false;
+        const linked = t.goalId === g.id || linkedProjectIds.includes(t.projectId);
+        if (!linked) return false;
+        const upd = t.updatedAt?.toDate?.() || (t.updatedAt ? new Date(t.updatedAt) : new Date(0));
+        return upd >= weekAgo;
+      });
+      return !hasActivityThisWeek;
+    });
+  }, [goals, tasks, projects]);
+
   // Weekly review reminder — show if no review in last 7 days
   const reviewReminderDue = useMemo(() => {
     if (!weeklyReviews) return false;
@@ -544,6 +571,26 @@ export default function HomeScreen() {
             <button onClick={() => navigate('/tasks')}
               style={{ background: tokens.bgInput, color: tokens.textSecondary, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
               Triage →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Goal Health Banner */}
+      {driftingGoals.length > 0 && (
+        <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', background: `${tokens.red}10`, border: `1px solid ${tokens.red}40`, borderRadius: '12px' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.red, marginBottom: '2px' }}>
+                ⚠ {driftingGoals.length} goal{driftingGoals.length > 1 ? 's' : ''} drifting with no action this week
+              </div>
+              <div style={{ fontSize: '12px', color: tokens.textSecondary }}>
+                {driftingGoals.map(g => `${g.title}${g.likelihoodScore != null ? ` (${g.likelihoodScore}%)` : ''}`).join(' · ')}
+              </div>
+            </div>
+            <button onClick={() => navigate('/goals')}
+              style={{ background: tokens.bgInput, color: tokens.textSecondary, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
+              Review →
             </button>
           </div>
         </div>

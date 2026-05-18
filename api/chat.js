@@ -1,10 +1,17 @@
 // api/chat.js
 // Vercel serverless function — keeps Anthropic API key off the client
-// Deploy this by placing it in the /api folder at the root of your project
+
+import { verifyAuthToken } from './_firebase-admin.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    await verifyAuthToken(req);
+  } catch {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
   const { messages, system, maxTokens = 500 } = req.body;

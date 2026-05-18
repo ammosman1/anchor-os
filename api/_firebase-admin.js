@@ -32,3 +32,13 @@ export function getAdminMessaging() {
   getAdminApp();
   return admin.messaging();
 }
+
+// Verifies a Firebase ID token from the Authorization: Bearer <token> header.
+// Returns the decoded token (with uid) or throws if invalid/missing.
+export async function verifyAuthToken(req) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) throw new Error('Missing auth token');
+  getAdminApp();
+  return admin.auth().verifyIdToken(token);
+}

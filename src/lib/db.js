@@ -282,6 +282,21 @@ export const subscribeWeeklyReviews = (uid, cb) =>
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
 
+// ─── Daily Reviews (morning / EOD) ───────────────────────────────────────────
+// Stored in a sub-collection to avoid growing the user profile document.
+// Key is "type_date" e.g. "morning_2026-05-17" — idempotent re-saves are safe.
+export const saveDailyReview = (uid, data) =>
+  setDoc(doc(db, 'users', uid, 'dailyReviews', `${data.type}_${data.date}`), {
+    ...data,
+    savedAt: serverTimestamp(),
+  });
+
+export const subscribeDailyReviews = (uid, cb) =>
+  onSnapshot(
+    query(collection(db, 'users', uid, 'dailyReviews'), orderBy('date', 'desc'), limit(60)),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  );
+
 // ─── Work Schedule Blocks (WF import) ────────────────────────────────────────
 // Each block tracks one imported GCal event so we can delete/replace on re-import.
 export const addWorkScheduleBlock = (uid, data) =>

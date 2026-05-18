@@ -3,15 +3,13 @@ import React, { useState, useEffect } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { getProfile, disconnectCalendar } from '../../lib/db';
+import { disconnectCalendar } from '../../lib/db';
 import { initiateCalendarAuth, getValidAccessToken, getEvents, formatEventTime, formatEventDuration, deleteEvent } from '../../lib/calendar';
 import { Card, SectionLabel, MomentumBar, Button } from '../ui';
 
 function LifeScreen() {
   const { user }                                                                    = useAuth();
-  const { projects, tasks, totalDebt, debtAccounts, weeklyReviews, calendarIntegration } = useData();
-  const [dailyReviews,  setDailyReviews]  = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(true);
+  const { projects, tasks, totalDebt, debtAccounts, weeklyReviews, dailyReviews, calendarIntegration } = useData();
   const [todayEvents,   setTodayEvents]   = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
 
@@ -45,21 +43,6 @@ function LifeScreen() {
     load();
   }, [calendarIntegration?.connected, user]); // eslint-disable-line
 
-  useEffect(() => {
-    const load = async () => {
-      if (!user) return;
-      const prof = await getProfile(user.uid);
-      if (!prof) { setLoadingHistory(false); return; }
-      const reviews = [];
-      Object.entries(prof).forEach(([key, val]) => {
-        if (key.startsWith('review_morning_') || key.startsWith('review_eod_')) reviews.push({ id: key, ...val });
-      });
-      reviews.sort((a, b) => new Date(b.date) - new Date(a.date));
-      setDailyReviews(reviews);
-      setLoadingHistory(false);
-    };
-    load();
-  }, [user]);
 
   // ─── Real computed metrics ─────────────────────────────────────────────────
   const activeProjects   = projects.filter(p => p.status === 'active');

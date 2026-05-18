@@ -1,9 +1,16 @@
 // api/goals/score.js
 // Scores each active goal 0-100 using Claude.
-// Accepts optional plaidData and reviewHistory for richer accuracy.
+
+import { verifyAuthToken } from '../_firebase-admin.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
+
+  try {
+    await verifyAuthToken(req);
+  } catch {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   const { goals, tasks = [], brainDumps = [], plaidData = null, reviewHistory = [] } = req.body;
   if (!goals || !goals.length) return res.status(400).json({ error: 'goals required' });

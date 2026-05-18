@@ -3,6 +3,8 @@
 // In production: calls go to /api/chat (Vercel serverless function)
 // In development: calls go directly to Anthropic (requires REACT_APP_ANTHROPIC_KEY in .env)
 
+import { auth } from './firebase.js';
+
 let _userPersona = '';
 export function setUserPersona(text) { _userPersona = text || ''; }
 
@@ -50,8 +52,14 @@ export async function callAI({ messages, systemExtra = '', maxTokens = 500 }) {
       ? '/api/chat'
       : 'https://api.anthropic.com/v1/messages';
 
+    let authHeader = {};
+    if (process.env.NODE_ENV === 'production' && auth.currentUser) {
+      const token = await auth.currentUser.getIdToken();
+      authHeader = { 'Authorization': `Bearer ${token}` };
+    }
+
     const headers = process.env.NODE_ENV === 'production'
-      ? { 'Content-Type': 'application/json' }
+      ? { 'Content-Type': 'application/json', ...authHeader }
       : {
           'Content-Type': 'application/json',
           'x-api-key': process.env.REACT_APP_ANTHROPIC_KEY || '',
@@ -88,11 +96,16 @@ export async function getAIFocusRecommendation({ energy, topTasks, projects, hol
   const content = `Energy today: ${energy}/10.
 Top tasks: ${topTasks.map(t => t.title).join(', ')}.
 Active projects: ${projects.map(p => `${p.title} (${(p._mScore ?? p.momentum ?? 0)}% momentum, ${p.status})`).join(', ')}.
-What should I focus on right now? 2-3 sentences max. Factor in ALL active goals and projects, not just one area.`;
+
+Give me a 2-3 sentence focus recommendation for today. Requirements:
+- Every suggestion must name the specific active goal it advances (e.g. "this directly moves your [Goal Name] goal forward")
+- If something has no goal tie, say so and deprioritize it
+- Call out any goal that is drifting or at risk with no action this week
+- No fluff, no encouragement — just what to do and why it matters for the goals`;
 
   return callAI({
     messages: [{ role: 'user', content }],
-    maxTokens: 250,
+    maxTokens: 300,
     systemExtra: holisticContext ? `FULL USER CONTEXT:\n${holisticContext}` : '',
   });
 }
@@ -633,9 +646,13 @@ Rules: 2-4 milestones, 5-15 specific tasks, task titles start with action verbs,
 
 export async function scoreGoals({ goals, tasks, brainDumps, plaidData = null, reviewHistory = [] }) {
   try {
+    const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
     const res = await fetch('/api/goals/score', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({
         goals,
         tasks:         tasks.slice(0, 50),

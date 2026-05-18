@@ -1,10 +1,10 @@
 // src/components/screens/ReviewScreen.js
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { callAI, getWeeklyReviewInsight } from '../../lib/ai';
-import { saveWeeklyReview, saveProfile, getProfile, addTask, updateTask } from '../../lib/db';
+import { callAI, getWeeklyReviewInsight, scoreGoals } from '../../lib/ai';
+import { saveWeeklyReview, saveDailyReview, addTask, updateTask, updateGoal } from '../../lib/db';
 import { Card, Button, Input, SectionLabel, AICard } from '../ui';
 
 const weekKey  = (() => { const d = new Date(); const s = new Date(d.setDate(d.getDate() - d.getDay())); return s.toISOString().split('T')[0]; })();
@@ -357,6 +357,7 @@ function EODReview({ tasks, projects, onSave }) {
 // ─── Weekly Review ─────────────────────────────────────────────────────────────
 function WeeklyReview({ tasks, projects }) {
   const { user } = useAuth();
+  const { goals, brainDumps, weeklyReviews } = useData();
   const [form,      setForm]      = useState({ wins: '', bottlenecks: '', energyScore: 65, executionScore: 70, notes: '' });
   const [aiText,    setAiText]    = useState('');
   const [aiLoading, setAiLoading] = useState(false);
@@ -388,6 +389,13 @@ function WeeklyReview({ tasks, projects }) {
   const handleSave = async () => {
     await saveWeeklyReview(user.uid, weekKey, { ...form, aiInsight: aiText, weekKey, displayDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) });
     setSaved(true);
+    // Auto-score goals in the background — don't block the save confirmation
+    const activeGoals = goals.filter(g => g.status === 'active');
+    if (activeGoals.length > 0) {
+      scoreGoals({ goals: activeGoals, tasks, brainDumps, reviewHistory: weeklyReviews })
+        .then(scores => Promise.all(scores.map(s => updateGoal(user.uid, s.goalId, { likelihoodScore: s.score, likelihoodTrend: s.trend }))))
+        .catch(() => {}); // silent — scoring failure shouldn't affect save
+    }
   };
 
   return (
@@ -454,31 +462,10 @@ function WeeklyReview({ tasks, projects }) {
 
 // ─── History ──────────────────────────────────────────────────────────────────
 function ReviewHistory() {
-  const { user } = useAuth();
-  const { weeklyReviews } = useData();
-  const [dailyReviews, setDailyReviews] = useState([]);
-  const [expanded,     setExpanded]     = useState(null);
-  const [loading,      setLoading]      = useState(true);
-
-  useEffect(() => {
-    const load = async () => {
-      if (!user) return;
-      const prof = await getProfile(user.uid);
-      if (!prof) { setLoading(false); return; }
-      const reviews = [];
-      Object.entries(prof).forEach(([key, val]) => {
-        if (key.startsWith('review_morning_') || key.startsWith('review_eod_')) reviews.push({ id: key, ...val });
-      });
-      reviews.sort((a, b) => new Date(b.date) - new Date(a.date));
-      setDailyReviews(reviews);
-      setLoading(false);
-    };
-    load();
-  }, [user]);
+  const { weeklyReviews, dailyReviews } = useData();
+  const [expanded, setExpanded] = useState(null);
 
   const typeLabel = (type) => type === 'morning' ? { label: '☀ Morning', color: tokens.accent } : { label: '🌙 End of Day', color: tokens.blue };
-
-  if (loading) return <div style={{ textAlign: 'center', padding: '40px', color: tokens.textMuted }}>Loading...</div>;
 
   const hasAny = dailyReviews.length > 0 || weeklyReviews.length > 0;
   if (!hasAny) return (
@@ -582,8 +569,7 @@ export default function ReviewScreen() {
 
   const handleSaveDailyReview = async (data) => {
     if (!user) return;
-    const key = `review_${data.type}_${data.date.replace(/ /g, '_')}`;
-    await saveProfile(user.uid, { [key]: data });
+    await saveDailyReview(user.uid, data);
   };
 
   return (
