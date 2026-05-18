@@ -430,21 +430,44 @@ export function DebtScreen() {
       setImportLoading(false); setImportProgress(null); e.target.value = ''; return;
     }
 
-    // Merge accounts — deduplicate by normalized name (strips apostrophes/punctuation)
-    const normName = n => (n || '').toLowerCase().replace(/[''`'\s\-.,]/g, '').trim();
+    // Merge accounts — deduplicate by normalized name
+    // normName strips apostrophes, spaces, punctuation, and parentheses so that
+    // "Lowe's" === "Lowes" and "Mastercard (Leadbank)" normalizes cleanly
+    const normName = n => (n || '').toLowerCase().replace(/[''`'\s\-.,()]/g, '').trim();
     const accountMap = new Map();
     for (const a of allAccounts) {
       const key = normName(a.name);
       const prev = accountMap.get(key);
       if (!prev || (parseFloat(a.balance) || 0) > (parseFloat(prev.balance) || 0)) accountMap.set(key, a);
     }
-    const mergedAccounts = Array.from(accountMap.values()).map(a => ({
+    const preDedupList = Array.from(accountMap.values()).map(a => ({
       ...a,
       balance:        String(a.balance        || ''),
       interestRate:   String(a.interestRate   || ''),
       minimumPayment: String(a.minimumPayment || ''),
       existingId:     a.isDuplicate ? (debtAccounts.find(e => normName(e.name) === normName(a.name))?.id || null) : null,
     }));
+
+    // Second-pass containment dedup: catches "Best Buy Credit" vs "Best Buy Credit Card"
+    // (one normalized name is a prefix of the other → likely the same account)
+    const dominated = new Set();
+    for (let i = 0; i < preDedupList.length; i++) {
+      if (dominated.has(i)) continue;
+      const normA = normName(preDedupList[i].name);
+      if (normA.length < 6) continue;
+      for (let j = i + 1; j < preDedupList.length; j++) {
+        if (dominated.has(j)) continue;
+        const normB = normName(preDedupList[j].name);
+        if (normB.length < 6) continue;
+        if (normB.startsWith(normA) || normA.startsWith(normB)) {
+          // Keep the entry with the higher balance; tiebreak keeps i
+          const balA = parseFloat(preDedupList[i].balance) || 0;
+          const balB = parseFloat(preDedupList[j].balance) || 0;
+          dominated.add(balB > balA ? i : j);
+        }
+      }
+    }
+    const mergedAccounts = preDedupList.filter((_, i) => !dominated.has(i));
 
     // Merge cash flow — average across files (handles multiple months of same bank without inflating)
     const mergedCF = allCashFlows.length > 0 ? (() => {
