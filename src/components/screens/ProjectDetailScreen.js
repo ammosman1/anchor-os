@@ -157,19 +157,7 @@ export default function ProjectDetailScreen() {
   const loadAnalysis = useCallback(async (force = false) => {
     if (!project || analysisLoading) return;
 
-    // Compute display status locally so the AI always sees the correct status
-    const displayStatus = (project.status === 'stalled' && mScore > 50) ? 'active' : project.status;
-
-    // Auto-correct stalled status once — fire-and-forget, no reactive loop
-    if (project.status === 'stalled' && mScore > 50) {
-      updateProject(user.uid, projectId, { status: 'active' }).catch(err =>
-        console.error('Status auto-correct error:', err)
-      );
-    }
-
-    // Skip cache if status was corrected (stale analysis would reference wrong status)
-    const statusCorrected = project.status === 'stalled' && mScore > 50;
-    if (!force && !statusCorrected) {
+    if (!force) {
       const cached = await getAICache(user.uid, `project-analysis-${projectId}`, 6);
       if (cached) {
         try { setAnalysis(JSON.parse(cached)); return; } catch {}
@@ -179,7 +167,7 @@ export default function ProjectDetailScreen() {
     try {
       const holisticContext = buildContext();
       const result = await generateProjectAnalysis({
-        project:       { ...project, status: displayStatus },
+        project,
         linkedTasks:     projectTasks,
         completedTasks:  doneTasks,
         linkedGoal,
@@ -369,8 +357,8 @@ export default function ProjectDetailScreen() {
     paused:   { bg: tokens.bgGlass,           text: tokens.textMuted },
     complete: { bg: tokens.greenDim,          text: tokens.green  },
   };
-  // If stored status is stalled but momentum is healthy, display active immediately
-  // (the write to Firestore happens via loadAnalysis, but UI shouldn't wait for it)
+  // DataContext handles stall/reactivation; this is a display-only fallback for the rare
+  // case where Firestore hasn't caught up yet (no write side effect here).
   const displayStatus = (project.status === 'stalled' && mScore > 50) ? 'active' : project.status;
   const sc = statusColors[displayStatus] || statusColors.paused;
 

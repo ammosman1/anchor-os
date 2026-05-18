@@ -8,6 +8,7 @@ import {
   subscribePlaidItems, subscribeProfile, subscribeDailyReviews, updateProject,
 } from '../lib/db';
 import { setUserPersona } from '../lib/ai';
+import { calculateMomentum } from '../lib/momentum';
 
 const DataContext = createContext(null);
 
@@ -58,24 +59,45 @@ export function DataProvider({ children }) {
     return () => unsubs.forEach(u => u());
   }, [user]);
 
-  // Auto-stall active projects that haven't been updated in 5+ days.
+  // Single source of truth for project stall/reactivation status.
   // Debounced to avoid firing on every rapid snapshot update.
+  // Uses task activity (not just project.updatedAt) so working through tasks
+  // doesn't incorrectly stall a project.
   const stallTimerRef = useRef(null);
   useEffect(() => {
     if (!user || !projects.length) return;
     clearTimeout(stallTimerRef.current);
     stallTimerRef.current = setTimeout(() => {
-      const FIVE_DAYS = 5 * 24 * 60 * 60 * 1000;
-      projects
-        .filter(p => {
-          if (p.status !== 'active') return false;
-          const last = p.updatedAt?.toDate?.() || (p.updatedAt ? new Date(p.updatedAt) : new Date(0));
-          return (Date.now() - last.getTime()) > FIVE_DAYS;
-        })
-        .forEach(p => updateProject(user.uid, p.id, { status: 'stalled' }));
+      const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+
+      const latestActivity = (project) => {
+        let ms = project.updatedAt?.toDate?.().getTime()
+          ?? (project.updatedAt ? new Date(project.updatedAt).getTime() : 0);
+        for (const t of tasks.filter(t => t.projectId === project.id)) {
+          const tMs = Math.max(
+            t.completedAt ? new Date(t.completedAt).getTime() : 0,
+            t.updatedAt?.toDate?.().getTime() ?? (t.updatedAt ? new Date(t.updatedAt).getTime() : 0),
+          );
+          if (tMs > ms) ms = tMs;
+        }
+        return ms;
+      };
+
+      projects.forEach(p => {
+        const lastMs = latestActivity(p);
+        const idle = lastMs > 0 && (Date.now() - lastMs) > SEVEN_DAYS;
+        const projectTasks = tasks.filter(t => t.projectId === p.id);
+        const { score: mScore } = calculateMomentum(p, projectTasks);
+
+        if (p.status === 'active' && idle && mScore <= 50) {
+          updateProject(user.uid, p.id, { status: 'stalled' });
+        } else if (p.status === 'stalled' && (!idle || mScore > 50)) {
+          updateProject(user.uid, p.id, { status: 'active' });
+        }
+      });
     }, 2000);
     return () => clearTimeout(stallTimerRef.current);
-  }, [projects, user]); // eslint-disable-line
+  }, [projects, tasks, user]); // eslint-disable-line
 
   // Derived data
   const activeProjects  = projects.filter(p => p.status === 'active');

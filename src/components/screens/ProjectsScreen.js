@@ -1,5 +1,5 @@
 // src/components/screens/ProjectsScreen.js
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
@@ -109,21 +109,7 @@ export default function ProjectsScreen() {
     await deleteProject(user.uid, id);
   };
 
-  const stalledProjects = useMemo(() => projects.filter(p => {
-    if (p.status === 'complete' || p.status === 'paused') return false;
-    const projectTasks = tasks.filter(t => t.projectId === p.id);
-    const { score: mScore } = calculateMomentum(p, projectTasks);
-    if (mScore > 50) return false;
-    let lastMs = p.updatedAt?.toMillis?.() ?? (p.updatedAt ? new Date(p.updatedAt).getTime() : 0);
-    for (const t of projectTasks) {
-      const tMs = Math.max(
-        t.completedAt  ? new Date(t.completedAt).getTime()                           : 0,
-        t.updatedAt?.toMillis?.() ?? (t.updatedAt ? new Date(t.updatedAt).getTime() : 0),
-      );
-      if (tMs > lastMs) lastMs = tMs;
-    }
-    return lastMs > 0 && (Date.now() - lastMs) > 5 * 24 * 60 * 60 * 1000;
-  }), [projects, tasks]);
+  const stalledProjects = projects.filter(p => p.status === 'stalled');
 
   const filtered = projects
     .filter(p => filterStatus === 'all' || p.status === filterStatus)
@@ -136,7 +122,7 @@ export default function ProjectsScreen() {
           <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Project Operating System</div>
           <h1 style={{ fontFamily: fonts.display, fontSize: '26px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>Projects</h1>
           <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '6px' }}>
-            {projects.filter(p => p.status === 'active').length} active · {stalledProjects.length} stalled · {projects.filter(p => p.status === 'complete').length} complete
+            {projects.filter(p => p.status === 'active').length} active · {projects.filter(p => p.status === 'stalled').length} stalled · {projects.filter(p => p.status === 'complete').length} complete
           </p>
         </div>
         <Button onClick={openNew}>+ New Project</Button>
@@ -145,7 +131,7 @@ export default function ProjectsScreen() {
       {stalledProjects.length > 0 && (
         <div className="fade-up stagger-1" style={{ background: tokens.redDim, border: `1px solid rgba(212,122,107,0.2)`, borderRadius: '10px', padding: '12px 16px', marginBottom: '14px', display: 'flex', gap: '10px', alignItems: 'center' }}>
           <span style={{ color: tokens.red }}>⚑</span>
-          <span style={{ fontSize: '13px', color: tokens.textSecondary }}>{stalledProjects.length} project{stalledProjects.length > 1 ? 's' : ''} stalled 5+ days: {stalledProjects.map(p => p.title).join(', ')}</span>
+          <span style={{ fontSize: '13px', color: tokens.textSecondary }}>{stalledProjects.length} project{stalledProjects.length > 1 ? 's' : ''} stalled: {stalledProjects.map(p => p.title).join(', ')}</span>
         </div>
       )}
 
@@ -177,8 +163,7 @@ export default function ProjectsScreen() {
             const totalCount      = projectTasks.length;
             const linkedGoal      = p.goalId ? goals.find(g => g.id === p.goalId) : null;
             const { score: mScore } = calculateMomentum(p, projectTasks);
-            const displayStatus   = (p.status === 'stalled' && mScore > 50) ? 'active' : p.status;
-            const sc              = statusColors[displayStatus] || statusColors.paused;
+            const sc              = statusColors[p.status] || statusColors.paused;
             return (
               <div key={p.id} onClick={() => navigate(`/projects/${p.id}`)}
                 style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '12px', padding: '16px 18px', cursor: 'pointer', transition: 'all 0.18s ease' }}
@@ -190,7 +175,7 @@ export default function ProjectsScreen() {
                     <div style={{ fontWeight: 600, color: tokens.textPrimary, fontSize: '14px', marginBottom: '3px' }}>{p.title}</div>
                     <div style={{ fontSize: '11px', color: tokens.textMuted }}>{p.category} · {daysSince(p.updatedAt) || 'new'}</div>
                   </div>
-                  <Tag label={displayStatus} color={sc.bg} textColor={sc.text} />
+                  <Tag label={p.status} color={sc.bg} textColor={sc.text} />
                 </div>
                 {(linkedGoal || p.context) && (
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap' }}>

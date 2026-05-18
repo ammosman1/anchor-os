@@ -98,10 +98,10 @@ export function buildHolisticContext({
     });
   }
 
-  // Active projects — computed momentum, computed next action
-  const activeProjects = projects.filter(p => p.status === 'active' || p.status === 'planning');
+  // Active + stalled projects — computed momentum, computed next action
+  const activeProjects = projects.filter(p => ['active', 'planning', 'stalled'].includes(p.status));
   if (activeProjects.length > 0) {
-    lines.push(`\nACTIVE PROJECTS (${activeProjects.length}):`);
+    lines.push(`\nPROJECTS (${activeProjects.length}):`);
     activeProjects.forEach(p => {
       const projectTasks = tasks.filter(t => t.projectId === p.id);
       const { score: mScore } = calculateMomentum(p, projectTasks);
