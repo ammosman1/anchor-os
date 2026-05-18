@@ -88,19 +88,28 @@ export default function HomeScreen() {
   const isAfter5pm = new Date().getHours() >= 17;
   const todayStr   = todayYMD();
 
-  // Yesterday's incomplete high-priority tasks (morning rework banner)
-  const yesterdayStr = useMemo(() => {
-    const d = new Date(); d.setDate(d.getDate() - 1);
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  }, []);
-
-  const reworkTasks = useMemo(() =>
-    tasks.filter(t =>
-      !t.done &&
-      t.scheduledDate === yesterdayStr &&
-      (t.priority === 'critical' || t.priority === 'high')
-    ),
-  [tasks, yesterdayStr]);
+  // Tasks left behind: past-calendar (any priority) OR overdue by due date, excluding dropped
+  const carryForwardTasks = useMemo(() => {
+    const seen = new Set();
+    const result = [];
+    tasks.forEach(t => {
+      if (t.done || t.status === 'dropped') return;
+      let onPastCalendar = false;
+      if (t.scheduledDate && t.scheduledDate < todayStr) onPastCalendar = true;
+      if (!onPastCalendar && t.scheduledStart) {
+        const d = new Date(t.scheduledStart);
+        const local = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        if (local < todayStr) onPastCalendar = true;
+      }
+      const overdue = t.dueDate && t.dueDate < todayStr;
+      if ((onPastCalendar || overdue) && !seen.has(t.id)) {
+        seen.add(t.id);
+        result.push(t);
+      }
+    });
+    const prio = { critical: 0, high: 1, medium: 2, low: 3 };
+    return result.sort((a, b) => (prio[a.priority] ?? 2) - (prio[b.priority] ?? 2));
+  }, [tasks, todayStr]);
 
   // Today's scheduled tasks — catches both date-only and timed schedules
   const scheduledToday = tasks.filter(t => {
@@ -230,6 +239,15 @@ export default function HomeScreen() {
   // Action Center items — single source of truth for all standing to-dos
   const actionItems = useMemo(() => {
     const items = [];
+    if (carryForwardTasks.length > 0) {
+      const hasHighPriority = carryForwardTasks.some(t => t.priority === 'critical' || t.priority === 'high');
+      items.push({
+        id: 'carry-forward', icon: '⚑', urgency: hasHighPriority ? 'high' : 'medium',
+        label: `${carryForwardTasks.length} task${carryForwardTasks.length > 1 ? 's' : ''} not completed from previous days`,
+        detail: carryForwardTasks.slice(0, 3).map(t => t.title).join(' · ') + (carryForwardTasks.length > 3 ? ` +${carryForwardTasks.length - 3} more` : ''),
+        actionLabel: 'Reschedule →', actionFn: () => setPlanOpen(true),
+      });
+    }
     if (atRiskThisWeek.length > 0) {
       items.push({
         id: 'at-risk', icon: '⚑', urgency: 'high',
@@ -296,7 +314,7 @@ export default function HomeScreen() {
       });
     }
     return items;
-  }, [atRiskThisWeek, deadlineRiskTasks, weatherAlertData, driftingGoals, reviewReminderDue, morningDoneToday, staleInboxTasks, isAfter5pm, eodDoneToday, weeklyReviews, navigate, setPlanOpen]); // eslint-disable-line
+  }, [carryForwardTasks, atRiskThisWeek, deadlineRiskTasks, weatherAlertData, driftingGoals, reviewReminderDue, morningDoneToday, staleInboxTasks, isAfter5pm, eodDoneToday, weeklyReviews, navigate, setPlanOpen]); // eslint-disable-line
 
   // Compute display-active projects: includes stalled projects with momentum > 50
   // (same displayStatus logic as ProjectsScreen, avoids DataContext auto-stall hiding real activity)
@@ -565,25 +583,6 @@ export default function HomeScreen() {
         </div>
       </div>
 
-      {/* Morning rework banner — only when high-priority tasks weren't completed yesterday */}
-      {reworkTasks.length > 0 && (
-        <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: tokens.amberDim, border: `1px solid ${tokens.amber}`, borderRadius: '12px' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 700, color: tokens.amber, marginBottom: '2px' }}>
-                ⚑ {reworkTasks.length} high-priority task{reworkTasks.length > 1 ? 's' : ''} not completed yesterday
-              </div>
-              <div style={{ fontSize: '12px', color: tokens.textSecondary }}>
-                {reworkTasks.map(t => t.title).join(' · ')}
-              </div>
-            </div>
-            <button onClick={() => setPlanOpen(true)}
-              style={{ background: tokens.amber, color: '#fff', border: 'none', borderRadius: '8px', padding: '7px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, marginLeft: '12px', whiteSpace: 'nowrap' }}>
-              Rework Schedule
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Action Center */}
       {actionItems.length > 0 && (
