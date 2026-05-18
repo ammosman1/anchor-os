@@ -199,10 +199,11 @@ export default function HomeScreen() {
     return (Date.now() - lastMs) > 7 * 24 * 60 * 60 * 1000;
   }, [weeklyReviews]);
 
-  // EOD review done today
-  const eodDoneToday = useMemo(() =>
-    (dailyReviews || []).some(r => r.type === 'eod' && r.date === todayStr),
-  [dailyReviews, todayStr]);
+  // EOD review done today — ReviewScreen saves date as toDateString() e.g. "Sun May 17 2026"
+  const eodDoneToday = useMemo(() => {
+    const todayDateStr = new Date().toDateString();
+    return (dailyReviews || []).some(r => r.type === 'eod' && r.date === todayDateStr);
+  }, [dailyReviews]);
 
   // Action Center items — single source of truth for all standing to-dos
   const actionItems = useMemo(() => {
