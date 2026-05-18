@@ -6,6 +6,7 @@ import { verifyAuthToken } from '../_firebase-admin.js';
 
 const DEBT_TYPES = ['tax', 'business', 'personal', 'credit', 'auto', 'student', 'mortgage', 'medical', 'other'];
 
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
