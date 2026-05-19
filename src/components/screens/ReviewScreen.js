@@ -56,8 +56,63 @@ ${reviewText}` }],
   }
 }
 
+// ─── Review Context Panel ─────────────────────────────────────────────────────
+function ReviewContextPanel({ sections }) {
+  const [open, setOpen] = useState(false);
+  const hasContent = sections.some(s => s.items?.length > 0 || s.note);
+  if (!hasContent) return null;
+
+  return (
+    <div style={{ marginBottom: '14px' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '8px 12px', background: tokens.bgCard, border: `1px solid ${tokens.border}`,
+          borderRadius: open ? '8px 8px 0 0' : '8px', cursor: 'pointer', fontFamily: fonts.body,
+          color: tokens.textMuted, fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em',
+          transition: 'all 0.15s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = tokens.borderHover; e.currentTarget.style.color = tokens.textSecondary; }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = tokens.border; e.currentTarget.style.color = tokens.textMuted; }}
+      >
+        <span>TODAY'S CONTEXT</span>
+        <span style={{ fontSize: '10px' }}>{open ? '▲ hide' : '▾ show'}</span>
+      </button>
+      {open && (
+        <div style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderTop: 'none', borderRadius: '0 0 8px 8px', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {sections.map((section, si) => {
+            if (!section.note && (!section.items || section.items.length === 0)) return null;
+            return (
+              <div key={si}>
+                <div style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: section.color || tokens.textMuted, marginBottom: '6px' }}>
+                  {section.label}
+                </div>
+                {section.note && (
+                  <div style={{ fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.55, fontStyle: 'italic' }}>
+                    "{section.note}"
+                  </div>
+                )}
+                {section.items?.map((item, ii) => (
+                  <div key={ii} style={{ display: 'flex', alignItems: 'baseline', gap: '7px', padding: '3px 0', borderBottom: ii < section.items.length - 1 ? `1px solid ${tokens.border}` : 'none' }}>
+                    <span style={{ color: item.accent || tokens.textMuted, fontSize: '10px', flexShrink: 0 }}>{item.icon || '·'}</span>
+                    <span style={{ fontSize: '12px', color: item.done ? tokens.textMuted : tokens.textSecondary, textDecoration: item.done ? 'line-through' : 'none', lineHeight: 1.4 }}>
+                      {item.label}
+                    </span>
+                    {item.meta && <span style={{ fontSize: '10px', color: tokens.textMuted, marginLeft: 'auto', flexShrink: 0 }}>{item.meta}</span>}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Morning Review ───────────────────────────────────────────────────────────
-function MorningReview({ tasks, projects, goals, debtAccounts, totalDebt, onSave }) {
+function MorningReview({ tasks, projects, goals, debtAccounts, totalDebt, dailyReviews, onSave }) {
   const { user }  = useAuth();
   const [step,    setStep]    = useState(0);
   const [answers, setAnswers] = useState({ priorities: '', mustWin: '', mindset: '' });
@@ -102,6 +157,58 @@ function MorningReview({ tasks, projects, goals, debtAccounts, totalDebt, onSave
 
   const existsInBacklog = (title) => (tasks || []).some(t => !t.done && t.title?.toLowerCase().trim() === title?.toLowerCase().trim());
 
+  // Context panel data for Morning
+  const morningContextSections = useMemo(() => {
+    const todayStr      = new Date().toISOString().split('T')[0];
+    const yesterdayStr  = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0]; })();
+    const yesterdayKey  = new Date(Date.now() - 86400000).toDateString();
+    const PRIO_ICON     = { critical: '⚑', high: '↑', medium: '·', low: '↓' };
+
+    const todayScheduled = (tasks || []).filter(t =>
+      !t.done && (t.scheduledDate === todayStr || t.scheduledStart?.startsWith(todayStr))
+    ).sort((a, b) => {
+      const po = { critical: 0, high: 1, medium: 2, low: 3 };
+      return (po[a.priority] ?? 9) - (po[b.priority] ?? 9);
+    });
+
+    const carryForward = (tasks || []).filter(t =>
+      !t.done && t.scheduledDate && t.scheduledDate < todayStr && t.scheduledDate >= yesterdayStr
+    ).concat((tasks || []).filter(t =>
+      !t.done && t.scheduledDate && t.scheduledDate < yesterdayStr
+    )).slice(0, 6);
+
+    const yesterdayEOD = (dailyReviews || []).find(r => r.type === 'eod' && r.date === yesterdayKey);
+
+    return [
+      {
+        label: `On your plate today · ${todayScheduled.length}`,
+        color: tokens.accent,
+        items: todayScheduled.slice(0, 8).map(t => ({
+          label: t.title,
+          icon: PRIO_ICON[t.priority] || '·',
+          accent: t.priority === 'critical' ? tokens.red : t.priority === 'high' ? tokens.amber : tokens.textMuted,
+          meta: t.estimatedMinutes ? `${t.estimatedMinutes}m` : null,
+        })),
+      },
+      {
+        label: `Carrying forward · ${carryForward.length}`,
+        color: tokens.amber,
+        items: carryForward.map(t => ({
+          label: t.title,
+          icon: '⚡',
+          accent: tokens.amber,
+          meta: t.scheduledDate || null,
+        })),
+      },
+      {
+        label: 'Last night',
+        color: tokens.blue,
+        note: yesterdayEOD?.accomplished || yesterdayEOD?.reflection || null,
+        items: [],
+      },
+    ];
+  }, [tasks, dailyReviews]); // eslint-disable-line
+
   const current = steps[step];
 
   if (done) return (
@@ -145,6 +252,7 @@ function MorningReview({ tasks, projects, goals, debtAccounts, totalDebt, onSave
           <div style={{ height: '100%', width: `${((step + 1) / steps.length) * 100}%`, background: tokens.accent, borderRadius: 99, transition: 'width 0.4s ease' }} />
         </div>
       </div>
+      <ReviewContextPanel sections={morningContextSections} />
       <div key={step} className="fade-up">
         <h2 style={{ fontFamily: fonts.display, fontSize: '20px', fontWeight: 700, color: tokens.textPrimary, marginBottom: '14px', lineHeight: 1.3 }}>{current.label}</h2>
         <textarea autoFocus value={answers[current.field]} onChange={e => setAnswers(a => ({ ...a, [current.field]: e.target.value }))} placeholder={current.placeholder} rows={4}
@@ -263,7 +371,7 @@ function TaskTriage({ tasks, uid }) {
 }
 
 // ─── EOD Review ───────────────────────────────────────────────────────────────
-function EODReview({ tasks, projects, goals, debtAccounts, totalDebt, onSave }) {
+function EODReview({ tasks, projects, goals, debtAccounts, totalDebt, dailyReviews, onSave }) {
   const { user }  = useAuth();
   const [step,    setStep]    = useState(0);
   const [answers, setAnswers] = useState({ accomplished: '', unfinished: '', reflection: '' });
@@ -308,6 +416,48 @@ function EODReview({ tasks, projects, goals, debtAccounts, totalDebt, onSave }) 
   };
 
   const existsInBacklog = (title) => (tasks || []).some(t => !t.done && t.title?.toLowerCase().trim() === title?.toLowerCase().trim());
+
+  // Context panel data for EOD
+  const eodContextSections = useMemo(() => {
+    const todayStr     = new Date().toISOString().split('T')[0];
+    const PRIO_ICON    = { critical: '⚑', high: '↑', medium: '·', low: '↓' };
+    const todayMorning = (dailyReviews || []).find(r => r.type === 'morning' && r.date === todayKey);
+
+    const scheduledNotDone = (tasks || []).filter(t =>
+      !t.done && (t.scheduledDate === todayStr || t.scheduledStart?.startsWith(todayStr))
+    );
+
+    return [
+      {
+        label: `Completed today · ${doneTasks.length}`,
+        color: tokens.green,
+        items: doneTasks.slice(0, 10).map(t => ({
+          label: t.title,
+          icon: '✓',
+          accent: tokens.green,
+          done: true,
+        })),
+      },
+      {
+        label: `Still open from today's schedule · ${scheduledNotDone.length}`,
+        color: tokens.amber,
+        items: scheduledNotDone.slice(0, 6).map(t => ({
+          label: t.title,
+          icon: PRIO_ICON[t.priority] || '·',
+          accent: t.priority === 'critical' ? tokens.red : t.priority === 'high' ? tokens.amber : tokens.textMuted,
+          meta: t.estimatedMinutes ? `${t.estimatedMinutes}m` : null,
+        })),
+      },
+      {
+        label: 'This morning',
+        color: tokens.accent,
+        note: todayMorning
+          ? [todayMorning.mustWin && `Must-win: ${todayMorning.mustWin}`, todayMorning.priorities && `Priorities: ${todayMorning.priorities}`].filter(Boolean).join('\n')
+          : null,
+        items: [],
+      },
+    ];
+  }, [tasks, dailyReviews, doneTasks]); // eslint-disable-line
 
   const current = steps[step];
 
@@ -360,6 +510,7 @@ function EODReview({ tasks, projects, goals, debtAccounts, totalDebt, onSave }) 
           <div style={{ height: '100%', width: `${((step + 1) / steps.length) * 100}%`, background: tokens.accent, borderRadius: 99, transition: 'width 0.4s ease' }} />
         </div>
       </div>
+      <ReviewContextPanel sections={eodContextSections} />
       {/* Quick stats before answering */}
       {step === 0 && (
         <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
@@ -710,7 +861,7 @@ function ReviewHistory() {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function ReviewScreen() {
   const { user } = useAuth();
-  const { tasks, projects, totalDebt, goals, debtAccounts } = useData();
+  const { tasks, projects, totalDebt, goals, debtAccounts, dailyReviews } = useData();
   const [activeTab, setActiveTab] = useState('morning');
 
   const tabs = [
@@ -750,8 +901,8 @@ export default function ReviewScreen() {
       </div>
 
       <div className="fade-up stagger-2">
-        {activeTab === 'morning' && <MorningReview tasks={tasks} projects={projects} goals={goals} debtAccounts={debtAccounts} totalDebt={totalDebt} onSave={handleSaveDailyReview} />}
-        {activeTab === 'eod'     && <EODReview tasks={tasks} projects={projects} goals={goals} debtAccounts={debtAccounts} totalDebt={totalDebt} onSave={handleSaveDailyReview} />}
+        {activeTab === 'morning' && <MorningReview tasks={tasks} projects={projects} goals={goals} debtAccounts={debtAccounts} totalDebt={totalDebt} dailyReviews={dailyReviews} onSave={handleSaveDailyReview} />}
+        {activeTab === 'eod'     && <EODReview tasks={tasks} projects={projects} goals={goals} debtAccounts={debtAccounts} totalDebt={totalDebt} dailyReviews={dailyReviews} onSave={handleSaveDailyReview} />}
         {activeTab === 'weekly'  && <WeeklyReview tasks={tasks} projects={projects} />}
         {activeTab === 'history' && <ReviewHistory />}
       </div>
