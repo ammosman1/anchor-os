@@ -8,6 +8,8 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 // ─── User Profile ─────────────────────────────────────────────────────────────
 export const saveProfile = (uid, data) =>
   setDoc(doc(db, 'users', uid), { ...data, updatedAt: serverTimestamp() }, { merge: true });
@@ -17,8 +19,10 @@ export const getProfile = async (uid) => {
   return snap.exists() ? snap.data() : null;
 };
 
-export const subscribeProfile = (uid, cb) =>
-  onSnapshot(doc(db, 'users', uid), snap => cb(snap.exists() ? snap.data() : null));
+export const subscribeProfile = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(doc(db, 'users', uid), snap => cb(snap.exists() ? snap.data() : null));
+};
 
 // ─── AI Cache ─────────────────────────────────────────────────────────────────
 // Stores AI responses with timestamps — only regenerate if stale (>24h)
@@ -38,13 +42,14 @@ export const getAICache = async (uid, key, maxAgeHours = 24) => {
     const maxMs = maxAgeHours * 60 * 60 * 1000;
     if (ageMs > maxMs) return null; // stale
     return data.text;
-  } catch {
+  } catch (err) {
+    if (isDev) console.warn('getAICache error:', err);
     return null;
   }
 };
 
 export const clearAICache = async (uid, key) => {
-  try { await deleteDoc(doc(db, 'users', uid, 'aiCache', key)); } catch {}
+  try { await deleteDoc(doc(db, 'users', uid, 'aiCache', key)); } catch (err) { if (isDev) console.warn('clearAICache error:', err); }
 };
 
 // ─── Projects ─────────────────────────────────────────────────────────────────
@@ -64,11 +69,13 @@ export const updateProject = (uid, projectId, data) =>
 export const deleteProject = (uid, projectId) =>
   deleteDoc(doc(db, 'users', uid, 'projects', projectId));
 
-export const subscribeProjects = (uid, cb) =>
-  onSnapshot(
+export const subscribeProjects = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'projects'), orderBy('updatedAt', 'desc')),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // ─── Tasks ────────────────────────────────────────────────────────────────────
 export const addTask = async (uid, data) => {
@@ -95,11 +102,13 @@ export const updateTask = (uid, taskId, data) =>
 export const deleteTask = (uid, taskId) =>
   deleteDoc(doc(db, 'users', uid, 'tasks', taskId));
 
-export const subscribeTasks = (uid, cb) =>
-  onSnapshot(
+export const subscribeTasks = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'tasks'), orderBy('createdAt', 'desc')),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // ─── Brain Dumps ──────────────────────────────────────────────────────────────
 export const saveBrainDump = (uid, data) =>
@@ -114,11 +123,13 @@ export const updateBrainDump = (uid, dumpId, data) =>
     updatedAt: serverTimestamp(),
   });
 
-export const subscribeBrainDumps = (uid, cb) =>
-  onSnapshot(
+export const subscribeBrainDumps = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'brainDumps'), orderBy('createdAt', 'desc'), limit(30)),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // ─── Ideas ────────────────────────────────────────────────────────────────────
 export const addIdea = (uid, data) =>
@@ -134,11 +145,13 @@ export const updateIdea = (uid, ideaId, data) =>
     updatedAt: serverTimestamp(),
   });
 
-export const subscribeIdeas = (uid, cb) =>
-  onSnapshot(
+export const subscribeIdeas = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'ideas'), orderBy('createdAt', 'desc')),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // ─── Debt Accounts ────────────────────────────────────────────────────────────
 export const addDebtAccount = (uid, data) =>
@@ -157,11 +170,13 @@ export const updateDebtAccount = (uid, accountId, data) =>
 export const deleteDebtAccount = (uid, accountId) =>
   deleteDoc(doc(db, 'users', uid, 'debtAccounts', accountId));
 
-export const subscribeDebtAccounts = (uid, cb) =>
-  onSnapshot(
+export const subscribeDebtAccounts = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'debtAccounts'), orderBy('createdAt', 'asc')),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // ─── Advisor Chats ────────────────────────────────────────────────────────────
 export const saveAdvisorChat = (uid, sessionId, messages) =>
@@ -175,11 +190,13 @@ export const getAdvisorChat = async (uid, sessionId) => {
   return snap.exists() ? snap.data() : null;
 };
 
-export const subscribeAdvisorChats = (uid, cb) =>
-  onSnapshot(
+export const subscribeAdvisorChats = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'advisorChats'), orderBy('updatedAt', 'desc'), limit(30)),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // ─── Plaid Items ──────────────────────────────────────────────────────────────
 export const savePlaidItem = (uid, itemId, data) =>
@@ -192,11 +209,13 @@ export const savePlaidItem = (uid, itemId, data) =>
 export const deletePlaidItem = (uid, itemId) =>
   deleteDoc(doc(db, 'users', uid, 'plaidItems', itemId));
 
-export const subscribePlaidItems = (uid, cb) =>
-  onSnapshot(
+export const subscribePlaidItems = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     collection(db, 'users', uid, 'plaidItems'),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // ─── Asset Accounts ───────────────────────────────────────────────────────────
 export const addAssetAccount = (uid, data) =>
@@ -215,11 +234,13 @@ export const updateAssetAccount = (uid, accountId, data) =>
 export const deleteAssetAccount = (uid, accountId) =>
   deleteDoc(doc(db, 'users', uid, 'assetAccounts', accountId));
 
-export const subscribeAssetAccounts = (uid, cb) =>
-  onSnapshot(
+export const subscribeAssetAccounts = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'assetAccounts'), orderBy('createdAt', 'asc')),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // Appends a balance snapshot to a debt account's history array (for progress tracking)
 export const addDebtBalanceSnapshot = (uid, accountId, balance) =>
@@ -235,11 +256,13 @@ export const saveManualCashFlow = (uid, data) =>
     updatedAt: serverTimestamp(),
   });
 
-export const subscribeManualCashFlow = (uid, cb) =>
-  onSnapshot(
+export const subscribeManualCashFlow = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     doc(db, 'users', uid, 'cashFlow', 'manual'),
     snap => cb(snap.exists() ? snap.data() : null)
   );
+};
 
 // ─── Calendar Integration ─────────────────────────────────────────────────────
 export const saveCalendarTokens = (uid, data) =>
@@ -253,11 +276,13 @@ export const getCalendarTokens = async (uid) => {
   return snap.exists() ? snap.data() : null;
 };
 
-export const subscribeCalendarIntegration = (uid, cb) =>
-  onSnapshot(
+export const subscribeCalendarIntegration = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     doc(db, 'users', uid, 'integrations', 'googleCalendar'),
     snap => cb(snap.exists() ? snap.data() : null)
   );
+};
 
 export const disconnectCalendar = (uid) =>
   deleteDoc(doc(db, 'users', uid, 'integrations', 'googleCalendar'));
@@ -281,11 +306,13 @@ export const updateGoal = (uid, goalId, data) =>
 export const deleteGoal = (uid, goalId) =>
   deleteDoc(doc(db, 'users', uid, 'goals', goalId));
 
-export const subscribeGoals = (uid, cb) =>
-  onSnapshot(
+export const subscribeGoals = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'goals'), orderBy('createdAt', 'asc')),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // ─── Weekly Reviews ───────────────────────────────────────────────────────────
 export const saveWeeklyReview = (uid, weekKey, data) =>
@@ -299,11 +326,13 @@ export const getWeeklyReview = async (uid, weekKey) => {
   return snap.exists() ? snap.data() : null;
 };
 
-export const subscribeWeeklyReviews = (uid, cb) =>
-  onSnapshot(
+export const subscribeWeeklyReviews = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'weeklyReviews'), orderBy('savedAt', 'desc'), limit(12)),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // ─── Daily Reviews (morning / EOD) ───────────────────────────────────────────
 // Stored in a sub-collection to avoid growing the user profile document.
@@ -314,11 +343,13 @@ export const saveDailyReview = (uid, data) =>
     savedAt: serverTimestamp(),
   });
 
-export const subscribeDailyReviews = (uid, cb) =>
-  onSnapshot(
+export const subscribeDailyReviews = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'dailyReviews'), orderBy('date', 'desc'), limit(60)),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // ─── Work Schedule Blocks (WF import) ────────────────────────────────────────
 // Each block tracks one imported GCal event so we can delete/replace on re-import.
@@ -360,11 +391,13 @@ export const updateHabit = (uid, habitId, data) =>
 export const deleteHabit = (uid, habitId) =>
   deleteDoc(doc(db, 'users', uid, 'habits', habitId));
 
-export const subscribeHabits = (uid, cb) =>
-  onSnapshot(
+export const subscribeHabits = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'habits'), orderBy('createdAt', 'asc')),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // habitLog ID is `${habitId}_${date}` — deterministic so setDoc is idempotent
 export const setHabitLog = (uid, habitId, date, done) =>
@@ -372,11 +405,13 @@ export const setHabitLog = (uid, habitId, date, done) =>
     habitId, date, done, updatedAt: serverTimestamp(),
   });
 
-export const subscribeHabitLogs = (uid, cb) =>
-  onSnapshot(
+export const subscribeHabitLogs = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'habitLogs'), orderBy('date', 'desc'), limit(500)),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // ─── Notes ────────────────────────────────────────────────────────────────────
 export const addNote = (uid, data) =>
@@ -396,11 +431,13 @@ export const updateNote = (uid, noteId, data) =>
 export const deleteNote = (uid, noteId) =>
   deleteDoc(doc(db, 'users', uid, 'notes', noteId));
 
-export const subscribeNotes = (uid, cb) =>
-  onSnapshot(
+export const subscribeNotes = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'notes'), orderBy('updatedAt', 'desc')),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};
 
 // ─── Documents ────────────────────────────────────────────────────────────────
 export const addDocument = (uid, data) =>
@@ -419,8 +456,10 @@ export const updateDocument = (uid, docId, data) =>
 export const deleteDocument = (uid, docId) =>
   deleteDoc(doc(db, 'users', uid, 'documents', docId));
 
-export const subscribeDocuments = (uid, cb) =>
-  onSnapshot(
+export const subscribeDocuments = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
     query(collection(db, 'users', uid, 'documents'), orderBy('createdAt', 'desc')),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
+};

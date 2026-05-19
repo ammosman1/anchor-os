@@ -8,6 +8,8 @@ import { useData } from '../../context/DataContext';
 import { addDocument, deleteDocument, addTask } from '../../lib/db';
 import { Button, Modal, Spinner } from '../ui';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 const MAX_FILE_BYTES = 3 * 1024 * 1024; // 3 MB
 
 const CATEGORY_LABELS = {
@@ -143,7 +145,7 @@ export default function DocumentsScreen() {
         });
         if (res.ok) extracted = await res.json();
       } catch (err) {
-        console.warn('Extraction failed, saving without metadata:', err);
+        if (isDev) console.warn('Extraction failed, saving without metadata:', err);
       }
 
       setProgress(95);
@@ -169,7 +171,7 @@ export default function DocumentsScreen() {
 
       setProgress(100);
     } catch (err) {
-      console.error('Upload error:', err);
+      if (isDev) console.error('Upload error:', err);
       setUploadError('Upload failed. Please try again.');
     } finally {
       setUploading(false);
@@ -186,7 +188,7 @@ export default function DocumentsScreen() {
       if (deleteConf.storagePath) {
         try {
           await deleteObject(ref(storage, deleteConf.storagePath));
-        } catch (err) { console.warn('Storage delete failed:', err); }
+        } catch (err) { if (isDev) console.warn('Storage delete failed:', err); }
       }
       // Delete from Firestore
       await deleteDocument(user.uid, deleteConf.id);

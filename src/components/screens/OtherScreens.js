@@ -395,7 +395,7 @@ export function DebtScreen() {
     await deleteDebtAccount(user.uid, id); setAiText('');
   };
 
-  useEffect(() => { if (debtAccounts.length > 0 && !aiText) fetchAI(); }, []); // eslint-disable-line
+  useEffect(() => { if (debtAccounts.length > 0 && !aiText) fetchAI(); }, [debtAccounts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── File import (up to 10 files) ─────────────────────────────────────────
   const handleFileSelect = async (e) => {

@@ -14,6 +14,8 @@ import PlanScheduleFlow from './PlanScheduleFlow';
 import WorkScheduleImportModal from './WorkScheduleImportModal';
 import { fetchWeeklyWeather, weatherCodeToEmoji } from '../../lib/weather';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 const HOUR_HEIGHT = 60;
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_NAMES_LOWER = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
@@ -333,7 +335,7 @@ export default function CalendarScreen() {
           });
         }
       } catch (err) {
-        console.error('Drag reschedule failed:', err);
+        if (isDev) console.error('Drag reschedule failed:', err);
         setEvents(prev => prev.map(e => e.id === ev.id ? ev : e));
       }
     };
@@ -362,7 +364,7 @@ export default function CalendarScreen() {
             scheduledEnd:   newEnd,
           });
         } catch (err) {
-          console.error('Sync task error:', err);
+          if (isDev) console.error('Sync task error:', err);
         }
       }
     }
@@ -474,12 +476,12 @@ export default function CalendarScreen() {
                 ));
               }
             }
-          } catch (err) { console.warn('GCal update failed:', err); }
+          } catch (err) { if (isDev) console.warn('GCal update failed:', err); }
         }
       }
       setEditingTask(null);
     } catch (err) {
-      console.error('Edit save error:', err);
+      if (isDev) console.error('Edit save error:', err);
     } finally {
       setEditSaving(false);
     }
@@ -497,7 +499,7 @@ export default function CalendarScreen() {
           if (token) await updateEvent(token, task.calendarEventId, {
             end: { dateTime: now.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
           });
-        } catch (err) { console.warn('GCal end trim failed:', err); }
+        } catch (err) { if (isDev) console.warn('GCal end trim failed:', err); }
       }
     }
     await updateTask(user.uid, task.id, updates);
@@ -512,7 +514,7 @@ export default function CalendarScreen() {
         try {
           const token = await getValidAccessToken(user.uid, calendarIntegration);
           if (token) await deleteEvent(token, editingTask.calendarEventId);
-        } catch (err) { console.warn('GCal delete failed:', err); }
+        } catch (err) { if (isDev) console.warn('GCal delete failed:', err); }
         // Remove from local events state
         setEvents(prev => prev.filter(e => e.id !== editingTask.calendarEventId));
       }
@@ -525,7 +527,7 @@ export default function CalendarScreen() {
       });
       setEditingTask(null);
     } catch (err) {
-      console.error('Unschedule error:', err);
+      if (isDev) console.error('Unschedule error:', err);
     } finally {
       setEditSaving(false);
     }
@@ -611,7 +613,7 @@ export default function CalendarScreen() {
             fetched.current.delete(weekStart(ws).toISOString());
             fetchWeek(ws);
           }
-        } catch (err) { console.warn('GCal auto-schedule create failed:', err); }
+        } catch (err) { if (isDev) console.warn('GCal auto-schedule create failed:', err); }
       }
 
       await updateTask(user.uid, task.id, updates);
@@ -722,7 +724,7 @@ export default function CalendarScreen() {
           fetched.current.delete(weekStart(ws).toISOString());
           fetchWeek(ws);
         }
-      } catch (err) { console.warn('GCal event create failed:', err); }
+      } catch (err) { if (isDev) console.warn('GCal event create failed:', err); }
     }
 
     await updateTask(user.uid, task.id, updates);
@@ -735,7 +737,7 @@ export default function CalendarScreen() {
       try {
         const token = await getValidAccessToken(user.uid, calendarIntegration);
         if (token) await deleteEvent(token, realTask.calendarEventId);
-      } catch (err) { console.warn('Delete old GCal event failed on reschedule:', err); }
+      } catch (err) { if (isDev) console.warn('Delete old GCal event failed on reschedule:', err); }
     }
     await scheduleTaskAtSlot(realTask, day, mins);
   };
@@ -754,7 +756,7 @@ export default function CalendarScreen() {
         try {
           const token = await getValidAccessToken(user.uid, calendarIntegration);
           if (token) await deleteEvent(token, splitTask.calendarEventId);
-        } catch (err) { console.warn('Delete GCal event failed on split:', err); }
+        } catch (err) { if (isDev) console.warn('Delete GCal event failed on split:', err); }
       }
       await updateTask(user.uid, splitTask.id, updates);
       setSplitTask(null); setSplitSpent(''); setSplitRemaining('');
@@ -843,7 +845,7 @@ export default function CalendarScreen() {
       fetched.current.delete(weekStart(ws).toISOString());
       fetchWeek(ws);
     } catch (err) {
-      console.error('Create event error:', err);
+      if (isDev) console.error('Create event error:', err);
     } finally {
       setSaving(false);
     }
@@ -866,7 +868,7 @@ export default function CalendarScreen() {
       }
       setDetail(null);
     } catch (err) {
-      console.error('Delete error:', err);
+      if (isDev) console.error('Delete error:', err);
     } finally {
       setDeleting(false);
     }

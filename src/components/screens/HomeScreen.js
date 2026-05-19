@@ -18,6 +18,8 @@ import {
 } from '../ui';
 import PlanScheduleFlow from './PlanScheduleFlow';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 function getGreeting() {
   const h = new Date().getHours();
   if (h < 12) return 'Good morning';
@@ -425,7 +427,7 @@ export default function HomeScreen() {
       if (feedbackKey === 'briefing') fetchAI();
       else if (feedbackKey === 'weekFocus') { localStorage.removeItem('weeklyFocusCache'); setWeekFocus(null); fetchWeekFocus(); }
     } catch (err) {
-      console.error('Feedback save error:', err);
+      if (isDev) console.error('Feedback save error:', err);
     } finally {
       setFeedbackSaving(false);
     }
@@ -549,7 +551,7 @@ export default function HomeScreen() {
       await updateTask(user.uid, editingTask.id, updates);
       setEditingTask(null);
     } catch (err) {
-      console.error('Edit save error:', err);
+      if (isDev) console.error('Edit save error:', err);
     } finally {
       setEditSaving(false);
     }
@@ -568,7 +570,7 @@ export default function HomeScreen() {
       });
       setEditingTask(null);
     } catch (err) {
-      console.error('Unschedule error:', err);
+      if (isDev) console.error('Unschedule error:', err);
     } finally {
       setEditSaving(false);
     }

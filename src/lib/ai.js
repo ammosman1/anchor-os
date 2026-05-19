@@ -5,6 +5,8 @@
 
 import { auth } from './firebase.js';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 let _userPersona = '';
 export function setUserPersona(text) { _userPersona = text || ''; }
 
@@ -85,7 +87,7 @@ export async function callAI({ messages, systemExtra = '', maxTokens = 500 }) {
       return data?.content?.[0]?.text || '';
     }
   } catch (err) {
-    console.error('AI call failed:', err);
+    if (isDev) console.error('AI call failed:', err);
     return null;
   }
 }
@@ -316,8 +318,6 @@ Allowed: day = "today" | "tomorrow", focusType = "deep" | "medium" | "quick"`;
     systemExtra: 'You are a precise scheduling engine. Return only valid JSON. No preamble, no explanation, no markdown.',
   });
 
-  console.log('[buildSchedule] raw response:', raw?.slice(0, 300));
-
   try {
     const stripped = (raw || '').replace(/```json|```/g, '').trim();
     // Extract JSON object even if model added surrounding text
@@ -325,7 +325,7 @@ Allowed: day = "today" | "tomorrow", focusType = "deep" | "medium" | "quick"`;
     if (!match) return { schedule: [] };
     return JSON.parse(match[0]);
   } catch (err) {
-    console.error('[buildSchedule] parse error:', err, 'raw:', raw?.slice(0, 500));
+    if (isDev) console.error('[buildSchedule] parse error:', err, 'raw:', raw?.slice(0, 500));
     return null;
   }
 }
@@ -381,7 +381,7 @@ export async function buildScheduleForDays({ tasks, slotsMap, days, focusProfile
       if (data.error) throw new Error(data.error);
       return data;
     } catch (err) {
-      console.error('buildScheduleForDays error:', err);
+      if (isDev) console.error('buildScheduleForDays error:', err);
       return { schedule: [] };
     }
   }
@@ -442,7 +442,7 @@ Return ONLY valid JSON:
     const match = stripped.match(/\{[\s\S]*\}/);
     return match ? JSON.parse(match[0]) : { schedule: [] };
   } catch (err) {
-    console.error('[buildScheduleForDays] parse error:', err);
+    if (isDev) console.error('[buildScheduleForDays] parse error:', err);
     return { schedule: [] };
   }
 }
@@ -715,7 +715,7 @@ export async function scoreGoals({ goals, tasks, brainDumps, plaidData = null, m
     if (data.error) throw new Error(data.error);
     return data.scores || [];
   } catch (err) {
-    console.error('scoreGoals error:', err);
+    if (isDev) console.error('scoreGoals error:', err);
     return [];
   }
 }
