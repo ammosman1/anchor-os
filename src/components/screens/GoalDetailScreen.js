@@ -141,7 +141,7 @@ export default function GoalDetailScreen() {
 
   const trackedValue = useMemo(() =>
     computeTrackedValueForSource(goal?.trackingSource),
-  [goal?.trackingSource, computeTrackedValueForSource]); // eslint-disable-line
+  [goal?.trackingSource, computeTrackedValueForSource]); // eslint-disable-line react-hooks/exhaustive-deps -- computeTrackedValueForSource already captures debtAccounts/assetAccounts; listing them here would be redundant
 
   const sourceLabel = useMemo(() => {
     const src = goal?.trackingSource;
@@ -161,7 +161,7 @@ export default function GoalDetailScreen() {
     if (!goal || trackedValue == null) return;
     if (goal.currentAmount === trackedValue) return;
     updateGoal(user.uid, goalId, { currentAmount: trackedValue });
-  }, [trackedValue]); // eslint-disable-line
+  }, [trackedValue]); // eslint-disable-line react-hooks/exhaustive-deps -- only trackedValue changing should trigger a Firestore write; including goal/user would re-run on every context refresh
 
   const openSourcePicker = () => {
     const src = goal?.trackingSource || { type: 'manual' };
@@ -243,11 +243,11 @@ export default function GoalDetailScreen() {
     } finally {
       setInsightsLoading(false);
     }
-  }, [goal, goalId, user, linkedTasks, completedTasks, weeklyReviews, brainDumps, goals, tasks, projects, userProfile]); // eslint-disable-line
+  }, [goal, goalId, user, linkedTasks, completedTasks, weeklyReviews, brainDumps, goals, tasks, projects, userProfile]); // eslint-disable-line react-hooks/exhaustive-deps -- AI helper functions (getGoalInsights) are stable imports, not reactive values
 
   useEffect(() => {
     if (goal) loadInsights();
-  }, [goalId]); // eslint-disable-line
+  }, [goalId]); // eslint-disable-line react-hooks/exhaustive-deps -- loadInsights is a useCallback; adding it as a dep would cause infinite re-renders as its reference changes on each insights load
 
   const handleRescore = async () => {
     if (rescoring) return;
@@ -483,7 +483,7 @@ export default function GoalDetailScreen() {
     if (balanceOpen && plaidItems?.length > 0 && plaidAccounts.length === 0) {
       loadPlaidAccounts();
     }
-  }, [balanceOpen]); // eslint-disable-line
+  }, [balanceOpen]); // eslint-disable-line react-hooks/exhaustive-deps -- fetch should only trigger when the dialog opens, not on every plaidItems change
 
   // Auto-sync balance from Plaid on load if account is linked
   useEffect(() => {
@@ -499,7 +499,7 @@ export default function GoalDetailScreen() {
       } catch {}
     };
     autoSync();
-  }, [goalId]); // eslint-disable-line
+  }, [goalId]); // eslint-disable-line react-hooks/exhaustive-deps -- sync runs once per goal load; including plaidItems would re-run the sync on every transaction refresh
 
   const handleUpdateBalance = async () => {
     const amount = parseFloat(newBalance);

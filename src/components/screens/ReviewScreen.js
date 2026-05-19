@@ -226,7 +226,7 @@ function MorningReview({ tasks, projects, goals, debtAccounts, totalDebt, dailyR
         };
       })(),
     ].filter(Boolean);
-  }, [tasks, dailyReviews, habits, habitLogs]); // eslint-disable-line
+  }, [tasks, dailyReviews, habits, habitLogs]); // eslint-disable-line react-hooks/exhaustive-deps -- tokens and date helpers are module-level constants, not reactive values
 
   const current = steps[step];
 
@@ -476,7 +476,7 @@ function EODReview({ tasks, projects, goals, debtAccounts, totalDebt, dailyRevie
         items: [],
       },
     ];
-  }, [tasks, dailyReviews, doneTasks]); // eslint-disable-line
+  }, [tasks, dailyReviews, doneTasks]); // eslint-disable-line react-hooks/exhaustive-deps -- tokens and date helpers are module-level constants, not reactive values
 
   const current = steps[step];
 
@@ -611,7 +611,7 @@ function WeeklyReview({ tasks, projects }) {
   // Auto-generate on mount if no cached summary
   useEffect(() => {
     if (!aiSummary && tasks.length > 0) generateSummary();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mount-only: generate summary once on load; including tasks/generateSummary would spam the AI API on every state update
 
   const handleRefresh = () => {
     try { localStorage.removeItem(cacheKey); } catch {}

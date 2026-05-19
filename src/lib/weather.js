@@ -48,7 +48,9 @@ function isOutdoorFriendly(code, precipProb, windKmh) {
   return true;
 }
 
-export async function fetchWeeklyWeather(zip = '50063') {
+export const DEFAULT_ZIP = '50063';
+
+export async function fetchWeeklyWeather(zip = DEFAULT_ZIP) {
   try {
     const { lat, lon, city, state } = await getCoords(zip);
     const res = await fetch(

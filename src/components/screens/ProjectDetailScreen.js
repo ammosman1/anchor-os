@@ -152,7 +152,7 @@ export default function ProjectDetailScreen() {
         return tLower.includes(actionLower) || actionLower.includes(tLower);
       });
     });
-  }, [analysis, activeTasks]); // eslint-disable-line
+  }, [analysis, activeTasks]); // eslint-disable-line react-hooks/exhaustive-deps -- analysis and activeTasks are the only reactive inputs; string comparison helpers are stable
 
   const loadAnalysis = useCallback(async (force = false) => {
     if (!project || analysisLoading) return;
@@ -183,11 +183,11 @@ export default function ProjectDetailScreen() {
     } finally {
       setAnalysisLoading(false);
     }
-  }, [project, projectId, user, projectTasks, doneTasks, linkedGoal, buildContext, mScore]); // eslint-disable-line
+  }, [project, projectId, user, projectTasks, doneTasks, linkedGoal, buildContext, mScore]); // eslint-disable-line react-hooks/exhaustive-deps -- analysisLoading intentionally omitted; including it would create a stale closure cycle
 
   useEffect(() => {
     if (project) loadAnalysis();
-  }, [projectId]); // eslint-disable-line
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps -- loadAnalysis is a useCallback; adding it as a dep would cause infinite re-renders as its reference changes
 
   const handleFeedbackSubmit = async () => {
     if (!feedbackText.trim()) return;

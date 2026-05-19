@@ -237,3 +237,11 @@ export const globalStyles = `
   .stagger-5 { animation-delay: 0.25s; }
   .stagger-6 { animation-delay: 0.30s; }
 `;
+
+export const calEventPalette = [
+  { bg: 'rgba(91,143,212,0.88)',  border: '#5B8FD4',  text: '#fff' },
+  { bg: 'rgba(109,191,158,0.88)', border: '#6DBF9E',  text: '#fff' },
+  { bg: 'rgba(155,133,201,0.88)', border: '#9B85C9',  text: '#fff' },
+  { bg: 'rgba(212,169,107,0.88)', border: '#D4A96B',  text: '#fff' },
+  { bg: 'rgba(212,122,107,0.88)', border: '#D47A6B',  text: '#fff' },
+];

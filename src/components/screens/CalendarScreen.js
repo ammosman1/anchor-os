@@ -1,6 +1,6 @@
 // src/components/screens/CalendarScreen.js
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { tokens, fonts } from '../../lib/tokens';
+import { tokens, fonts, calEventPalette } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import {
@@ -12,7 +12,7 @@ import { updateTask } from '../../lib/db';
 import { RECURRENCE_OPTIONS } from '../../lib/tasks';
 import PlanScheduleFlow from './PlanScheduleFlow';
 import WorkScheduleImportModal from './WorkScheduleImportModal';
-import { fetchWeeklyWeather, weatherCodeToEmoji } from '../../lib/weather';
+import { fetchWeeklyWeather, weatherCodeToEmoji, DEFAULT_ZIP } from '../../lib/weather';
 
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -21,20 +21,12 @@ const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_NAMES_LOWER = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
 
-const EVENT_PALETTE = [
-  { bg: 'rgba(91,143,212,0.88)',  border: '#5B8FD4',  text: '#fff' },
-  { bg: 'rgba(109,191,158,0.88)', border: '#6DBF9E',  text: '#fff' },
-  { bg: 'rgba(155,133,201,0.88)', border: '#9B85C9',  text: '#fff' },
-  { bg: 'rgba(212,169,107,0.88)', border: '#D4A96B',  text: '#fff' },
-  { bg: 'rgba(212,122,107,0.88)', border: '#D47A6B',  text: '#fff' },
-];
-
 function eventColor(ev, idx) {
   if (ev._done) return { bg: 'rgba(109,191,158,0.28)', border: '#6DBF9E', text: 'rgba(255,255,255,0.75)' };
   if (ev._anchor) return { bg: 'rgba(200,169,110,0.88)', border: '#C8A96E', text: '#0C0E12' };
   const cid = parseInt(ev.colorId, 10);
-  if (!isNaN(cid)) return EVENT_PALETTE[(cid - 1) % EVENT_PALETTE.length] || EVENT_PALETTE[0];
-  return EVENT_PALETTE[idx % EVENT_PALETTE.length];
+  if (!isNaN(cid)) return calEventPalette[(cid - 1) % calEventPalette.length] || calEventPalette[0];
+  return calEventPalette[idx % calEventPalette.length];
 }
 
 function weekStart(date) {
@@ -197,9 +189,9 @@ export default function CalendarScreen() {
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
   useEffect(() => {
-    const zip = userProfile?.zip || '50063';
+    const zip = userProfile?.zip || DEFAULT_ZIP;
     fetchWeeklyWeather(zip).then(data => { if (data) setWeatherForecast(data); }).catch(() => {});
-  }, [userProfile?.zip]); // eslint-disable-line
+  }, [userProfile?.zip]); // eslint-disable-line react-hooks/exhaustive-deps -- fetchWeeklyWeather is a stable import; only the zip value should trigger a refetch
 
   // ── Unscheduled tasks for sidebar ─────────────────────────────────────────
   // Show tasks that have no time slot yet (no scheduledStart), regardless of whether
@@ -693,7 +685,7 @@ export default function CalendarScreen() {
     } else {
       await scheduleTaskAtSlot(task, day, mins);
     }
-  }, [userProfile]); // eslint-disable-line
+  }, [userProfile]); // eslint-disable-line react-hooks/exhaustive-deps -- rescheduleCalendarTask/scheduleTaskAtSlot are defined without useCallback; only userProfile (work hours) is a meaningful trigger
 
   const scheduleTaskAtSlot = async (task, day, mins) => {
     const start = new Date(day);

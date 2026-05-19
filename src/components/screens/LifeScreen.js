@@ -41,7 +41,7 @@ function LifeScreen() {
       finally { setLoadingEvents(false); }
     };
     load();
-  }, [calendarIntegration?.connected, user]); // eslint-disable-line
+  }, [calendarIntegration?.connected, user]); // eslint-disable-line react-hooks/exhaustive-deps -- getEvents is a stable import; date helpers inside the effect are not reactive values
 
 
   // ─── Real computed metrics ─────────────────────────────────────────────────

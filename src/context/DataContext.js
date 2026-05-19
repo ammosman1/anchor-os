@@ -111,7 +111,7 @@ export function DataProvider({ children }) {
       });
     }, 2000);
     return () => clearTimeout(stallTimerRef.current);
-  }, [projects, tasks, user]); // eslint-disable-line
+  }, [projects, tasks, user]); // eslint-disable-line react-hooks/exhaustive-deps -- updateProject is a stable db import, not a reactive value
 
   // Derived data
   const activeProjects  = projects.filter(p => p.status === 'active');

@@ -11,7 +11,7 @@ import { getValidAccessToken, getEvents } from '../../lib/calendar';
 import { calculateMomentum } from '../../lib/momentum';
 import { calculateUrgency } from '../../lib/tasks';
 import { fetchMonthlyCashFlow } from '../../lib/plaid';
-import { fetchWeeklyWeather, isOutdoorTask, weatherCodeToEmoji } from '../../lib/weather';
+import { fetchWeeklyWeather, isOutdoorTask, weatherCodeToEmoji, DEFAULT_ZIP } from '../../lib/weather';
 import {
   Card, AICard, SectionLabel, MomentumBar, Tag, Button,
   EmptyState, priorityColors, Modal, Input,
@@ -312,7 +312,7 @@ export default function HomeScreen() {
       });
     }
     return items;
-  }, [carryForwardTasks, atRiskThisWeek, deadlineRiskTasks, weatherAlertData, driftingGoals, reviewReminderDue, morningDoneToday, staleInboxTasks, isAfter5pm, eodDoneToday, weeklyReviews, navigate]); // eslint-disable-line
+  }, [carryForwardTasks, atRiskThisWeek, deadlineRiskTasks, weatherAlertData, driftingGoals, reviewReminderDue, morningDoneToday, staleInboxTasks, isAfter5pm, eodDoneToday, weeklyReviews, navigate]); // eslint-disable-line react-hooks/exhaustive-deps -- all semantically meaningful deps are listed; ESLint false-positives on react-router navigate stability
 
   // Compute display-active projects: includes stalled projects with momentum > 50
   // (same displayStatus logic as ProjectsScreen, avoids DataContext auto-stall hiding real activity)
@@ -357,7 +357,7 @@ export default function HomeScreen() {
       if (b.score != null) return 1;
       return 0;
     });
-  }, [activeGoals, tasks]); // eslint-disable-line
+  }, [activeGoals, tasks]); // eslint-disable-line react-hooks/exhaustive-deps -- all reactive inputs are listed; scoring helpers are stable imports
 
   const getHolisticContext = () => buildHolisticContext({
     goals:          goals || [],
@@ -431,7 +431,7 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchAI();
     fetchWeekFocus();
-    // eslint-disable-next-line
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: avoids spamming the AI API on every render; fetchAI/fetchWeekFocus lack useCallback
   }, []);
 
   useEffect(() => {
@@ -458,7 +458,7 @@ export default function HomeScreen() {
       } catch { /* optional enhancement — fail silently */ }
     }
     fetchDensity();
-    // eslint-disable-next-line
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- async helpers inside the effect are not reactive; only calendarIntegration connection state should trigger a refetch
   }, [calendarIntegration]);
 
   useEffect(() => {
@@ -468,17 +468,17 @@ export default function HomeScreen() {
       if (data) setPlaidData(data);
     }
     loadPlaid();
-    // eslint-disable-next-line
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchMonthlyCashFlow is a stable import; only plaidItems identity should trigger a refresh
   }, [plaidItems]);
 
   useEffect(() => {
     async function loadWeather() {
-      const zip = userProfile?.zip || '50063';
+      const zip = userProfile?.zip || DEFAULT_ZIP;
       const data = await fetchWeeklyWeather(zip);
       if (data) setWeatherForecast(data);
     }
     loadWeather();
-  }, [userProfile?.zip]); // eslint-disable-line
+  }, [userProfile?.zip]); // eslint-disable-line react-hooks/exhaustive-deps -- fetchWeeklyWeather is a stable import; only the zip value should trigger a refetch
 
   const handleEnergyChange = async (val) => {
     setEnergy(val);

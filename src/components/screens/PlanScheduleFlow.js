@@ -83,7 +83,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
 
   useEffect(() => {
     if (open) reset();
-  }, [open]); // eslint-disable-line
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- reset is defined without useCallback; including it would cause the effect to re-run on every render
 
   const toggleTask = (id) => setSelectedIds(prev => {
     const next = new Set(prev);

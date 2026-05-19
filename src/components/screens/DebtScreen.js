@@ -290,7 +290,7 @@ export default function DebtScreen() {
     };
     load();
     return () => { cancelled = true; };
-  }, [plaidItems.map(i => i.id).join(',')]); // eslint-disable-line
+  }, [plaidItems.map(i => i.id).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps -- string key intentionally tracks identity of plaid items; fetchTransactions is a stable import
 
   const plaidCashFlow = calcCashFlow(transactions);
 
@@ -306,7 +306,7 @@ export default function DebtScreen() {
       importedFrom: manualCashFlow.importedFrom,
     };
     return null;
-  }, [plaidCashFlow, manualCashFlow]); // eslint-disable-line
+  }, [plaidCashFlow, manualCashFlow]); // eslint-disable-line react-hooks/exhaustive-deps -- only the derived cash flow values trigger recalculation; helper functions are stable
 
   // â”€â”€ Financial health metrics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const totalMinimums      = debtAccounts.reduce((s, a) => s + (a.minimumPayment || 0), 0);
@@ -369,7 +369,7 @@ export default function DebtScreen() {
         const totalInterest = Math.round(accs.reduce((s, a) => s + ((a.balance || 0) * ((a.interestRate || 0) / 100 / 12)), 0));
         return { type: t, label: typeLabel, accounts: accs, totalBalance, totalMin, totalInterest };
       });
-  }, [debtAccounts]); // eslint-disable-line
+  }, [debtAccounts]); // eslint-disable-line react-hooks/exhaustive-deps -- DEBT_TYPES is a module-level constant, not a reactive value
 
   const fetchAI = async () => {
     if (!debtAccounts.length) return;
@@ -397,7 +397,7 @@ export default function DebtScreen() {
     await deleteDebtAccount(user.uid, id); setAiText('');
   };
 
-  useEffect(() => { if (debtAccounts.length > 0 && !aiText) fetchAI(); }, [debtAccounts]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (debtAccounts.length > 0 && !aiText) fetchAI(); }, [debtAccounts]); // eslint-disable-line react-hooks/exhaustive-deps -- fetchAI lacks useCallback; aiText intentionally omitted to avoid re-running when advice text changes
 
   // â”€â”€ File import (up to 10 files) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleFileSelect = async (e) => {

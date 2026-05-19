@@ -146,7 +146,7 @@ export default function AppLayout({ children }) {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [captureOpen]); // eslint-disable-line
+  }, [captureOpen]); // eslint-disable-line react-hooks/exhaustive-deps -- openCapture/closeCapture lack useCallback; adding them would cause the listener to re-register on every render
 
   const navItemStyle = (active) => ({
     width: '100%',

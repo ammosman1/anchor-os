@@ -130,7 +130,7 @@ export default function GoalsScreen() {
     if (!user || !goals.length || hasScoredRef.current) return;
     hasScoredRef.current = true;
     runScoring();
-  }, [user, goals.length]); // eslint-disable-line
+  }, [user, goals.length]); // eslint-disable-line react-hooks/exhaustive-deps -- runScoring lacks useCallback; goals.length (not goals) intentionally fires once when goals first populate, not on every goal edit
 
   const activeCount   = goals.filter(g => g.status === 'active').length;
   const achievedCount = goals.filter(g => g.status === 'achieved').length;
