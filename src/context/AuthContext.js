@@ -13,6 +13,16 @@ function isMobile() {
   return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 }
 
+// Running as an installed PWA (standalone mode).
+// On iOS, signInWithRedirect sends the user to Safari and the auth result
+// never makes it back to the standalone app context. Use popup instead.
+function isStandalonePWA() {
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true
+  );
+}
+
 export function AuthProvider({ children }) {
   const [user,    setUser]    = useState(null);
   const [profile, setProfile] = useState(null);
@@ -37,10 +47,13 @@ export function AuthProvider({ children }) {
 
   const signInWithGoogle = async () => {
     try {
-      if (isMobile()) {
-        // Use redirect on mobile — avoids popup blocking on iOS
+      if (isMobile() && !isStandalonePWA()) {
+        // Mobile browser: redirect avoids popup blocking
         await signInWithRedirect(auth, googleProvider);
       } else {
+        // Desktop or standalone PWA: use popup.
+        // Redirect cannot be used in standalone PWA — on iOS the redirect
+        // returns to Safari rather than the installed app, breaking auth.
         const result = await signInWithPopup(auth, googleProvider);
         return result.user;
       }
