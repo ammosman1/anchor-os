@@ -309,7 +309,7 @@ export default function HomeScreen() {
         id: 'eod', icon: '🌙', urgency: 'low',
         label: 'End-of-Day check-in',
         detail: 'Reflect on today, set tomorrow\'s intentions',
-        actionLabel: 'Check in →', actionFn: () => navigate('/review'),
+        actionLabel: 'Check in →', actionFn: () => navigate('/review?tab=eod'),
       });
     }
     return items;

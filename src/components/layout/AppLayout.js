@@ -8,6 +8,7 @@ import { addTask } from '../../lib/db';
 import { processSmartCapture } from '../../lib/ai';
 import InstallPrompt from '../InstallPrompt';
 import FloatingAdvisor from '../FloatingAdvisor';
+import BottomNav from './BottomNav';
 
 const NAV_GROUPS = [
   {
@@ -75,9 +76,10 @@ export default function AppLayout({ children }) {
   const { projects }                  = useData();
   const navigate                      = useNavigate();
   const location                      = useLocation();
-  const [drawerOpen, setDrawerOpen]   = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [captureOpen, setCaptureOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen]     = useState(false);
+  const [profileOpen, setProfileOpen]   = useState(false);
+  const [advisorOpen, setAdvisorOpen]   = useState(false);
+  const [captureOpen, setCaptureOpen]   = useState(false);
   const [captureText, setCaptureText] = useState('');
   const [captureProj, setCaptureProj] = useState('Inbox');
   const [captureSaving, setCaptureSaving] = useState(false);
@@ -404,7 +406,9 @@ export default function AppLayout({ children }) {
         </>
       )}
 
-      <FloatingAdvisor />
+      <FloatingAdvisor open={advisorOpen} onClose={() => setAdvisorOpen(false)} />
+
+      <BottomNav advisorOpen={advisorOpen} onAdvisorToggle={() => setAdvisorOpen(o => !o)} />
 
       {/* ── Quick Capture Sheet (⌘K) ───────────────────────────────────────────── */}
       {captureOpen && (
@@ -493,7 +497,7 @@ export default function AppLayout({ children }) {
         paddingTop: 'calc(52px + env(safe-area-inset-top, 0px) + 24px)',
         paddingLeft: location.pathname.startsWith('/calendar') ? '16px' : 'max(16px, env(safe-area-inset-left, 16px))',
         paddingRight: location.pathname.startsWith('/calendar') ? '16px' : 'max(16px, env(safe-area-inset-right, 16px))',
-        paddingBottom: 'max(40px, env(safe-area-inset-bottom, 40px))',
+        paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)',
         minHeight: '100vh',
         maxWidth: location.pathname.startsWith('/calendar') ? 'none' : '960px',
         margin: location.pathname.startsWith('/calendar') ? '0' : '0 auto',

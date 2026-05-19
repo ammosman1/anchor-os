@@ -218,7 +218,7 @@ function HistoryTab({ brainDumps, uid }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function FloatingAdvisor() {
+export default function FloatingAdvisor({ open, onClose }) {
   const { user }                                                       = useAuth();
   const { projects, tasks, goals, brainDumps, weeklyReviews,
           calendarIntegration, userProfile,
@@ -226,8 +226,7 @@ export default function FloatingAdvisor() {
           notes }                                                      = useData();
   const { pageContext }                                                = usePageContext();
 
-  // panel state
-  const [open,    setOpen]    = useState(false);
+  // panel state — controlled externally via open/onClose props
   const [tab,     setTab]     = useState('chat'); // 'chat' | 'dump'
 
   // ── chat state ────────────────────────────────────────────────────────────
@@ -296,10 +295,10 @@ export default function FloatingAdvisor() {
 
   // ── close on Escape ────────────────────────────────────────────────────────
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && open) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape' && open) onClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [open]);
+  }, [open, onClose]);
 
   // ── proactive insights (chat) ─────────────────────────────────────────────
   const proactiveInsights = useMemo(() => {
@@ -635,49 +634,20 @@ BRAIN DUMP:\n${dumpText}` }],
   // ── render ────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* ── Floating button ─────────────────────────────────────────────── */}
-      <button
-        onClick={() => setOpen(o => !o)}
-        title="AI Advisor (Esc to close)"
-        style={{
-          position: 'fixed',
-          bottom: 'max(28px, calc(env(safe-area-inset-bottom, 0px) + 20px))',
-          right:  'max(20px, env(safe-area-inset-right, 20px))',
-          width: 52, height: 52,
-          borderRadius: '50%',
-          background: open
-            ? `linear-gradient(135deg, #8B6E3A 0%, #A08040 100%)`
-            : `linear-gradient(135deg, ${tokens.accent} 0%, #C8A050 100%)`,
-          border: 'none',
-          boxShadow: `0 4px 16px rgba(154,120,48,0.45)`,
-          cursor: 'pointer',
-          zIndex: 400,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: open ? '18px' : '20px',
-          color: '#0C0E12',
-          lineHeight: 1,
-          transition: 'transform 0.18s, box-shadow 0.18s, background 0.18s',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.08)'; e.currentTarget.style.boxShadow = `0 6px 24px rgba(154,120,48,0.55)`; }}
-        onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)';    e.currentTarget.style.boxShadow = `0 4px 16px rgba(154,120,48,0.45)`; }}
-      >
-        {open ? '✕' : '✦'}
-      </button>
-
       {/* ── Panel ───────────────────────────────────────────────────────── */}
       {open && (
         <>
-          {/* Backdrop (mobile) */}
-          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 398, background: 'rgba(0,0,0,0.15)', backdropFilter: 'blur(1px)' }} />
+          {/* Backdrop */}
+          <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 398, background: 'rgba(0,0,0,0.15)', backdropFilter: 'blur(1px)' }} />
 
           <div
             className="fade-up"
             style={{
               position: 'fixed',
-              bottom: 'max(92px, calc(env(safe-area-inset-bottom, 0px) + 80px))',
+              bottom: 'calc(env(safe-area-inset-bottom, 0px) + 64px)',
               right:  'max(12px, env(safe-area-inset-right, 12px))',
               width:  'min(440px, calc(100vw - 24px))',
-              height: 'min(640px, calc(100vh - 140px))',
+              height: 'min(640px, calc(100vh - 130px))',
               background:   tokens.bgCard,
               border:       `1px solid ${tokens.border}`,
               borderRadius: '16px',
@@ -694,7 +664,7 @@ BRAIN DUMP:\n${dumpText}` }],
                 <div style={{ width: 24, height: 24, borderRadius: '7px', background: tokens.accentDim, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', flexShrink: 0 }}>✦</div>
                 <span style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 700, color: tokens.textPrimary }}>Anchor Advisor</span>
                 <div style={{ flex: 1 }} />
-                <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '16px', cursor: 'pointer', padding: '2px', lineHeight: 1 }}>✕</button>
+                <button onClick={onClose} style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '16px', cursor: 'pointer', padding: '2px', lineHeight: 1 }}>✕</button>
               </div>
               {pageLabel && (
                 <div style={{ fontSize: '11px', color: tokens.accent, background: tokens.accentDim, padding: '3px 10px', borderRadius: '6px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>

@@ -1,5 +1,6 @@
 // src/components/screens/ReviewScreen.js
 import React, { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -881,7 +882,10 @@ function ReviewHistory() {
 export default function ReviewScreen() {
   const { user } = useAuth();
   const { tasks, projects, totalDebt, goals, debtAccounts, dailyReviews, habits, habitLogs } = useData();
-  const [activeTab, setActiveTab] = useState('morning');
+  const [searchParams] = useSearchParams();
+  const validTabs = ['morning', 'eod', 'weekly', 'history'];
+  const initialTab = validTabs.includes(searchParams.get('tab')) ? searchParams.get('tab') : 'morning';
+  const [activeTab, setActiveTab] = useState(initialTab);
 
   const tabs = [
     { id: 'morning', label: '☀',  sublabel: 'Morning'    },
