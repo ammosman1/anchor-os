@@ -37,6 +37,18 @@ export function buildHolisticContext({
   const openTotal = tasks.filter(t => !t.done).length;
   lines.push(`\nEXECUTION VELOCITY: ${completedLast14} tasks completed in last 14 days (~${completedPerWeek}/week) | ${openTotal} open tasks total`);
 
+  // Completion notes — what Andrew actually found/learned when finishing tasks
+  const withNotes = recentlyCompleted.filter(t => t.completionNote).slice(0, 8);
+  if (withNotes.length > 0) {
+    lines.push(`\nCOMPLETION NOTES (what was actually found or learned — use to inform advice):`);
+    withNotes.forEach(t => {
+      const dateStr = (() => {
+        try { return new Date(t.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return '?'; }
+      })();
+      lines.push(`  [${dateStr}] "${t.title}": ${t.completionNote}`);
+    });
+  }
+
   // Weather forecast
   if (weatherForecast?.forecast?.length > 0) {
     lines.push(`\nWEATHER FORECAST (${weatherForecast.location || 'local'}):`);

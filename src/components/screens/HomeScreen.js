@@ -13,8 +13,8 @@ import { calculateUrgency } from '../../lib/tasks';
 import { fetchMonthlyCashFlow } from '../../lib/plaid';
 import { fetchWeeklyWeather, isOutdoorTask, weatherCodeToEmoji, DEFAULT_ZIP } from '../../lib/weather';
 import {
-  Card, AICard, SectionLabel, MomentumBar, Tag, Button,
-  EmptyState, priorityColors, Modal, Input,
+  Card, SectionLabel, MomentumBar, Tag, Button,
+  EmptyState, priorityColors, Modal, Input, Spinner,
 } from '../ui';
 import PlanScheduleFlow from './PlanScheduleFlow';
 
@@ -64,7 +64,7 @@ export default function HomeScreen() {
   const navigate = useNavigate();
 
   const [energy,      setEnergy]      = useState(profile?.energyToday || 7);
-  const [aiText,      setAiText]      = useState('');
+  const [aiBriefing,  setAiBriefing]  = useState(null);
   const [aiLoading,   setAiLoading]   = useState(false);
   const [quickTask,   setQuickTask]   = useState('');
   const [addingTask,  setAddingTask]  = useState(false);
@@ -77,6 +77,7 @@ export default function HomeScreen() {
   const [quote]                         = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
 
   const [feedback, setFeedback] = useState({ open: false, key: '', text: '', saving: false });
+  const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
   const [actionCenterOpen,  setActionCenterOpen]  = useState(true);
   const [calendarDensity,  setCalendarDensity]  = useState(null);
   const [calendarEvents,   setCalendarEvents]   = useState([]);
@@ -378,13 +379,13 @@ export default function HomeScreen() {
 
   const fetchAI = async () => {
     setAiLoading(true);
-    const text = await getAIFocusRecommendation({
+    const result = await getAIFocusRecommendation({
       energy,
       topTasks:         top3,
       projects:         displayActiveProjects,
       holisticContext:  getHolisticContext(),
     });
-    setAiText(text || 'Focus on your single highest-leverage task. Everything else can wait.');
+    setAiBriefing(result || { headline: 'Focus on your highest-leverage task today.', actions: [], driftFlag: null });
     setAiLoading(false);
   };
 
@@ -419,7 +420,7 @@ export default function HomeScreen() {
       await updateProfile({ aiFeedback: newFeedback });
       setFeedback({ open: false, key: '', text: '', saving: false });
       // Re-generate the relevant content
-      if (feedback.key === 'briefing') fetchAI();
+      if (feedback.key === 'briefing') { setAiBriefing(null); fetchAI(); }
       else if (feedback.key === 'weekFocus') { localStorage.removeItem('weeklyFocusCache'); setWeekFocus(null); fetchWeekFocus(); }
     } catch (err) {
       if (isDev) console.error('Feedback save error:', err);
@@ -488,9 +489,18 @@ export default function HomeScreen() {
   const handleToggleTask = async (task) => {
     if (!task.done) {
       await updateTask(user.uid, task.id, { done: true, status: 'completed', completedAt: new Date().toISOString() });
+      setCompletionNote({ open: true, task, text: '' });
     } else {
-      await updateTask(user.uid, task.id, { done: false, status: 'pending', completedAt: null });
+      await updateTask(user.uid, task.id, { done: false, status: 'pending', completedAt: null, completionNote: null });
     }
+  };
+
+  const handleSaveCompletionNote = async () => {
+    if (!completionNote.task) return;
+    if (completionNote.text.trim()) {
+      await updateTask(user.uid, completionNote.task.id, { completionNote: completionNote.text.trim() });
+    }
+    setCompletionNote({ open: false, task: null, text: '' });
   };
 
   const handleQuickAdd = async () => {
@@ -672,20 +682,73 @@ export default function HomeScreen() {
         </div>
       </div>
 
-      {/* AI Daily Briefing — primary card */}
+      {/* AI Daily Briefing — structured card */}
       <div className="fade-up stagger-2" style={{ marginBottom: '14px' }}>
-        <AICard
-          text={aiText || 'Generating your daily briefing...'}
-          loading={aiLoading}
-          onRefresh={fetchAI}
-          label="DAILY BRIEFING"
-          feedbackButtons={!aiLoading && aiText ? (
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button title="Accurate" style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👍</button>
-              <button title="Give feedback" onClick={() => setFeedback(f => ({ ...f, key: 'briefing', open: true }))} style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👎</button>
+        <div style={{
+          background: `linear-gradient(135deg, ${tokens.accentGlow} 0%, transparent 100%)`,
+          border: `1px solid ${tokens.accentDim}`,
+          borderRadius: tokens.radiusLg,
+          padding: '18px',
+          position: 'relative',
+          overflow: 'hidden',
+        }}>
+          <div style={{ position: 'absolute', top: 0, right: 0, width: 100, height: 100, background: `radial-gradient(circle, ${tokens.accentGlow} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+            <div style={{ width: 30, height: 30, borderRadius: '8px', background: tokens.accentDim, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: 0 }}>✦</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.1em', marginBottom: '8px' }}>DAILY BRIEFING</div>
+              {aiLoading ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Spinner size={14} />
+                  <span style={{ fontSize: '13px', color: tokens.textMuted }}>Thinking...</span>
+                </div>
+              ) : aiBriefing ? (
+                <div>
+                  {/* Headline */}
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: tokens.textPrimary, lineHeight: 1.5, marginBottom: aiBriefing.actions?.length ? '12px' : 0 }}>
+                    {aiBriefing.headline}
+                  </div>
+                  {/* Action bullets */}
+                  {aiBriefing.actions?.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: aiBriefing.driftFlag ? '10px' : 0 }}>
+                      {aiBriefing.actions.map((a, i) => (
+                        <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                          <span style={{ fontSize: '11px', color: tokens.accent, fontWeight: 700, marginTop: '2px', flexShrink: 0 }}>
+                            {i === 0 ? '①' : i === 1 ? '②' : i === 2 ? '③' : '④'}
+                          </span>
+                          <div>
+                            <span style={{ fontSize: '13px', color: tokens.textPrimary, fontWeight: 500 }}>{a.task}</span>
+                            {a.goal && <span style={{ fontSize: '11px', color: tokens.accent, marginLeft: '6px' }}>→ {a.goal}</span>}
+                            {a.reason && <span style={{ fontSize: '11px', color: tokens.textMuted, marginLeft: '4px' }}>· {a.reason}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Drift flag */}
+                  {aiBriefing.driftFlag && (
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'flex-start', padding: '8px 10px', background: `${tokens.amber}15`, border: `1px solid ${tokens.amber}30`, borderRadius: '7px' }}>
+                      <span style={{ fontSize: '11px', color: tokens.amber, flexShrink: 0 }}>⚑</span>
+                      <span style={{ fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.5 }}>{aiBriefing.driftFlag}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p style={{ fontSize: '13px', color: tokens.textMuted, margin: 0 }}>Generating your daily briefing...</p>
+              )}
             </div>
-          ) : null}
-        />
+          </div>
+          {!aiLoading && aiBriefing && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button title="Give feedback" onClick={() => setFeedback(f => ({ ...f, key: 'briefing', open: true }))} style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👎 Adjust</button>
+              </div>
+              <button onClick={() => { setAiBriefing(null); fetchAI(); }} style={{ fontSize: '11px', color: tokens.accent, background: tokens.accentDim, border: 'none', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', fontWeight: 600, fontFamily: fonts.body }}>
+                ↻ Refresh
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Today's Scheduled Tasks */}
@@ -967,6 +1030,31 @@ export default function HomeScreen() {
         calendarIntegration={calendarIntegration}
         weatherForecast={weatherForecast}
       />
+
+      {/* Completion Note Modal */}
+      <Modal open={completionNote.open} onClose={handleSaveCompletionNote} title="Task Done ✓">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{completionNote.task?.title}</div>
+          <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.5 }}>
+            What did you find, learn, or decide? <span style={{ color: tokens.textMuted }}>(optional — feeds your AI advisor)</span>
+          </div>
+          <textarea
+            value={completionNote.text}
+            onChange={e => setCompletionNote(n => ({ ...n, text: e.target.value }))}
+            placeholder="e.g. CPA confirmed filing, found discrepancy in section 4.2, rate was lower than expected..."
+            autoFocus
+            rows={3}
+            style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '10px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, resize: 'vertical', boxSizing: 'border-box' }}
+            onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+            onBlur={e => e.target.style.borderColor = tokens.border}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSaveCompletionNote(); }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button variant="ghost" onClick={() => setCompletionNote({ open: false, task: null, text: '' })}>Skip</Button>
+            <Button onClick={handleSaveCompletionNote}>Save Note</Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* AI Feedback Modal */}
       <Modal open={feedback.open} onClose={() => setFeedback({ open: false, key: '', text: '', saving: false })} title="Give AI Feedback">

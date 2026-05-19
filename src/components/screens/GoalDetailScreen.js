@@ -39,6 +39,41 @@ function formatTargetDate(yyyyMM) {
   return new Date(y, m - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
+function ScoreSparkline({ history, color }) {
+  if (!history || history.length < 2) return null;
+  const W = 160, H = 36, pad = 4;
+  const scores = history.map(h => h.score);
+  const min = Math.min(...scores, 0);
+  const max = Math.max(...scores, 100);
+  const range = max - min || 1;
+  const points = scores.map((s, i) => {
+    const x = pad + (i / (scores.length - 1)) * (W - pad * 2);
+    const y = H - pad - ((s - min) / range) * (H - pad * 2);
+    return `${x},${y}`;
+  }).join(' ');
+  const latest = scores[scores.length - 1];
+  const first  = scores[0];
+  const trend  = latest - first;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <svg width={W} height={H} style={{ overflow: 'visible' }}>
+        <polyline points={points} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" />
+        {scores.map((s, i) => {
+          const x = pad + (i / (scores.length - 1)) * (W - pad * 2);
+          const y = H - pad - ((s - min) / range) * (H - pad * 2);
+          return i === scores.length - 1
+            ? <circle key={i} cx={x} cy={y} r="3" fill={color} />
+            : null;
+        })}
+      </svg>
+      <span style={{ fontSize: '11px', color: trend > 0 ? tokens.green : trend < 0 ? tokens.red : tokens.textMuted, fontWeight: 700 }}>
+        {trend > 0 ? `+${trend}` : trend < 0 ? `${trend}` : '—'}
+      </span>
+      <span style={{ fontSize: '10px', color: tokens.textMuted }}>{history.length} scores</span>
+    </div>
+  );
+}
+
 function SectionLabel({ children }) {
   return (
     <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: tokens.textMuted, marginBottom: '14px' }}>
@@ -110,6 +145,8 @@ export default function GoalDetailScreen() {
   const [showSourcePicker, setShowSourcePicker] = useState(false);
   const [sourceForm,       setSourceForm]       = useState({ type: 'manual', rateThreshold: '10', accountIds: [] });
   const [savingSource,     setSavingSource]     = useState(false);
+
+  const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
 
   // All active tasks for this goal — direct link OR via a linked project
   const allActiveGoalTasks = useMemo(() => {
@@ -187,17 +224,33 @@ export default function GoalDetailScreen() {
     }
   };
 
-  // Filter out AI-suggested actions that duplicate existing tasks
+  // Filter out AI-suggested actions that duplicate existing OR recently-completed tasks.
+  // completedTasks are excluded from allActiveGoalTasks, so without this check a task
+  // completed after the 6-hour cache was written would reappear as a suggestion.
+  const recentlyCompletedGoalTasks = useMemo(() => {
+    const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    const linkedProjectIds = projects.filter(p => p.goalId === goalId).map(p => p.id);
+    return tasks.filter(t => {
+      if (!t.done) return false;
+      if (t.goalId !== goalId && !linkedProjectIds.includes(t.projectId)) return false;
+      try {
+        const ms = t.completedAt ? new Date(t.completedAt).getTime() : 0;
+        return ms > cutoff;
+      } catch { return false; }
+    });
+  }, [tasks, projects, goalId]);
+
   const dedupedActions = useMemo(() => {
     if (!insights?.thisWeekActions) return [];
+    const allCheck = [...allActiveGoalTasks, ...recentlyCompletedGoalTasks];
     return insights.thisWeekActions.filter(action => {
       const actionLower = action.toLowerCase();
-      return !allActiveGoalTasks.some(t => {
+      return !allCheck.some(t => {
         const tLower = t.title.toLowerCase();
         return tLower.includes(actionLower) || actionLower.includes(tLower);
       });
     });
-  }, [insights, allActiveGoalTasks]);
+  }, [insights, allActiveGoalTasks, recentlyCompletedGoalTasks]);
 
   // Throttle Required Actions: suppress if there are already 5+ open tasks or any task > 2h estimated
   const shouldThrottleActions = allActiveGoalTasks.length >= 5 ||
@@ -263,7 +316,14 @@ export default function GoalDetailScreen() {
         manualCashFlow: manualCashFlow || null,
       });
       const s = (scores || []).find(s => s.goalId === goalId);
-      if (s) await updateGoal(user.uid, goalId, { likelihoodScore: s.score, likelihoodTrend: s.trend });
+      if (s) {
+        const today = new Date().toISOString().split('T')[0];
+        const existing = Array.isArray(goal.scoreHistory) ? goal.scoreHistory : [];
+        const scoreHistory = [...existing.filter(e => e.date !== today), { date: today, score: s.score }]
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .slice(-90);
+        await updateGoal(user.uid, goalId, { likelihoodScore: s.score, likelihoodTrend: s.trend, scoreHistory });
+      }
     } catch (err) {
       console.error('Rescore error:', err);
     } finally {
@@ -346,11 +406,22 @@ export default function GoalDetailScreen() {
   };
 
   const handleToggleTask = async (task) => {
+    const nowDone = !task.done;
     await updateTask(user.uid, task.id, {
-      done:        !task.done,
-      status:      !task.done ? 'completed' : 'pending',
-      completedAt: !task.done ? new Date().toISOString() : null,
+      done:        nowDone,
+      status:      nowDone ? 'completed' : 'pending',
+      completedAt: nowDone ? new Date().toISOString() : null,
+      ...(nowDone ? {} : { completionNote: null }),
     });
+    if (nowDone) setCompletionNote({ open: true, task, text: '' });
+  };
+
+  const handleSaveCompletionNote = async () => {
+    if (!completionNote.task) return;
+    if (completionNote.text.trim()) {
+      await updateTask(user.uid, completionNote.task.id, { completionNote: completionNote.text.trim() });
+    }
+    setCompletionNote({ open: false, task: null, text: '' });
   };
 
   const openEditTask = (task) => {
@@ -603,6 +674,11 @@ export default function GoalDetailScreen() {
               {goal.likelihoodTrend === 'flat' && <span style={{ fontSize: '12px', color: tokens.textMuted }}>→ stable</span>}
             </div>
             <MomentumBar value={score || 0} color={scoreColor} height={5} />
+            {goal.scoreHistory?.length >= 2 && (
+              <div style={{ marginTop: '8px' }}>
+                <ScoreSparkline history={goal.scoreHistory} color={scoreColor} />
+              </div>
+            )}
           </div>
         </div>
 
@@ -1122,6 +1198,31 @@ export default function GoalDetailScreen() {
               <Button variant="ghost" onClick={() => { setEditTaskOpen(false); setEditingTask(null); }}>Cancel</Button>
               <Button onClick={handleEditTaskSave} loading={editTaskSaving} disabled={!editTaskForm.title.trim()}>Save Changes</Button>
             </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Completion Note Modal */}
+      <Modal open={completionNote.open} onClose={handleSaveCompletionNote} title="Task Done ✓">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{completionNote.task?.title}</div>
+          <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.5 }}>
+            What did you find, learn, or decide? <span style={{ color: tokens.textMuted }}>(optional — feeds your AI advisor)</span>
+          </div>
+          <textarea
+            value={completionNote.text}
+            onChange={e => setCompletionNote(n => ({ ...n, text: e.target.value }))}
+            placeholder="e.g. CPA confirmed filing, found discrepancy in section 4.2, rate was lower than expected..."
+            autoFocus
+            rows={3}
+            style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '10px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, resize: 'vertical', boxSizing: 'border-box' }}
+            onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+            onBlur={e => e.target.style.borderColor = tokens.border}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSaveCompletionNote(); }}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button variant="ghost" onClick={() => setCompletionNote({ open: false, task: null, text: '' })}>Skip</Button>
+            <Button onClick={handleSaveCompletionNote}>Save Note</Button>
           </div>
         </div>
       </Modal>

@@ -111,11 +111,16 @@ export default function GoalsScreen() {
         plaidData,
         reviewHistory: weeklyReviews || [],
       });
+      const today = new Date().toISOString().split('T')[0];
       await Promise.all(
-        scores.map(s => updateGoal(user.uid, s.goalId, {
-          likelihoodScore: s.score,
-          likelihoodTrend: s.trend,
-        }))
+        scores.map(s => {
+          const g = activeGoals.find(g => g.id === s.goalId);
+          const existing = Array.isArray(g?.scoreHistory) ? g.scoreHistory : [];
+          const scoreHistory = [...existing.filter(e => e.date !== today), { date: today, score: s.score }]
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .slice(-90);
+          return updateGoal(user.uid, s.goalId, { likelihoodScore: s.score, likelihoodTrend: s.trend, scoreHistory });
+        })
       );
       await saveAICache(user.uid, 'goals-likelihood', 'scored');
     } catch (err) {

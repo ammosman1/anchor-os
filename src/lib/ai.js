@@ -99,17 +99,39 @@ export async function getAIFocusRecommendation({ energy, topTasks, projects, hol
 Top tasks: ${topTasks.map(t => t.title).join(', ')}.
 Active projects: ${projects.map(p => `${p.title} (${(p._mScore ?? p.momentum ?? 0)}% momentum, ${p.status})`).join(', ')}.
 
-Give me a 2-3 sentence focus recommendation for today. Requirements:
-- Every suggestion must name the specific active goal it advances (e.g. "this directly moves your [Goal Name] goal forward")
-- If something has no goal tie, say so and deprioritize it
-- Call out any goal that is drifting or at risk with no action this week
-- No fluff, no encouragement — just what to do and why it matters for the goals`;
+Build today's briefing. Return ONLY valid JSON:
+{
+  "headline": "One sharp sentence (under 12 words) — the strategic priority for today",
+  "actions": [
+    {
+      "task": "Specific thing to do (under 10 words, verb-first)",
+      "goal": "Name of the goal this advances, or null if none",
+      "reason": "One phrase: why it matters today (deadline, risk, momentum)"
+    }
+  ],
+  "driftFlag": "One sentence calling out any goal at risk with no active work — or null if none"
+}
 
-  return callAI({
+Rules:
+- 2-4 action items, ordered by importance
+- Every action that has a goal tie must name it explicitly
+- Items with no goal tie go last and are marked as goal: null
+- driftFlag must name the specific goal and its score if at risk
+- No fluff, no encouragement`;
+
+  const raw = await callAI({
     messages: [{ role: 'user', content }],
-    maxTokens: 300,
-    systemExtra: holisticContext ? `FULL USER CONTEXT:\n${holisticContext}` : '',
+    maxTokens: 500,
+    systemExtra: (holisticContext ? `FULL USER CONTEXT:\n${holisticContext}\n\n` : '') + 'Return ONLY valid JSON. No markdown. No explanation.',
   });
+
+  try {
+    const clean = (raw || '{}').replace(/```json|```/g, '').trim();
+    const match = clean.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function processBrainDump(rawText) {
