@@ -10,6 +10,7 @@ import { buildHolisticContext } from '../../lib/aiContext';
 import { RECURRENCE_OPTIONS } from '../../lib/tasks';
 import { fetchMonthlyCashFlow, fetchAccounts } from '../../lib/plaid';
 import { Button, Modal, Input, MomentumBar, Spinner } from '../ui';
+import { usePageContext } from '../../context/PageContext';
 
 const GOAL_TYPE_CONFIG = {
   financial:   { label: 'Financial',   color: '#6DBF9E' },
@@ -95,8 +96,15 @@ export default function GoalDetailScreen() {
   const navigate     = useNavigate();
   const { user }     = useAuth();
   const { goals, tasks, weeklyReviews, projects, plaidItems, brainDumps, userProfile, manualCashFlow, debtAccounts, assetAccounts, totalDebt, totalAssets } = useData();
+  const { setPageContext } = usePageContext();
 
   const goal            = goals.find(g => g.id === goalId);
+
+  useEffect(() => {
+    if (!goal) return;
+    setPageContext({ type: 'goal', id: goalId, title: goal.title, data: goal });
+    return () => setPageContext(null);
+  }, [goalId, goal?.title]); // eslint-disable-line react-hooks/exhaustive-deps -- setPageContext is stable
   const linkedTasks     = tasks.filter(t => t.goalId === goalId);
   const completedTasks  = linkedTasks.filter(t => t.done);
   const activeTasks     = linkedTasks.filter(t => !t.done);

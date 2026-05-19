@@ -10,6 +10,7 @@ import { buildHolisticContext } from '../../lib/aiContext';
 import { calculateMomentum, getMomentumBlurb } from '../../lib/momentum';
 import { RECURRENCE_OPTIONS, getProjectNextAction, isTaskBlocked } from '../../lib/tasks';
 import { Button, Modal, Input, MomentumBar, Spinner } from '../ui';
+import { usePageContext } from '../../context/PageContext';
 
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
 
@@ -87,8 +88,15 @@ export default function ProjectDetailScreen() {
   const navigate      = useNavigate();
   const { user, profile, updateProfile } = useAuth();
   const { projects, tasks, goals, brainDumps, weeklyReviews, userProfile } = useData();
+  const { setPageContext } = usePageContext();
 
   const project      = projects.find(p => p.id === projectId);
+
+  useEffect(() => {
+    if (!project) return;
+    setPageContext({ type: 'project', id: projectId, title: project.title, data: project });
+    return () => setPageContext(null);
+  }, [projectId, project?.title]); // eslint-disable-line react-hooks/exhaustive-deps -- setPageContext is stable
   const linkedGoal   = project?.goalId ? goals.find(g => g.id === project.goalId) : null;
   const projectTasks = tasks.filter(t => t.projectId === projectId);
   const doneTasks    = projectTasks.filter(t => t.done);

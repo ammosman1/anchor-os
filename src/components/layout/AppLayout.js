@@ -7,6 +7,7 @@ import { useData } from '../../context/DataContext';
 import { addTask } from '../../lib/db';
 import { processSmartCapture } from '../../lib/ai';
 import InstallPrompt from '../InstallPrompt';
+import FloatingAdvisor from '../FloatingAdvisor';
 
 const NAV_GROUPS = [
   {
@@ -15,7 +16,6 @@ const NAV_GROUPS = [
       { path: '/',         icon: '⌂', label: 'Today'    },
       { path: '/tasks',    icon: '✓', label: 'Tasks'    },
       { path: '/calendar', icon: '◫', label: 'Calendar' },
-      { path: '/advisor',  icon: '✦', label: 'Advisor'  },
     ],
   },
   {
@@ -30,9 +30,8 @@ const NAV_GROUPS = [
   {
     label: 'Capture',
     items: [
-      { path: '/projects',   icon: '◈', label: 'Projects'   },
-      { path: '/brain-dump', icon: '◎', label: 'Brain Dump' },
-      { path: '/notes',      icon: '▤', label: 'Notes'      },
+      { path: '/projects', icon: '◈', label: 'Projects' },
+      { path: '/notes',    icon: '▤', label: 'Notes'    },
     ],
   },
   {
@@ -405,34 +404,9 @@ export default function AppLayout({ children }) {
         </>
       )}
 
-      {/* ── Floating Quick Capture Button ─────────────────────────────────────── */}
-      <button
-        onClick={openCapture}
-        title="Quick capture (⌘K)"
-        style={{
-          position: 'fixed',
-          bottom: 'max(28px, calc(env(safe-area-inset-bottom, 0px) + 20px))',
-          right: 'max(20px, env(safe-area-inset-right, 20px))',
-          width: 52, height: 52,
-          borderRadius: '50%',
-          background: `linear-gradient(135deg, ${tokens.accent} 0%, #C8A050 100%)`,
-          border: 'none',
-          boxShadow: `0 4px 16px rgba(154,120,48,0.4)`,
-          cursor: 'pointer',
-          zIndex: 190,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: '24px', fontWeight: 700,
-          color: '#0C0E12',
-          lineHeight: 1,
-          transition: 'transform 0.15s, box-shadow 0.15s',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.08)'; e.currentTarget.style.boxShadow = `0 6px 24px rgba(154,120,48,0.5)`; }}
-        onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)';    e.currentTarget.style.boxShadow = `0 4px 16px rgba(154,120,48,0.4)`; }}
-      >
-        +
-      </button>
+      <FloatingAdvisor />
 
-      {/* ── Quick Capture Sheet ────────────────────────────────────────────────── */}
+      {/* ── Quick Capture Sheet (⌘K) ───────────────────────────────────────────── */}
       {captureOpen && (
         <>
           <div

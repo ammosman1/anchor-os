@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataProvider } from './context/DataContext';
+import { PageContextProvider } from './context/PageContext';
 import { globalStyles } from './lib/tokens';
 import AppLayout        from './components/layout/AppLayout';
 import { handleCalendarCallback } from './lib/calendar';
@@ -57,28 +58,30 @@ function AppRoutes() {
 
   return (
     <DataProvider>
-      <AppLayout>
-        <Routes>
-          <Route path="/"           element={<HomeScreen />}      />
-          <Route path="/tasks"      element={<TasksScreen />}     />
-          <Route path="/projects"              element={<ProjectsScreen />}      />
-          <Route path="/projects/:projectId" element={<ProjectDetailScreen />} />
-          <Route path="/brain-dump" element={<BrainDumpScreen />} />
-          <Route path="/advisor"    element={<AdvisorScreen />}   />
-          <Route path="/review"     element={<ReviewScreen />}    />
-          <Route path="/ideas"      element={<IdeasScreen />}     />
-          <Route path="/debt"       element={<DebtScreen />}      />
-          <Route path="/life"       element={<LifeScreen />}      />
-          <Route path="/goals"          element={<GoalsScreen />}      />
-          <Route path="/goals/:goalId"  element={<GoalDetailScreen />} />
-          <Route path="/calendar"   element={<CalendarScreen />}  />
-          <Route path="/habits"     element={<HabitsScreen />}    />
-          <Route path="/notes"      element={<NotesScreen />}     />
-          <Route path="/documents"  element={<DocumentsScreen />} />
-          <Route path="/profile"    element={<ProfileScreen />}   />
-          <Route path="*"           element={<Navigate to="/" />} />
-        </Routes>
-      </AppLayout>
+      <PageContextProvider>
+        <AppLayout>
+          <Routes>
+            <Route path="/"           element={<HomeScreen />}      />
+            <Route path="/tasks"      element={<TasksScreen />}     />
+            <Route path="/projects"              element={<ProjectsScreen />}      />
+            <Route path="/projects/:projectId" element={<ProjectDetailScreen />} />
+            <Route path="/brain-dump" element={<Navigate to="/" />} />
+            <Route path="/advisor"    element={<Navigate to="/" />} />
+            <Route path="/review"     element={<ReviewScreen />}    />
+            <Route path="/ideas"      element={<IdeasScreen />}     />
+            <Route path="/debt"       element={<DebtScreen />}      />
+            <Route path="/life"       element={<LifeScreen />}      />
+            <Route path="/goals"          element={<GoalsScreen />}      />
+            <Route path="/goals/:goalId"  element={<GoalDetailScreen />} />
+            <Route path="/calendar"   element={<CalendarScreen />}  />
+            <Route path="/habits"     element={<HabitsScreen />}    />
+            <Route path="/notes"      element={<NotesScreen />}     />
+            <Route path="/documents"  element={<DocumentsScreen />} />
+            <Route path="/profile"    element={<ProfileScreen />}   />
+            <Route path="*"           element={<Navigate to="/" />} />
+          </Routes>
+        </AppLayout>
+      </PageContextProvider>
     </DataProvider>
   );
 }
