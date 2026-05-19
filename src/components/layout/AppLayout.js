@@ -21,6 +21,7 @@ const NAV_GROUPS = [
     label: 'Reflect',
     items: [
       { path: '/review', icon: '◷', label: 'Review'  },
+      { path: '/habits', icon: '⊙', label: 'Habits'  },
       { path: '/goals',  icon: '◆', label: 'Goals'   },
       { path: '/life',   icon: '▦', label: 'Life OS' },
     ],
@@ -30,13 +31,15 @@ const NAV_GROUPS = [
     items: [
       { path: '/projects',   icon: '◈', label: 'Projects'   },
       { path: '/brain-dump', icon: '◎', label: 'Brain Dump' },
+      { path: '/notes',      icon: '▤', label: 'Notes'      },
     ],
   },
   {
     label: 'More',
     items: [
-      { path: '/ideas',     icon: '◇', label: 'Ideas'     },
-      { path: '/debt',      icon: '◉', label: 'Finance'   },
+      { path: '/ideas',     icon: '◇', label: 'Ideas'      },
+      { path: '/debt',      icon: '◉', label: 'Finance'    },
+      { path: '/documents', icon: '▣', label: 'Documents'  },
     ],
   },
 ];
@@ -47,12 +50,15 @@ const PAGE_TITLES = {
   '/calendar':   'Calendar',
   '/advisor':    'Advisor',
   '/review':     'Review',
+  '/habits':     'Habits',
   '/goals':      'Goals',
   '/life':       'Life OS',
   '/projects':   'Projects',
   '/brain-dump': 'Brain Dump',
+  '/notes':      'Notes',
   '/ideas':      'Ideas',
   '/debt':       'Finance',
+  '/documents':  'Documents',
   '/profile':    'Settings',
 };
 

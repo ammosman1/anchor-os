@@ -12,6 +12,7 @@ export function buildHolisticContext({
   debtAccounts = [], assetAccounts = [],
   calendarDensity = null, calendarEvents = [],
   weatherForecast = null,
+  notes = [],
 }) {
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -290,6 +291,19 @@ export function buildHolisticContext({
       const breakdown = Object.entries(byType).map(([t, v]) => `${t}:$${v.toLocaleString()}`).join(' | ');
       lines.push(`  Asset breakdown: ${breakdown}`);
     }
+  }
+
+  // Pinned + recent notes — surface as context for the AI
+  const pinnedNotes = notes.filter(n => n.pinned);
+  const recentNotes = notes.filter(n => !n.pinned).slice(0, 4);
+  if (pinnedNotes.length > 0 || recentNotes.length > 0) {
+    lines.push(`\nNOTES:`);
+    pinnedNotes.forEach(n => {
+      lines.push(`  📌 "${n.title}"${n.body ? ': ' + n.body.slice(0, 200).replace(/\n/g, ' ') + (n.body.length > 200 ? '…' : '') : ''}`);
+    });
+    recentNotes.forEach(n => {
+      lines.push(`  · "${n.title}"${n.body ? ': ' + n.body.slice(0, 120).replace(/\n/g, ' ') + (n.body.length > 120 ? '…' : '') : ''}`);
+    });
   }
 
   // Past feedback corrections — always enforced

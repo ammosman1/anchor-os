@@ -7,6 +7,7 @@ import {
   subscribeWeeklyReviews, subscribeGoals, subscribeCalendarIntegration,
   subscribePlaidItems, subscribeProfile, subscribeDailyReviews, updateProject,
   subscribeManualCashFlow, subscribeAssetAccounts,
+  subscribeHabits, subscribeHabitLogs, subscribeNotes, subscribeDocuments,
 } from '../lib/db';
 import { setUserPersona } from '../lib/ai';
 import { calculateMomentum } from '../lib/momentum';
@@ -28,6 +29,10 @@ export function DataProvider({ children }) {
   const [dailyReviews,        setDailyReviews]        = useState([]);
   const [manualCashFlow,      setManualCashFlow]      = useState(null);
   const [assetAccounts,       setAssetAccounts]       = useState([]);
+  const [habits,              setHabits]              = useState([]);
+  const [habitLogs,           setHabitLogs]           = useState([]);
+  const [notes,               setNotes]               = useState([]);
+  const [documents,           setDocuments]           = useState([]);
   const [loaded,              setLoaded]              = useState(false);
 
   useEffect(() => {
@@ -35,7 +40,9 @@ export function DataProvider({ children }) {
       setProjects([]); setTasks([]); setDebtAccounts([]);
       setIdeas([]); setBrainDumps([]);
       setWeeklyReviews([]); setGoals([]); setCalendarIntegration(null); setPlaidItems([]);
-      setDailyReviews([]); setManualCashFlow(null); setAssetAccounts([]); setLoaded(false);
+      setDailyReviews([]); setManualCashFlow(null); setAssetAccounts([]);
+      setHabits([]); setHabitLogs([]); setNotes([]); setDocuments([]);
+      setLoaded(false);
       return;
     }
 
@@ -52,6 +59,10 @@ export function DataProvider({ children }) {
       subscribeDailyReviews(user.uid,        setDailyReviews),
       subscribeManualCashFlow(user.uid,      setManualCashFlow),
       subscribeAssetAccounts(user.uid,       setAssetAccounts),
+      subscribeHabits(user.uid,              setHabits),
+      subscribeHabitLogs(user.uid,           setHabitLogs),
+      subscribeNotes(user.uid,               setNotes),
+      subscribeDocuments(user.uid,           setDocuments),
       subscribeProfile(user.uid, (prof) => {
         setUserProfile(prof);
         if (prof?.persona) setUserPersona(prof.persona);
@@ -113,6 +124,7 @@ export function DataProvider({ children }) {
   return (
     <DataContext.Provider value={{
       projects, tasks, debtAccounts, assetAccounts, ideas, brainDumps, weeklyReviews, goals, calendarIntegration, plaidItems, userProfile, dailyReviews, manualCashFlow,
+      habits, habitLogs, notes, documents,
       activeProjects, stalledProjects, todayTasks, totalDebt, totalAssets, activeGoals,
       loaded,
     }}>

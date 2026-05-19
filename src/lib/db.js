@@ -341,3 +341,86 @@ export const getWorkScheduleBlocksInRange = async (uid, rangeStart, rangeEnd) =>
 
 export const deleteWorkScheduleBlock = (uid, blockId) =>
   deleteDoc(doc(db, 'users', uid, 'workScheduleBlocks', blockId));
+
+// ─── Habits ───────────────────────────────────────────────────────────────────
+export const addHabit = (uid, data) =>
+  addDoc(collection(db, 'users', uid, 'habits'), {
+    ...data,
+    active: true,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+export const updateHabit = (uid, habitId, data) =>
+  updateDoc(doc(db, 'users', uid, 'habits', habitId), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+
+export const deleteHabit = (uid, habitId) =>
+  deleteDoc(doc(db, 'users', uid, 'habits', habitId));
+
+export const subscribeHabits = (uid, cb) =>
+  onSnapshot(
+    query(collection(db, 'users', uid, 'habits'), orderBy('createdAt', 'asc')),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  );
+
+// habitLog ID is `${habitId}_${date}` — deterministic so setDoc is idempotent
+export const setHabitLog = (uid, habitId, date, done) =>
+  setDoc(doc(db, 'users', uid, 'habitLogs', `${habitId}_${date}`), {
+    habitId, date, done, updatedAt: serverTimestamp(),
+  });
+
+export const subscribeHabitLogs = (uid, cb) =>
+  onSnapshot(
+    query(collection(db, 'users', uid, 'habitLogs'), orderBy('date', 'desc'), limit(500)),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  );
+
+// ─── Notes ────────────────────────────────────────────────────────────────────
+export const addNote = (uid, data) =>
+  addDoc(collection(db, 'users', uid, 'notes'), {
+    ...data,
+    pinned: false,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+export const updateNote = (uid, noteId, data) =>
+  updateDoc(doc(db, 'users', uid, 'notes', noteId), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+
+export const deleteNote = (uid, noteId) =>
+  deleteDoc(doc(db, 'users', uid, 'notes', noteId));
+
+export const subscribeNotes = (uid, cb) =>
+  onSnapshot(
+    query(collection(db, 'users', uid, 'notes'), orderBy('updatedAt', 'desc')),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  );
+
+// ─── Documents ────────────────────────────────────────────────────────────────
+export const addDocument = (uid, data) =>
+  addDoc(collection(db, 'users', uid, 'documents'), {
+    ...data,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+export const updateDocument = (uid, docId, data) =>
+  updateDoc(doc(db, 'users', uid, 'documents', docId), {
+    ...data,
+    updatedAt: serverTimestamp(),
+  });
+
+export const deleteDocument = (uid, docId) =>
+  deleteDoc(doc(db, 'users', uid, 'documents', docId));
+
+export const subscribeDocuments = (uid, cb) =>
+  onSnapshot(
+    query(collection(db, 'users', uid, 'documents'), orderBy('createdAt', 'desc')),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  );

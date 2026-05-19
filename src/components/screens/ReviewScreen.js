@@ -112,7 +112,7 @@ function ReviewContextPanel({ sections }) {
 }
 
 // ─── Morning Review ───────────────────────────────────────────────────────────
-function MorningReview({ tasks, projects, goals, debtAccounts, totalDebt, dailyReviews, onSave }) {
+function MorningReview({ tasks, projects, goals, debtAccounts, totalDebt, dailyReviews, habits, habitLogs, onSave }) {
   const { user }  = useAuth();
   const [step,    setStep]    = useState(0);
   const [answers, setAnswers] = useState({ priorities: '', mustWin: '', mindset: '' });
@@ -206,8 +206,27 @@ function MorningReview({ tasks, projects, goals, debtAccounts, totalDebt, dailyR
         note: yesterdayEOD?.accomplished || yesterdayEOD?.reflection || null,
         items: [],
       },
-    ];
-  }, [tasks, dailyReviews]); // eslint-disable-line
+      (() => {
+        const today = todayStr;
+        const activeHabits = (habits || []).filter(h => h.active !== false);
+        if (!activeHabits.length) return null;
+        const habitsToday = activeHabits.filter(h => {
+          if (h.frequency === 'weekdays') {
+            const day = new Date(today + 'T12:00:00').getDay();
+            return day >= 1 && day <= 5;
+          }
+          return true;
+        });
+        if (!habitsToday.length) return null;
+        const doneSet = new Set((habitLogs || []).filter(l => l.date === today && l.done).map(l => l.habitId));
+        return {
+          label: `Habits today · ${doneSet.size}/${habitsToday.length}`,
+          color: tokens.green,
+          items: habitsToday.map(h => ({ label: h.title, icon: doneSet.has(h.id) ? '✓' : '○', done: doneSet.has(h.id), accent: doneSet.has(h.id) ? tokens.green : tokens.textMuted })),
+        };
+      })(),
+    ].filter(Boolean);
+  }, [tasks, dailyReviews, habits, habitLogs]); // eslint-disable-line
 
   const current = steps[step];
 
@@ -861,7 +880,7 @@ function ReviewHistory() {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function ReviewScreen() {
   const { user } = useAuth();
-  const { tasks, projects, totalDebt, goals, debtAccounts, dailyReviews } = useData();
+  const { tasks, projects, totalDebt, goals, debtAccounts, dailyReviews, habits, habitLogs } = useData();
   const [activeTab, setActiveTab] = useState('morning');
 
   const tabs = [
@@ -901,7 +920,7 @@ export default function ReviewScreen() {
       </div>
 
       <div className="fade-up stagger-2">
-        {activeTab === 'morning' && <MorningReview tasks={tasks} projects={projects} goals={goals} debtAccounts={debtAccounts} totalDebt={totalDebt} dailyReviews={dailyReviews} onSave={handleSaveDailyReview} />}
+        {activeTab === 'morning' && <MorningReview tasks={tasks} projects={projects} goals={goals} debtAccounts={debtAccounts} totalDebt={totalDebt} dailyReviews={dailyReviews} habits={habits} habitLogs={habitLogs} onSave={handleSaveDailyReview} />}
         {activeTab === 'eod'     && <EODReview tasks={tasks} projects={projects} goals={goals} debtAccounts={debtAccounts} totalDebt={totalDebt} dailyReviews={dailyReviews} onSave={handleSaveDailyReview} />}
         {activeTab === 'weekly'  && <WeeklyReview tasks={tasks} projects={projects} />}
         {activeTab === 'history' && <ReviewHistory />}
