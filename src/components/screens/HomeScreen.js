@@ -76,11 +76,7 @@ export default function HomeScreen() {
   const [weekFocusLoading, setWeekFocusLoading] = useState(false);
   const [quote]                         = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
 
-  // AI feedback state
-  const [feedbackOpen,      setFeedbackOpen]      = useState(false);
-  const [feedbackKey,       setFeedbackKey]       = useState('');
-  const [feedbackText,      setFeedbackText]      = useState('');
-  const [feedbackSaving,    setFeedbackSaving]    = useState(false);
+  const [feedback, setFeedback] = useState({ open: false, key: '', text: '', saving: false });
   const [actionCenterOpen,  setActionCenterOpen]  = useState(true);
   const [calendarDensity,  setCalendarDensity]  = useState(null);
   const [calendarEvents,   setCalendarEvents]   = useState([]);
@@ -414,22 +410,21 @@ export default function HomeScreen() {
   };
 
   const handleFeedbackSubmit = async () => {
-    if (!feedbackText.trim()) return;
-    setFeedbackSaving(true);
+    if (!feedback.text.trim()) return;
+    setFeedback(f => ({ ...f, saving: true }));
     try {
       const existing    = userProfile?.aiFeedback || profile?.aiFeedback || {};
-      const newFeedback = { ...existing, [feedbackKey]: feedbackText.trim() };
+      const newFeedback = { ...existing, [feedback.key]: feedback.text.trim() };
       await saveProfile(user.uid, { aiFeedback: newFeedback });
       await updateProfile({ aiFeedback: newFeedback });
-      setFeedbackOpen(false);
-      setFeedbackText('');
+      setFeedback({ open: false, key: '', text: '', saving: false });
       // Re-generate the relevant content
-      if (feedbackKey === 'briefing') fetchAI();
-      else if (feedbackKey === 'weekFocus') { localStorage.removeItem('weeklyFocusCache'); setWeekFocus(null); fetchWeekFocus(); }
+      if (feedback.key === 'briefing') fetchAI();
+      else if (feedback.key === 'weekFocus') { localStorage.removeItem('weeklyFocusCache'); setWeekFocus(null); fetchWeekFocus(); }
     } catch (err) {
       if (isDev) console.error('Feedback save error:', err);
     } finally {
-      setFeedbackSaving(false);
+      setFeedback(f => ({ ...f, saving: false }));
     }
   };
 
@@ -687,7 +682,7 @@ export default function HomeScreen() {
           feedbackButtons={!aiLoading && aiText ? (
             <div style={{ display: 'flex', gap: '6px' }}>
               <button title="Accurate" style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👍</button>
-              <button title="Give feedback" onClick={() => { setFeedbackKey('briefing'); setFeedbackOpen(true); }} style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👎</button>
+              <button title="Give feedback" onClick={() => setFeedback(f => ({ ...f, key: 'briefing', open: true }))} style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👎</button>
             </div>
           ) : null}
         />
@@ -861,7 +856,7 @@ export default function HomeScreen() {
               {weekFocus && !weekFocusLoading && (
                 <>
                   <button title="Accurate" style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👍</button>
-                  <button title="Give feedback" onClick={() => { setFeedbackKey('weekFocus'); setFeedbackOpen(true); }} style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👎</button>
+                  <button title="Give feedback" onClick={() => setFeedback(f => ({ ...f, key: 'weekFocus', open: true }))} style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '3px 9px', fontSize: '12px', cursor: 'pointer', color: tokens.textMuted, fontFamily: fonts.body }}>👎</button>
                 </>
               )}
               <button onClick={() => { localStorage.removeItem('weeklyFocusCache'); setWeekFocus(null); fetchWeekFocus(); }}
@@ -974,14 +969,14 @@ export default function HomeScreen() {
       />
 
       {/* AI Feedback Modal */}
-      <Modal open={feedbackOpen} onClose={() => { setFeedbackOpen(false); setFeedbackText(''); }} title="Give AI Feedback">
+      <Modal open={feedback.open} onClose={() => setFeedback({ open: false, key: '', text: '', saving: false })} title="Give AI Feedback">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6 }}>
             What's wrong with this? Your correction will be saved as a hard constraint and the content will regenerate.
           </div>
           <textarea
-            value={feedbackText}
-            onChange={e => setFeedbackText(e.target.value)}
+            value={feedback.text}
+            onChange={e => setFeedback(f => ({ ...f, text: e.target.value }))}
             placeholder="e.g. The must-win should focus on Wells Fargo work first, not tax prep..."
             autoFocus
             rows={4}
@@ -990,8 +985,8 @@ export default function HomeScreen() {
             onBlur={e => e.target.style.borderColor = tokens.border}
           />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <Button variant="ghost" onClick={() => { setFeedbackOpen(false); setFeedbackText(''); }}>Cancel</Button>
-            <Button onClick={handleFeedbackSubmit} loading={feedbackSaving} disabled={!feedbackText.trim()}>Save & Regenerate</Button>
+            <Button variant="ghost" onClick={() => setFeedback({ open: false, key: '', text: '', saving: false })}>Cancel</Button>
+            <Button onClick={handleFeedbackSubmit} loading={feedback.saving} disabled={!feedback.text.trim()}>Save & Regenerate</Button>
           </div>
         </div>
       </Modal>

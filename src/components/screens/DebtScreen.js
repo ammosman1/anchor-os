@@ -1,4 +1,4 @@
-// src/components/screens/OtherScreens.js
+// src/components/screens/DebtScreen.js
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { tokens, fonts } from '../../lib/tokens';
@@ -10,7 +10,9 @@ import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, de
 import { openPlaidLink, calcCashFlow, formatTxAmount, formatTxDate } from '../../lib/plaid';
 import { Card, Button, Input, Select, SectionLabel, MomentumBar, Modal, AICard, EmptyState } from '../ui';
 
-// ─── Payoff simulation math ───────────────────────────────────────────────────
+const isDev = process.env.NODE_ENV !== 'production';
+
+// â”€â”€â”€ Payoff simulation math â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function simulatePayoff(accounts, extraPayment, strategy) {
   if (!accounts.length) return { months: 0, totalInterest: 0 };
   let accts = accounts
@@ -112,8 +114,8 @@ function PayoffSimulator({ accounts }) {
         {/* Side by side comparison */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
           {[
-            { label: 'Avalanche', sublabel: 'Highest rate first', result: avalanche, color: tokens.green, icon: '▲' },
-            { label: 'Snowball',  sublabel: 'Lowest balance first', result: snowball, color: tokens.blue,  icon: '●' },
+            { label: 'Avalanche', sublabel: 'Highest rate first', result: avalanche, color: tokens.green, icon: 'â–²' },
+            { label: 'Snowball',  sublabel: 'Lowest balance first', result: snowball, color: tokens.blue,  icon: 'â—' },
           ].map(({ label, sublabel, result, color, icon }) => (
             <div key={label} style={{ padding: '14px', background: tokens.bgCardHover, borderRadius: '10px', border: `1px solid ${tokens.border}` }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color, letterSpacing: '0.06em', marginBottom: '4px' }}>{icon} {label}</div>
@@ -139,7 +141,7 @@ function PayoffSimulator({ accounts }) {
                 {monthsFaster > 0 ? `${monthsToLabel(monthsFaster)} faster than snowball` : 'Same timeline, less interest'}
               </div>
             </div>
-            <span style={{ fontSize: '20px' }}>▲</span>
+            <span style={{ fontSize: '20px' }}>â–²</span>
           </div>
         )}
 
@@ -198,7 +200,7 @@ const typeColors = {
   other:    { bg: 'rgba(28,24,20,0.07)',    text: 'rgba(28,24,20,0.42)'  },
 };
 
-// ─── File-to-base64 helper ────────────────────────────────────────────────────
+// â”€â”€â”€ File-to-base64 helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -208,7 +210,7 @@ function fileToBase64(file) {
   });
 }
 
-// ─── Format import date ───────────────────────────────────────────────────────
+// â”€â”€â”€ Format import date â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function fmtImportDate(ts) {
   if (!ts) return '';
   try {
@@ -217,11 +219,11 @@ function fmtImportDate(ts) {
   } catch { return ''; }
 }
 
-export function DebtScreen() {
+export default function DebtScreen() {
   const { user }                                                    = useAuth();
   const { debtAccounts, totalDebt, assetAccounts, totalAssets, plaidItems, manualCashFlow, goals } = useData();
 
-  // ── Existing account modal ────────────────────────────────────────────────
+  // â”€â”€ Existing account modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [showModal,     setShowModal]     = useState(false);
   const [form,          setForm]          = useState(emptyForm);
   const [editing,       setEditing]       = useState(null);
@@ -230,13 +232,13 @@ export function DebtScreen() {
   const [aiLoading,     setAiLoading]     = useState(false);
   const [showAllTx,     setShowAllTx]     = useState(false);
 
-  // ── Plaid ─────────────────────────────────────────────────────────────────
+  // â”€â”€ Plaid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [plaidAccounts, setPlaidAccounts] = useState([]);
   const [transactions,  setTransactions]  = useState([]);
   const [loadingPlaid,  setLoadingPlaid]  = useState(false);
   const [connecting,    setConnecting]    = useState(false);
 
-  // ── File import ───────────────────────────────────────────────────────────
+  // â”€â”€ File import â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const fileInputRef                            = useRef(null);
   const [importLoading,    setImportLoading]    = useState(false);
   const [importError,      setImportError]      = useState('');
@@ -251,18 +253,18 @@ export function DebtScreen() {
   const [importSaving,     setImportSaving]     = useState(false);
   const [importProgress,   setImportProgress]   = useState(null); // { current, total }
 
-  // ── Asset account modal ───────────────────────────────────────────────────
+  // â”€â”€ Asset account modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [showAssetModal, setShowAssetModal] = useState(false);
   const [assetForm,      setAssetForm]      = useState(emptyAssetForm);
   const [editingAsset,   setEditingAsset]   = useState(null);
   const [savingAsset,    setSavingAsset]    = useState(false);
 
-  // ── Clarification modal (pre-import: smart account matching) ─────────────
+  // â”€â”€ Clarification modal (pre-import: smart account matching) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [showClarifyModal, setShowClarifyModal] = useState(false);
   const [clarifyData,      setClarifyData]      = useState(null);  // { matches, questions, insights }
   const [clarifyAnswers,   setClarifyAnswers]   = useState({});    // { [extractedIndex]: 'yes'|'no' }
 
-  // ── Plaid load ────────────────────────────────────────────────────────────
+  // â”€â”€ Plaid load â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   useEffect(() => {
     if (!plaidItems.length) { setPlaidAccounts([]); setTransactions([]); return; }
     let cancelled = false;
@@ -283,7 +285,7 @@ export function DebtScreen() {
           setPlaidAccounts(allAccounts);
           setTransactions(allTx.sort((a, b) => new Date(b.date) - new Date(a.date)));
         }
-      } catch (err) { console.error('Plaid load error:', err); }
+      } catch (err) { if (isDev) console.error('Plaid load error:', err); }
       finally { if (!cancelled) setLoadingPlaid(false); }
     };
     load();
@@ -292,7 +294,7 @@ export function DebtScreen() {
 
   const plaidCashFlow = calcCashFlow(transactions);
 
-  // ── Effective cash flow (Plaid preferred, manual fallback) ────────────────
+  // â”€â”€ Effective cash flow (Plaid preferred, manual fallback) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const effectiveFlow = useMemo(() => {
     if (plaidCashFlow) return { income: plaidCashFlow.income, spending: plaidCashFlow.spending, surplus: plaidCashFlow.surplus, source: 'plaid' };
     if (manualCashFlow) return {
@@ -306,7 +308,7 @@ export function DebtScreen() {
     return null;
   }, [plaidCashFlow, manualCashFlow]); // eslint-disable-line
 
-  // ── Financial health metrics ──────────────────────────────────────────────
+  // â”€â”€ Financial health metrics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const totalMinimums      = debtAccounts.reduce((s, a) => s + (a.minimumPayment || 0), 0);
   const surplus            = effectiveFlow?.surplus ?? 0;
   const extraAfterMinimums = surplus - totalMinimums;
@@ -329,18 +331,18 @@ export function DebtScreen() {
     return { requiredPerMonth, onPace: surplus >= requiredPerMonth, monthsLeft, goalTitle: finGoal.title };
   }, [finGoal, surplus]);
 
-  // ── Plaid connect ─────────────────────────────────────────────────────────
+  // â”€â”€ Plaid connect â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleConnect = async () => {
     setConnecting(true);
     try {
       await openPlaidLink(user.uid, async (data) => {
         await savePlaidItem(user.uid, data.itemId, { accessToken: data.accessToken, itemId: data.itemId, institutionId: data.institutionId, institutionName: data.institutionName, accounts: data.accounts });
       });
-    } catch (err) { console.error('Plaid connect error:', err); }
+    } catch (err) { if (isDev) console.error('Plaid connect error:', err); }
     finally { setConnecting(false); }
   };
 
-  // ── Debt account grouping ─────────────────────────────────────────────────
+  // â”€â”€ Debt account grouping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [openGroups, setOpenGroups] = useState(new Set());
   const toggleGroup = (type) => setOpenGroups(prev => {
     const next = new Set(prev);
@@ -397,7 +399,7 @@ export function DebtScreen() {
 
   useEffect(() => { if (debtAccounts.length > 0 && !aiText) fetchAI(); }, [debtAccounts]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── File import (up to 10 files) ─────────────────────────────────────────
+  // â”€â”€ File import (up to 10 files) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files || []).slice(0, 10);
     if (!files.length) return;
@@ -449,7 +451,7 @@ export function DebtScreen() {
         if (data.cashFlow)         allCashFlows.push(data.cashFlow);
         if (data.summary)          summaries.push(data.summary);
       } catch (err) {
-        console.error(`Error processing ${file.name}:`, err);
+        if (isDev) console.error(`Error processing ${file.name}:`, err);
         skipped.push(file.name);
       }
     }
@@ -459,7 +461,7 @@ export function DebtScreen() {
       setImportLoading(false); setImportProgress(null); e.target.value = ''; return;
     }
 
-    // Merge accounts — deduplicate by normalized name
+    // Merge accounts â€” deduplicate by normalized name
     // normName strips apostrophes, spaces, punctuation, and parentheses so that
     // "Lowe's" === "Lowes" and "Mastercard (Leadbank)" normalizes cleanly
     const normName = n => (n || '').toLowerCase().replace(/[''`'\s\-.,()]/g, '').trim();
@@ -478,7 +480,7 @@ export function DebtScreen() {
     }));
 
     // Second-pass containment dedup: catches "Best Buy Credit" vs "Best Buy Credit Card"
-    // (one normalized name is a prefix of the other → likely the same account)
+    // (one normalized name is a prefix of the other â†’ likely the same account)
     const dominated = new Set();
     for (let i = 0; i < preDedupList.length; i++) {
       if (dominated.has(i)) continue;
@@ -498,7 +500,7 @@ export function DebtScreen() {
     }
     const mergedAccounts = preDedupList.filter((_, i) => !dominated.has(i));
 
-    // Merge cash flow — average across files (handles multiple months of same bank without inflating)
+    // Merge cash flow â€” average across files (handles multiple months of same bank without inflating)
     const mergedCF = allCashFlows.length > 0 ? (() => {
       const n    = allCashFlows.length;
       const inc  = Math.round(allCashFlows.reduce((s, cf) => s + (cf.monthlyIncome   || 0), 0) / n);
@@ -509,14 +511,14 @@ export function DebtScreen() {
 
     const processedCount = files.length - skipped.length;
     const combinedSummary = files.length > 1
-      ? `Processed ${processedCount} of ${files.length} file${files.length !== 1 ? 's' : ''} — found ${mergedAccounts.length} account${mergedAccounts.length !== 1 ? 's' : ''}${allCashFlows.length > 0 ? ` and cash flow from ${allCashFlows.length} source${allCashFlows.length !== 1 ? 's' : ''}` : ''}${skipped.length > 0 ? `. Skipped: ${skipped.join(', ')}` : ''}.`
+      ? `Processed ${processedCount} of ${files.length} file${files.length !== 1 ? 's' : ''} â€” found ${mergedAccounts.length} account${mergedAccounts.length !== 1 ? 's' : ''}${allCashFlows.length > 0 ? ` and cash flow from ${allCashFlows.length} source${allCashFlows.length !== 1 ? 's' : ''}` : ''}${skipped.length > 0 ? `. Skipped: ${skipped.join(', ')}` : ''}.`
       : (summaries[0] || `Found ${mergedAccounts.length} accounts.`);
 
     const cfForState = mergedCF ? {
       monthlyIncome: String(mergedCF.monthlyIncome), monthlySpending: String(mergedCF.monthlySpending), monthlySurplus: String(mergedCF.monthlySurplus),
     } : { monthlyIncome: '', monthlySpending: '', monthlySurplus: '' };
 
-    // ── Smart account matching (clarify API) ───────────────────────────────
+    // â”€â”€ Smart account matching (clarify API) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     let finalAccounts = mergedAccounts;
     let clarifyResult = null;
 
@@ -539,7 +541,7 @@ export function DebtScreen() {
           });
         }
       } catch (err) {
-        console.error('Clarify API error:', err);
+        if (isDev) console.error('Clarify API error:', err);
       }
     }
 
@@ -556,12 +558,12 @@ export function DebtScreen() {
 
     const questions = clarifyResult?.questions || [];
     if (questions.length > 0) {
-      // Show clarification step first — stash clarify data for handleClarifyComplete
+      // Show clarification step first â€” stash clarify data for handleClarifyComplete
       setClarifyData(clarifyResult);
       setClarifyAnswers({});
       setShowClarifyModal(true);
     } else {
-      // No questions — surface any insights inline then go straight to review
+      // No questions â€” surface any insights inline then go straight to review
       if (clarifyResult) setClarifyData(clarifyResult);
       setShowImportModal(true);
     }
@@ -588,7 +590,7 @@ export function DebtScreen() {
       if (clarifyAnswers[i] === 'yes' && q.existingIndex != null && q.existingIndex < debtAccounts.length) {
         return { ...a, isDuplicate: true, existingId: debtAccounts[q.existingIndex].id };
       }
-      return a; // user said "no" — treat as new account
+      return a; // user said "no" â€” treat as new account
     }));
     setShowClarifyModal(false);
     setClarifyData(null);
@@ -596,7 +598,7 @@ export function DebtScreen() {
     setShowImportModal(true);
   };
 
-  // ── Asset account handlers ────────────────────────────────────────────────
+  // â”€â”€ Asset account handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const openAssetNew  = () => { setAssetForm(emptyAssetForm); setEditingAsset(null); setShowAssetModal(true); };
   const openAssetEdit = (a) => {
     setAssetForm({ name: a.name || '', balance: String(a.balance || ''), type: a.type || 'checking', notes: a.notes || '' });
@@ -645,15 +647,15 @@ export function DebtScreen() {
       await addTask(user.uid, { title: `Upload ${monthLbl} bank statements`, priority: 'medium', dueDate, goalId: finGoal?.id || null, source: 'finance-import' });
 
       setShowImportModal(false); setClarifyData(null); setAiText('');
-    } catch (err) { console.error('Import save error:', err); }
+    } catch (err) { if (isDev) console.error('Import save error:', err); }
     finally { setImportSaving(false); }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (
     <div style={{ maxWidth: 800, margin: '0 auto' }}>
 
-      {/* ── Header ── */}
+      {/* â”€â”€ Header â”€â”€ */}
       <div className="fade-up" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px' }}>
         <div>
           <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Finance</div>
@@ -663,7 +665,7 @@ export function DebtScreen() {
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
           <Button onClick={() => fileInputRef.current?.click()} loading={importLoading} variant="ghost" size="sm">
-            {importLoading ? (importProgress ? `Reading ${importProgress.current}/${importProgress.total}...` : 'Reading...') : '↑ Import Files'}
+            {importLoading ? (importProgress ? `Reading ${importProgress.current}/${importProgress.total}...` : 'Reading...') : 'â†‘ Import Files'}
           </Button>
           <Button onClick={openNew} variant="ghost" size="sm">+ Manual</Button>
         </div>
@@ -673,18 +675,18 @@ export function DebtScreen() {
       {importError && (
         <div style={{ marginBottom: '12px', padding: '10px 14px', background: 'rgba(212,122,107,0.1)', border: '1px solid rgba(212,122,107,0.25)', borderRadius: '8px', fontSize: '13px', color: tokens.red, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           {importError}
-          <button onClick={() => setImportError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.red, fontSize: '16px', lineHeight: 1 }}>×</button>
+          <button onClick={() => setImportError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.red, fontSize: '16px', lineHeight: 1 }}>Ã—</button>
         </div>
       )}
 
-      {/* ── Plaid: no accounts connected ── */}
+      {/* â”€â”€ Plaid: no accounts connected â”€â”€ */}
       {plaidItems.length === 0 && (
         <div className="fade-up stagger-1" style={{ marginBottom: '16px' }}>
           <div style={{ background: 'linear-gradient(135deg, rgba(91,143,212,0.08), rgba(91,143,212,0.03))', border: `1px dashed rgba(91,143,212,0.3)`, borderRadius: tokens.radiusLg, padding: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontSize: '14px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '4px' }}>Connect your bank accounts</div>
-                <div style={{ fontSize: '12px', color: tokens.textMuted }}>See live balances and transactions — or use ↑ Import File to upload a statement manually.</div>
+                <div style={{ fontSize: '12px', color: tokens.textMuted }}>See live balances and transactions â€” or use â†‘ Import File to upload a statement manually.</div>
               </div>
               <Button loading={connecting} onClick={handleConnect}>Connect Bank</Button>
             </div>
@@ -692,7 +694,7 @@ export function DebtScreen() {
         </div>
       )}
 
-      {/* ── Plaid: connected accounts ── */}
+      {/* â”€â”€ Plaid: connected accounts â”€â”€ */}
       {plaidItems.length > 0 && (
         <div className="fade-up stagger-1" style={{ marginBottom: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -709,10 +711,10 @@ export function DebtScreen() {
                 <Card key={item.id} style={{ padding: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: itemAccounts.length ? '12px' : 0 }}>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                      <div style={{ width: 34, height: 34, borderRadius: '8px', background: tokens.bgInput, border: `1px solid ${tokens.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>🏦</div>
+                      <div style={{ width: 34, height: 34, borderRadius: '8px', background: tokens.bgInput, border: `1px solid ${tokens.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>ðŸ¦</div>
                       <div>
                         <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{item.institutionName}</div>
-                        <div style={{ fontSize: '11px', color: tokens.green, marginTop: '1px' }}>● Connected</div>
+                        <div style={{ fontSize: '11px', color: tokens.green, marginTop: '1px' }}>â— Connected</div>
                       </div>
                     </div>
                     <button onClick={() => deletePlaidItem(user.uid, item.id)} style={{ background: 'none', border: 'none', color: tokens.red, fontSize: '11px', cursor: 'pointer', opacity: 0.55, fontFamily: fonts.body, padding: '2px 6px' }}>Disconnect</button>
@@ -740,19 +742,19 @@ export function DebtScreen() {
         </div>
       )}
 
-      {/* ── Financial Health Dashboard ── */}
+      {/* â”€â”€ Financial Health Dashboard â”€â”€ */}
       {effectiveFlow && (
         <div className="fade-up stagger-2" style={{ marginBottom: '16px' }}>
 
           {/* Danger / warning alert */}
           {isDanger && (
             <div style={{ marginBottom: '10px', padding: '10px 14px', background: 'rgba(212,122,107,0.1)', border: '1px solid rgba(212,122,107,0.3)', borderRadius: '8px', fontSize: '13px', color: tokens.red, fontWeight: 600 }}>
-              ⚠ Monthly spending exceeds income by ${Math.abs(surplus).toLocaleString()}. Address this before adding extra debt payments.
+              âš  Monthly spending exceeds income by ${Math.abs(surplus).toLocaleString()}. Address this before adding extra debt payments.
             </div>
           )}
           {isWarning && (
             <div style={{ marginBottom: '10px', padding: '10px 14px', background: 'rgba(200,169,110,0.1)', border: '1px solid rgba(200,169,110,0.3)', borderRadius: '8px', fontSize: '13px', color: tokens.amber, fontWeight: 600 }}>
-              ⚠ Monthly surplus (${surplus.toLocaleString()}) is less than total minimums (${totalMinimums.toLocaleString()}). Review your budget.
+              âš  Monthly surplus (${surplus.toLocaleString()}) is less than total minimums (${totalMinimums.toLocaleString()}). Review your budget.
             </div>
           )}
 
@@ -761,7 +763,7 @@ export function DebtScreen() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
               <SectionLabel style={{ marginBottom: 0 }}>Monthly Cash Flow</SectionLabel>
               <span style={{ fontSize: '10px', color: tokens.textMuted }}>
-                {effectiveFlow.source === 'plaid' ? 'Via Plaid · last 30 days' : `Via import · ${fmtImportDate(effectiveFlow.importedAt)}${effectiveFlow.importedFrom ? ' · ' + effectiveFlow.importedFrom : ''}`}
+                {effectiveFlow.source === 'plaid' ? 'Via Plaid Â· last 30 days' : `Via import Â· ${fmtImportDate(effectiveFlow.importedAt)}${effectiveFlow.importedFrom ? ' Â· ' + effectiveFlow.importedFrom : ''}`}
               </span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', textAlign: 'center' }}>
@@ -822,7 +824,7 @@ export function DebtScreen() {
                   </div>
                   <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '4px' }}>
                     {goalPace.onPace
-                      ? `Need $${goalPace.requiredPerMonth.toLocaleString()}/mo ✓`
+                      ? `Need $${goalPace.requiredPerMonth.toLocaleString()}/mo âœ“`
                       : `Need $${goalPace.requiredPerMonth.toLocaleString()}/mo, have $${surplus.toLocaleString()}`}
                   </div>
                 </Card>
@@ -832,7 +834,7 @@ export function DebtScreen() {
         </div>
       )}
 
-      {/* ── Net Worth ── */}
+      {/* â”€â”€ Net Worth â”€â”€ */}
       {(totalDebt > 0 || (assetAccounts || []).length > 0) && (
         <div className="fade-up stagger-3" style={{ marginBottom: '16px' }}>
           <Card>
@@ -855,7 +857,7 @@ export function DebtScreen() {
         </div>
       )}
 
-      {/* ── Recent Transactions (Plaid only) ── */}
+      {/* â”€â”€ Recent Transactions (Plaid only) â”€â”€ */}
       {transactions.length > 0 && (
         <div className="fade-up stagger-3" style={{ marginBottom: '16px' }}>
           <Card>
@@ -865,7 +867,7 @@ export function DebtScreen() {
                 <div key={tx.transaction_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${tokens.border}` }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: '13px', color: tokens.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.merchant_name || tx.name}</div>
-                    <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '2px' }}>{formatTxDate(tx.date)} · {(tx.personal_finance_category?.primary || tx.category?.[0] || 'Uncategorized').replace(/_/g, ' ')}</div>
+                    <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '2px' }}>{formatTxDate(tx.date)} Â· {(tx.personal_finance_category?.primary || tx.category?.[0] || 'Uncategorized').replace(/_/g, ' ')}</div>
                   </div>
                   <div style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 600, color: tx.amount < 0 ? tokens.green : tokens.textPrimary, flexShrink: 0, marginLeft: '16px' }}>{formatTxAmount(tx.amount)}</div>
                 </div>
@@ -880,7 +882,7 @@ export function DebtScreen() {
         </div>
       )}
 
-      {/* ── Debt Accounts ── */}
+      {/* â”€â”€ Debt Accounts â”€â”€ */}
       <div className="fade-up stagger-4" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
         <SectionLabel style={{ marginBottom: 0 }}>Debt Accounts</SectionLabel>
         <Button onClick={openNew} size="sm">+ Add Account</Button>
@@ -918,9 +920,9 @@ export function DebtScreen() {
 
       <div className="fade-up stagger-5" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {debtAccounts.length === 0 ? (
-          <EmptyState icon="◉" title="No debt accounts tracked" subtitle="Import a bank statement or add accounts manually to get started." action={
+          <EmptyState icon="â—‰" title="No debt accounts tracked" subtitle="Import a bank statement or add accounts manually to get started." action={
             <div style={{ display: 'flex', gap: '8px' }}>
-              <Button onClick={() => fileInputRef.current?.click()} variant="ghost">↑ Import File</Button>
+              <Button onClick={() => fileInputRef.current?.click()} variant="ghost">â†‘ Import File</Button>
               <Button onClick={openNew}>+ Add Manually</Button>
             </div>
           } />
@@ -930,7 +932,7 @@ export function DebtScreen() {
             const isOpen = openGroups.has(type);
             return (
               <div key={type} style={{ border: `1px solid ${tokens.border}`, borderRadius: tokens.radiusLg, overflow: 'hidden', background: tokens.bgCard }}>
-                {/* Group header — click to expand/collapse */}
+                {/* Group header â€” click to expand/collapse */}
                 <button
                   onClick={() => toggleGroup(type)}
                   style={{ width: '100%', background: 'transparent', border: 'none', padding: '14px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: fonts.body, textAlign: 'left' }}
@@ -945,10 +947,10 @@ export function DebtScreen() {
                         ${totalBalance.toLocaleString()}
                       </div>
                       <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '1px' }}>
-                        Min ${totalMin.toLocaleString()}/mo{totalInterest > 0 ? ` · ~$${totalInterest.toLocaleString()}/mo interest` : ''}
+                        Min ${totalMin.toLocaleString()}/mo{totalInterest > 0 ? ` Â· ~$${totalInterest.toLocaleString()}/mo interest` : ''}
                       </div>
                     </div>
-                    <span style={{ fontSize: '10px', color: tokens.textMuted, display: 'inline-block', transition: 'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'none' }}>▼</span>
+                    <span style={{ fontSize: '10px', color: tokens.textMuted, display: 'inline-block', transition: 'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'none' }}>â–¼</span>
                   </div>
                 </button>
 
@@ -963,9 +965,9 @@ export function DebtScreen() {
                             <div style={{ flex: 1, minWidth: 0, paddingRight: '12px' }}>
                               <div style={{ fontWeight: 600, fontSize: '14px', color: tokens.textPrimary }}>{account.name}</div>
                               <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>
-                                {account.interestRate || 0}% APR · Min ${(account.minimumPayment || 0).toLocaleString()}/mo
+                                {account.interestRate || 0}% APR Â· Min ${(account.minimumPayment || 0).toLocaleString()}/mo
                                 {account.interestRate > 0 && account.balance > 0 && (
-                                  <span style={{ color: tokens.amber }}> · ~${Math.round(account.balance * account.interestRate / 100 / 12).toLocaleString()}/mo interest</span>
+                                  <span style={{ color: tokens.amber }}> Â· ~${Math.round(account.balance * account.interestRate / 100 / 12).toLocaleString()}/mo interest</span>
                                 )}
                               </div>
                             </div>
@@ -990,7 +992,7 @@ export function DebtScreen() {
         )}
       </div>
 
-      {/* ── Manual account modal ── */}
+      {/* â”€â”€ Manual account modal â”€â”€ */}
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Account' : 'Add Debt Account'}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <Input label="Account Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. IRS Tax Debt 2023" />
@@ -1010,13 +1012,13 @@ export function DebtScreen() {
         </div>
       </Modal>
 
-      {/* ── Import Review Modal ── */}
+      {/* â”€â”€ Import Review Modal â”€â”€ */}
       <Modal open={showImportModal} onClose={() => setShowImportModal(false)} title="Review Extracted Data">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Summary */}
           {importSummary && (
             <div style={{ padding: '10px 14px', background: tokens.accentDim, borderRadius: '8px', fontSize: '13px', color: tokens.textSecondary }}>
-              ✦ {importSummary}
+              âœ¦ {importSummary}
             </div>
           )}
 
@@ -1025,7 +1027,7 @@ export function DebtScreen() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
               {clarifyData.insights.map((insight, i) => (
                 <div key={i} style={{ padding: '7px 12px', background: 'rgba(109,191,158,0.08)', border: '1px solid rgba(109,191,158,0.2)', borderRadius: '8px', fontSize: '12px', color: tokens.textSecondary }}>
-                  💡 {insight}
+                  ðŸ’¡ {insight}
                 </div>
               ))}
             </div>
@@ -1053,7 +1055,7 @@ export function DebtScreen() {
                           style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: `1px solid ${tokens.border}`, padding: '2px 0', fontSize: '14px', fontWeight: 600, color: tokens.textPrimary, fontFamily: fonts.body, outline: 'none' }}
                         />
                       </div>
-                      {a.isDuplicate && <span style={{ fontSize: '10px', color: tokens.amber, background: 'rgba(200,169,110,0.12)', padding: '2px 7px', borderRadius: '4px', fontWeight: 700, flexShrink: 0 }}>exists · will update</span>}
+                      {a.isDuplicate && <span style={{ fontSize: '10px', color: tokens.amber, background: 'rgba(200,169,110,0.12)', padding: '2px 7px', borderRadius: '4px', fontWeight: 700, flexShrink: 0 }}>exists Â· will update</span>}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', paddingLeft: '26px' }}>
                       <div>
@@ -1141,7 +1143,7 @@ export function DebtScreen() {
         </div>
       </Modal>
 
-      {/* ── Clarification Modal (pre-import: smart account matching) ── */}
+      {/* â”€â”€ Clarification Modal (pre-import: smart account matching) â”€â”€ */}
       <Modal open={showClarifyModal} onClose={() => { setShowClarifyModal(false); setClarifyData(null); setClarifyAnswers({}); }} title="Verify Accounts">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ fontSize: '13px', color: tokens.textSecondary }}>
@@ -1153,7 +1155,7 @@ export function DebtScreen() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {clarifyData.insights.map((insight, i) => (
                 <div key={i} style={{ padding: '8px 12px', background: tokens.accentDim, borderRadius: '8px', fontSize: '12px', color: tokens.textSecondary }}>
-                  💡 {insight}
+                  ðŸ’¡ {insight}
                 </div>
               ))}
             </div>
@@ -1190,13 +1192,13 @@ export function DebtScreen() {
               onClick={handleClarifyComplete}
               disabled={(clarifyData?.questions || []).some(q => !clarifyAnswers[q.extractedIndex])}
             >
-              Continue to Review →
+              Continue to Review â†’
             </Button>
           </div>
         </div>
       </Modal>
 
-      {/* ── Asset Account Modal ── */}
+      {/* â”€â”€ Asset Account Modal â”€â”€ */}
       <Modal open={showAssetModal} onClose={() => setShowAssetModal(false)} title={editingAsset ? 'Edit Asset' : 'Add Asset Account'}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <Input label="Account Name" value={assetForm.name} onChange={v => setAssetForm(f => ({ ...f, name: v }))} placeholder="e.g. Veridian Checking, 401k, Home Equity" />
@@ -1214,7 +1216,7 @@ export function DebtScreen() {
         </div>
       </Modal>
 
-      {/* ── Asset Accounts Section ── */}
+      {/* â”€â”€ Asset Accounts Section â”€â”€ */}
       <div className="fade-up stagger-6" style={{ marginTop: '32px', paddingTop: '24px', borderTop: `1px solid ${tokens.border}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
           <div>
@@ -1225,7 +1227,7 @@ export function DebtScreen() {
         </div>
 
         {(assetAccounts || []).length === 0 ? (
-          <EmptyState icon="◈" title="No asset accounts tracked" subtitle="Add checking, savings, retirement, and investment accounts for a complete net worth picture." action={
+          <EmptyState icon="â—ˆ" title="No asset accounts tracked" subtitle="Add checking, savings, retirement, and investment accounts for a complete net worth picture." action={
             <Button onClick={openAssetNew} variant="ghost">+ Add Asset Account</Button>
           } />
         ) : (
@@ -1271,440 +1273,3 @@ export function DebtScreen() {
   );
 }
 
-// ─── Weekly Review ─────────────────────────────────────────────────────────────
-export function ReviewScreen() {
-  const { user } = useAuth();
-  const { tasks, projects } = useData();
-  const [form,      setForm]      = useState({ wins: '', bottlenecks: '', energyScore: 65, executionScore: 70, notes: '' });
-  const [aiText,    setAiText]    = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [saved,     setSaved]     = useState(false);
-  const { getWeeklyReviewInsight } = require('../../lib/ai');
-  const { saveWeeklyReview }       = require('../../lib/db');
-
-  const weekKey = (() => {
-    const d = new Date();
-    const start = new Date(d.setDate(d.getDate() - d.getDay()));
-    return start.toISOString().split('T')[0];
-  })();
-
-  const doneTasks   = tasks.filter(t => t.done);
-  const stalledProj = projects.filter(p => p.status === 'stalled');
-
-  const generateInsight = async () => {
-    setAiLoading(true);
-    const text = await getWeeklyReviewInsight({
-      wins:           form.wins.split('\n').filter(Boolean),
-      bottlenecks:    form.bottlenecks.split('\n').filter(Boolean),
-      energyScore:    form.energyScore,
-      executionScore: form.executionScore,
-    });
-    setAiText(text || 'A solid week of data collected. Reflect on what moved and what stalled.');
-    setAiLoading(false);
-  };
-
-  const handleSave = async () => {
-    await saveWeeklyReview(user.uid, weekKey, { ...form, aiInsight: aiText, weekKey });
-    setSaved(true);
-  };
-
-  return (
-    <div style={{ maxWidth: 760, margin: '0 auto' }}>
-      <div className="fade-up" style={{ marginBottom: '28px' }}>
-        <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Weekly Review Engine</div>
-        <h1 style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>Weekly Review</h1>
-        <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '6px' }}>
-          Week of {new Date(weekKey).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })} · {doneTasks.length} tasks completed
-        </p>
-      </div>
-
-      {/* Auto data */}
-      {(doneTasks.length > 0 || stalledProj.length > 0) && (
-        <div className="fade-up stagger-1" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-          <Card>
-            <SectionLabel>Completed Tasks</SectionLabel>
-            {doneTasks.slice(0, 4).map(t => (
-              <div key={t.id} style={{ fontSize: '12px', color: tokens.textSecondary, marginBottom: '5px', display: 'flex', gap: '6px' }}>
-                <span style={{ color: tokens.green }}>✓</span> {t.title}
-              </div>
-            ))}
-            {doneTasks.length > 4 && <div style={{ fontSize: '11px', color: tokens.textMuted }}>+{doneTasks.length - 4} more</div>}
-          </Card>
-          <Card>
-            <SectionLabel>Stalled Projects</SectionLabel>
-            {stalledProj.length === 0 ? <div style={{ fontSize: '12px', color: tokens.green }}>✓ Nothing stalled</div> : stalledProj.map(p => (
-              <div key={p.id} style={{ fontSize: '12px', color: tokens.textSecondary, marginBottom: '5px', display: 'flex', gap: '6px' }}>
-                <span style={{ color: tokens.red }}>⚑</span> {p.title}
-              </div>
-            ))}
-          </Card>
-        </div>
-      )}
-
-      {/* Scores */}
-      <div className="fade-up stagger-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-        {[
-          { label: 'Energy Score', field: 'energyScore', color: tokens.green },
-          { label: 'Execution Score', field: 'executionScore', color: tokens.blue },
-        ].map(item => (
-          <Card key={item.field}>
-            <SectionLabel>{item.label}</SectionLabel>
-            <div style={{ fontFamily: fonts.display, fontSize: '40px', fontWeight: 700, color: item.color, lineHeight: 1, marginBottom: '12px' }}>
-              {form[item.field]}
-            </div>
-            <input type="range" min={0} max={100} value={form[item.field]} onChange={e => setForm(f => ({ ...f, [item.field]: Number(e.target.value) }))} style={{ width: '100%', accentColor: item.color }} />
-          </Card>
-        ))}
-      </div>
-
-      {/* Inputs */}
-      <div className="fade-up stagger-3" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
-        <Input label="Key Wins This Week (one per line)" value={form.wins} onChange={v => setForm(f => ({ ...f, wins: v }))} placeholder="Sent Meridian proposal&#10;Ran 4x this week&#10;Closed new client" multiline rows={4} />
-        <Input label="Bottlenecks & Stalls (one per line)" value={form.bottlenecks} onChange={v => setForm(f => ({ ...f, bottlenecks: v }))} placeholder="Kitchen contractor still unresolved&#10;Content doc keeps getting deprioritized" multiline rows={3} />
-        <Input label="Personal Notes / Reflections" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Anything else worth capturing from this week..." multiline rows={3} />
-      </div>
-
-      {/* AI Insight */}
-      {aiText ? (
-        <div className="fade-up" style={{ marginBottom: '16px' }}>
-          <AICard text={aiText} loading={aiLoading} onRefresh={generateInsight} label="EXECUTIVE SUMMARY" />
-        </div>
-      ) : (
-        <div className="fade-up" style={{ marginBottom: '16px' }}>
-          <button
-            onClick={generateInsight}
-            disabled={aiLoading}
-            style={{
-              width: '100%', padding: '16px',
-              background: 'transparent',
-              border: `1px dashed rgba(200,169,110,0.3)`,
-              borderRadius: '12px', cursor: 'pointer',
-              color: tokens.accent, fontSize: '14px', fontWeight: 600,
-              transition: 'all 0.15s',
-              fontFamily: fonts.body,
-            }}
-            onMouseEnter={e => e.target.style.background = tokens.accentDim}
-            onMouseLeave={e => e.target.style.background = 'transparent'}
-          >
-            {aiLoading ? 'Generating...' : '✦ Generate AI Executive Summary'}
-          </button>
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: '10px' }}>
-        <Button onClick={handleSave} disabled={saved}>
-          {saved ? '✓ Review Saved' : 'Save Review'}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Ideas ─────────────────────────────────────────────────────────────────────
-export function IdeasScreen() {
-  const { user } = useAuth();
-  const { ideas } = useData();
-  const [selected,  setSelected]  = useState(null);
-  const [aiScores,  setAiScores]  = useState({});
-  const [loadingId, setLoadingId] = useState(null);
-  const [showModal, setShowModal] = useState(false);
-  const [saving,    setSaving]    = useState(false);
-  const { evaluateIdea } = require('../../lib/ai');
-  const { addIdea } = require('../../lib/db');
-  const emptyI = { title: '', notes: '', tags: '', status: 'explore' };
-  const [form, setForm] = useState(emptyI);
-
-  const IDEA_STATUSES = [
-    { value: 'explore', label: 'Explore' },
-    { value: 'test',    label: 'Test'    },
-    { value: 'active',  label: 'Active'  },
-    { value: 'later',   label: 'Later'   },
-    { value: 'no',      label: 'No'      },
-  ];
-
-  const handleEvaluate = async (idea) => {
-    setLoadingId(idea.id);
-    const result = await evaluateIdea({ ...idea, tags: idea.tags || [] });
-    if (result) setAiScores(prev => ({ ...prev, [idea.id]: result }));
-    setLoadingId(null);
-  };
-
-  const handleSave = async () => {
-    if (!form.title.trim()) return;
-    setSaving(true);
-    await addIdea(user.uid, { ...form, tags: form.tags.split(',').map(t => t.trim()).filter(Boolean) });
-    setSaving(false);
-    setShowModal(false);
-    setForm(emptyI);
-  };
-
-  const statusColor = (s) => ({ active: tokens.green, test: tokens.blue, explore: tokens.accent, later: tokens.textMuted, no: tokens.red })[s] || tokens.textMuted;
-
-  return (
-    <div style={{ maxWidth: 800, margin: '0 auto' }}>
-      <div className="fade-up" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px' }}>
-        <div>
-          <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Idea Vault</div>
-          <h1 style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>Idea Vault</h1>
-          <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '6px' }}>Capture, evaluate, and surface the right ideas at the right time.</p>
-        </div>
-        <Button onClick={() => setShowModal(true)}>+ New Idea</Button>
-      </div>
-
-      <div className="fade-up stagger-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '12px' }}>
-        {ideas.length === 0 ? (
-          <EmptyState icon="◇" title="No ideas captured yet" subtitle="Add ideas to evaluate their fit, effort, and timing." action={<Button onClick={() => setShowModal(true)}>+ First Idea</Button>} />
-        ) : (
-          ideas.map(idea => {
-            const isSelected = selected?.id === idea.id;
-            const score      = aiScores[idea.id];
-            return (
-              <div key={idea.id} onClick={() => setSelected(isSelected ? null : idea)}
-                style={{ background: isSelected ? 'rgba(200,169,110,0.05)' : tokens.bgCard, border: `1px solid ${isSelected ? 'rgba(200,169,110,0.2)' : tokens.border}`, borderRadius: '12px', padding: '16px 18px', cursor: 'pointer', transition: 'all 0.18s' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                  <div style={{ fontWeight: 600, fontSize: '14px', color: tokens.textPrimary, flex: 1, paddingRight: '8px' }}>{idea.title}</div>
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: statusColor(idea.status), textTransform: 'uppercase', letterSpacing: '0.06em' }}>{idea.status}</span>
-                </div>
-                {idea.tags?.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '10px' }}>
-                    {idea.tags.map(t => <span key={t} style={{ fontSize: '10px', color: tokens.accent, background: tokens.accentDim, padding: '1px 7px', borderRadius: '4px', fontWeight: 600 }}>{t}</span>)}
-                  </div>
-                )}
-                {idea.notes && <div style={{ fontSize: '12px', color: tokens.textMuted, lineHeight: 1.6, marginBottom: '10px' }}>{idea.notes}</div>}
-
-                {isSelected && (
-                  <div style={{ paddingTop: '12px', borderTop: `1px solid ${tokens.border}` }}>
-                    {score ? (
-                      <div style={{ background: tokens.accentDim, borderRadius: '8px', padding: '12px' }}>
-                        <div style={{ fontSize: '10px', color: tokens.accent, fontWeight: 700, marginBottom: '8px' }}>✦ AI EVALUATION</div>
-                        <div style={{ fontSize: '13px', color: tokens.textPrimary, marginBottom: '6px' }}>{score.verdict}</div>
-                        <div style={{ fontSize: '12px', color: tokens.textSecondary, marginBottom: '8px' }}>Test: {score.tinyTest}</div>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <span style={{ fontSize: '10px', color: tokens.blue, background: tokens.blueDim, padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>Fit: {score.fitScore}%</span>
-                          <span style={{ fontSize: '10px', color: statusColor(score.timing), background: tokens.accentDim, padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>{score.timing}</span>
-                        </div>
-                        {score.timingReason && <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '6px' }}>{score.timingReason}</div>}
-                      </div>
-                    ) : (
-                      <Button onClick={(e) => { e.stopPropagation(); handleEvaluate(idea); }} loading={loadingId === idea.id} variant="accent" size="sm" style={{ width: '100%', justifyContent: 'center' }}>
-                        ✦ AI Evaluate
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      <Modal open={showModal} onClose={() => setShowModal(false)} title="Capture an Idea">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <Input label="Idea Title" value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="AI-powered onboarding SaaS" />
-          <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Context, market observation, rough economics..." multiline rows={3} />
-          <Input label="Tags (comma separated)" value={form.tags} onChange={v => setForm(f => ({ ...f, tags: v }))} placeholder="SaaS, AI, passive income" />
-          <Select label="Status" value={form.status} onChange={v => setForm(f => ({ ...f, status: v }))} options={IDEA_STATUSES} />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <Button onClick={() => setShowModal(false)} variant="ghost">Cancel</Button>
-            <Button onClick={handleSave} loading={saving} disabled={!form.title.trim()}>Save Idea</Button>
-          </div>
-        </div>
-      </Modal>
-    </div>
-  );
-}
-
-// ─── Life OS ──────────────────────────────────────────────────────────────────
-
-function getCompletedDate(task) {
-  if (!task.completedAt) return null;
-  if (typeof task.completedAt === 'string') return task.completedAt.split('T')[0];
-  if (task.completedAt?.toDate) return task.completedAt.toDate().toISOString().split('T')[0];
-  return null;
-}
-
-export function LifeScreen() {
-  const { projects, tasks, totalDebt, goals } = useData();
-  const today = new Date().toISOString().split('T')[0];
-
-  // Last 14 days array (YYYY-MM-DD)
-  const last14Days = useMemo(() => {
-    const days = [];
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      days.push(d.toISOString().split('T')[0]);
-    }
-    return days;
-  }, []);
-
-  // Tasks completed per day for last 14 days
-  const completionsByDay = useMemo(() =>
-    last14Days.map(day => tasks.filter(t => t.done && getCompletedDate(t) === day).length),
-    [tasks, last14Days]
-  );
-
-  const maxDay = Math.max(...completionsByDay, 1);
-  const totalCompletedLast14 = completionsByDay.reduce((a, b) => a + b, 0);
-
-  // Completion streak (consecutive days going back from today)
-  const streak = useMemo(() => {
-    let count = 0;
-    for (let i = 0; i <= 60; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const day = d.toISOString().split('T')[0];
-      const hasDone = tasks.some(t => t.done && getCompletedDate(t) === day);
-      if (!hasDone) {
-        if (i === 0) continue; // today might not have completions yet
-        break;
-      }
-      count++;
-    }
-    return count;
-  }, [tasks]);
-
-  const activeGoals    = (goals || []).filter(g => g.status === 'active').slice(0, 4);
-  const activeCount    = projects.filter(p => p.status === 'active').length;
-  const pendingCount   = tasks.filter(t => !t.done).length;
-  const stalledProjs = projects.filter(p => p.status === 'stalled');
-  const overdueTasks   = tasks.filter(t => !t.done && t.scheduledDate && t.scheduledDate < today);
-
-  return (
-    <div style={{ maxWidth: 800, margin: '0 auto' }}>
-      <div className="fade-up" style={{ marginBottom: '28px' }}>
-        <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Life Dashboard</div>
-        <h1 style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>Life OS Overview</h1>
-        <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '6px' }}>Real data. No fake scores.</p>
-      </div>
-
-      {/* Key metrics */}
-      <div className="fade-up stagger-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' }}>
-        {[
-          { label: 'Done (14d)', val: totalCompletedLast14, color: tokens.green },
-          { label: 'Streak (days)', val: streak, color: tokens.accent },
-          { label: 'Pending', val: pendingCount, color: tokens.amber },
-          { label: 'Overdue', val: overdueTasks.length, color: overdueTasks.length > 0 ? tokens.red : tokens.textMuted },
-        ].map(item => (
-          <Card key={item.label} style={{ textAlign: 'center', padding: '14px' }}>
-            <div style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: item.color }}>{item.val}</div>
-            <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '4px', letterSpacing: '0.04em' }}>{item.label}</div>
-          </Card>
-        ))}
-      </div>
-
-      {/* Real execution chart */}
-      <div className="fade-up stagger-2" style={{ marginBottom: '16px' }}>
-        <Card>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <SectionLabel style={{ marginBottom: 0 }}>Tasks Completed — Last 14 Days</SectionLabel>
-            <span style={{ fontSize: '11px', color: tokens.textMuted }}>{totalCompletedLast14} total</span>
-          </div>
-          <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '64px' }}>
-            {completionsByDay.map((count, i) => (
-              <div
-                key={i}
-                title={`${last14Days[i]}: ${count} completed`}
-                style={{
-                  flex: 1,
-                  height: count > 0 ? `${Math.max(Math.round((count / maxDay) * 100), 10)}%` : '4px',
-                  borderRadius: '3px 3px 0 0',
-                  background: count >= 4 ? tokens.green : count >= 2 ? tokens.accent : count === 1 ? 'rgba(200,169,110,0.45)' : tokens.border,
-                  transition: 'height 0.5s ease',
-                  alignSelf: 'flex-end',
-                }}
-              />
-            ))}
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '10px', color: tokens.textMuted }}>
-            <span>14 days ago</span><span>Today</span>
-          </div>
-        </Card>
-      </div>
-
-      {/* Active goal momentum */}
-      {activeGoals.length > 0 && (
-        <div className="fade-up stagger-3" style={{ marginBottom: '16px' }}>
-          <Card>
-            <SectionLabel>Goal Momentum</SectionLabel>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {activeGoals.map(g => {
-                const score = g.likelihoodScore ?? 50;
-                const color = score >= 70 ? tokens.green : score >= 40 ? tokens.accent : tokens.red;
-                return (
-                  <div key={g.id}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                      <span style={{ fontSize: '13px', color: tokens.textPrimary, fontWeight: 500 }}>{g.title}</span>
-                      <span style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 700, color }}>{score}%</span>
-                    </div>
-                    <MomentumBar value={score} color={color} height={6} />
-                    {g.targetDate && (
-                      <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '4px' }}>Target: {g.targetDate}</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Projects & Debt */}
-      <div className="fade-up stagger-4" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
-        <Card>
-          <SectionLabel>Projects</SectionLabel>
-          <div style={{ fontFamily: fonts.display, fontSize: '36px', fontWeight: 700, color: tokens.blue, lineHeight: 1 }}>{activeCount}</div>
-          <div style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '4px' }}>active</div>
-          {stalledProjs.length > 0 && (
-            <div style={{ marginTop: '8px', fontSize: '12px', color: tokens.red, fontWeight: 600 }}>
-              {stalledProjs.length} stalled
-            </div>
-          )}
-        </Card>
-        <Card>
-          <SectionLabel>Debt Load</SectionLabel>
-          <div style={{ fontFamily: fonts.display, fontSize: '36px', fontWeight: 700, color: totalDebt > 0 ? tokens.red : tokens.green, lineHeight: 1 }}>
-            {totalDebt > 0 ? `$${(totalDebt / 1000).toFixed(0)}k` : '$0'}
-          </div>
-          <div style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '4px' }}>
-            {totalDebt > 0 ? 'outstanding' : 'debt free'}
-          </div>
-        </Card>
-      </div>
-
-      {/* Needs attention */}
-      {(stalledProjs.length > 0 || overdueTasks.length > 0) && (
-        <div className="fade-up stagger-5">
-          <Card style={{ borderColor: 'rgba(212,122,107,0.2)', background: 'rgba(212,122,107,0.02)' }}>
-            <SectionLabel>⚑ Needs Attention</SectionLabel>
-            {stalledProjs.map(p => (
-              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${tokens.border}` }}>
-                <div>
-                  <div style={{ fontSize: '13px', color: tokens.textPrimary, fontWeight: 500 }}>{p.title}</div>
-                  <div style={{ fontSize: '11px', color: tokens.textMuted }}>project · stalled</div>
-                </div>
-                <span style={{ fontSize: '12px', color: tokens.red, fontWeight: 600 }}>stalled</span>
-              </div>
-            ))}
-            {overdueTasks.slice(0, 5).map(t => (
-              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${tokens.border}` }}>
-                <div>
-                  <div style={{ fontSize: '13px', color: tokens.textPrimary, fontWeight: 500 }}>{t.title}</div>
-                  <div style={{ fontSize: '11px', color: tokens.textMuted }}>task · was due {t.scheduledDate}</div>
-                </div>
-                <span style={{ fontSize: '12px', color: tokens.amber, fontWeight: 600 }}>overdue</span>
-              </div>
-            ))}
-          </Card>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {tasks.length === 0 && projects.length === 0 && (
-        <div className="fade-up stagger-3">
-          <EmptyState icon="▦" title="No data yet" subtitle="Complete tasks, set goals, and add projects — your life OS will populate with real data." />
-        </div>
-      )}
-    </div>
-  );
-}

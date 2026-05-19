@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addDocument, deleteDocument, addTask } from '../../lib/db';
 import { Button, Modal, Spinner } from '../ui';
+import { fmtShortDate } from '../../lib/dates';
 
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -34,11 +35,6 @@ function fmtBytes(b) {
   return `${(b / 1048576).toFixed(1)} MB`;
 }
 
-function fmtDate(ts) {
-  if (!ts) return '';
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -345,7 +341,7 @@ export default function DocumentsScreen() {
 
               {/* Date + size */}
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <div style={{ fontSize: '11px', color: tokens.textMuted }}>{fmtDate(doc.createdAt)}</div>
+                <div style={{ fontSize: '11px', color: tokens.textMuted }}>{fmtShortDate(doc.createdAt)}</div>
                 {doc.fileSize && <div style={{ fontSize: '10px', color: tokens.textDisabled, marginTop: '2px' }}>{fmtBytes(doc.fileSize)}</div>}
               </div>
             </div>

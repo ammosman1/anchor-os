@@ -5,20 +5,9 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addNote, updateNote, deleteNote } from '../../lib/db';
 import { Button, Modal, Input } from '../ui';
+import { fmtRelativeDate } from '../../lib/dates';
 
 const BLANK_FORM = { title: '', body: '', goalId: '', projectId: '', pinned: false };
-
-function fmtDate(ts) {
-  if (!ts) return '';
-  const d = ts.toDate ? ts.toDate() : new Date(ts);
-  const now = new Date();
-  const diff = now - d;
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-  if (diff < 604800000) return `${Math.floor(diff / 86400000)}d ago`;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
 
 export default function NotesScreen() {
   const { user }              = useAuth();
@@ -113,7 +102,7 @@ export default function NotesScreen() {
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
           {linkedGoal && <span style={{ fontSize: '10px', color: tokens.accent }}>◆ {linkedGoal.title}</span>}
           {linkedProject && <span style={{ fontSize: '10px', color: tokens.blue }}>◈ {linkedProject.title}</span>}
-          <span style={{ fontSize: '10px', color: tokens.textMuted, marginLeft: 'auto' }}>{fmtDate(note.updatedAt)}</span>
+          <span style={{ fontSize: '10px', color: tokens.textMuted, marginLeft: 'auto' }}>{fmtRelativeDate(note.updatedAt)}</span>
         </div>
       </div>
     );
