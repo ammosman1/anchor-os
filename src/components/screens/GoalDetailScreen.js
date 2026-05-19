@@ -59,7 +59,7 @@ export default function GoalDetailScreen() {
   const { goalId }   = useParams();
   const navigate     = useNavigate();
   const { user }     = useAuth();
-  const { goals, tasks, weeklyReviews, projects, plaidItems, brainDumps, userProfile, manualCashFlow, debtAccounts, assetAccounts } = useData();
+  const { goals, tasks, weeklyReviews, projects, plaidItems, brainDumps, userProfile, manualCashFlow, debtAccounts, assetAccounts, totalDebt, totalAssets } = useData();
 
   const goal            = goals.find(g => g.id === goalId);
   const linkedTasks     = tasks.filter(t => t.goalId === goalId);
@@ -107,11 +107,85 @@ export default function GoalDetailScreen() {
   const [plaidAccounts,   setPlaidAccounts]   = useState([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
 
+  const [showSourcePicker, setShowSourcePicker] = useState(false);
+  const [sourceForm,       setSourceForm]       = useState({ type: 'manual', rateThreshold: '10', accountIds: [] });
+  const [savingSource,     setSavingSource]     = useState(false);
+
   // All active tasks for this goal — direct link OR via a linked project
   const allActiveGoalTasks = useMemo(() => {
     const linkedProjectIds = projects.filter(p => p.goalId === goalId).map(p => p.id);
     return tasks.filter(t => !t.done && (t.goalId === goalId || linkedProjectIds.includes(t.projectId)));
   }, [tasks, projects, goalId]);
+
+  // Tracking source — compute live value from Finance data
+  const computeTrackedValueForSource = useCallback((src) => {
+    if (!src || src.type === 'manual') return null;
+    switch (src.type) {
+      case 'debt_total':
+        return Math.round(debtAccounts.reduce((s, a) => s + (a.balance || 0), 0));
+      case 'debt_highinterest': {
+        const t = src.rateThreshold ?? 10;
+        return Math.round(debtAccounts.filter(a => (a.interestRate || 0) > t).reduce((s, a) => s + (a.balance || 0), 0));
+      }
+      case 'debt_accounts': {
+        const ids = new Set(src.accountIds || []);
+        return Math.round(debtAccounts.filter(a => ids.has(a.id)).reduce((s, a) => s + (a.balance || 0), 0));
+      }
+      case 'asset_total':
+        return Math.round(assetAccounts.reduce((s, a) => s + (a.balance || 0), 0));
+      case 'net_worth':
+        return Math.round(assetAccounts.reduce((s, a) => s + (a.balance || 0), 0) - debtAccounts.reduce((s, a) => s + (a.balance || 0), 0));
+      default: return null;
+    }
+  }, [debtAccounts, assetAccounts]);
+
+  const trackedValue = useMemo(() =>
+    computeTrackedValueForSource(goal?.trackingSource),
+  [goal?.trackingSource, computeTrackedValueForSource]); // eslint-disable-line
+
+  const sourceLabel = useMemo(() => {
+    const src = goal?.trackingSource;
+    if (!src || src.type === 'manual') return 'Manual tracking';
+    switch (src.type) {
+      case 'debt_total':        return 'All debt';
+      case 'debt_highinterest': return `High-interest debt (>${src.rateThreshold ?? 10}% APR)`;
+      case 'debt_accounts':     return `${(src.accountIds || []).length} selected account(s)`;
+      case 'asset_total':       return 'Total assets';
+      case 'net_worth':         return 'Net worth';
+      default:                  return 'Manual tracking';
+    }
+  }, [goal?.trackingSource]);
+
+  // Auto-persist tracked value to Firestore so AI context stays current
+  useEffect(() => {
+    if (!goal || trackedValue == null) return;
+    if (goal.currentAmount === trackedValue) return;
+    updateGoal(user.uid, goalId, { currentAmount: trackedValue });
+  }, [trackedValue]); // eslint-disable-line
+
+  const openSourcePicker = () => {
+    const src = goal?.trackingSource || { type: 'manual' };
+    setSourceForm({ type: src.type || 'manual', rateThreshold: String(src.rateThreshold ?? 10), accountIds: src.accountIds || [] });
+    setShowSourcePicker(true);
+  };
+
+  const handleSaveSource = async () => {
+    setSavingSource(true);
+    try {
+      const source = {
+        type: sourceForm.type,
+        ...(sourceForm.type === 'debt_highinterest' && { rateThreshold: parseFloat(sourceForm.rateThreshold) || 10 }),
+        ...(sourceForm.type === 'debt_accounts'     && { accountIds: sourceForm.accountIds }),
+      };
+      const updates = { trackingSource: source };
+      const computed = computeTrackedValueForSource(source);
+      if (computed != null) updates.currentAmount = computed;
+      await updateGoal(user.uid, goalId, updates);
+      setShowSourcePicker(false);
+    } finally {
+      setSavingSource(false);
+    }
+  };
 
   // Filter out AI-suggested actions that duplicate existing tasks
   const dedupedActions = useMemo(() => {
@@ -445,13 +519,17 @@ export default function GoalDetailScreen() {
     );
   }
 
-  const typeConfig   = GOAL_TYPE_CONFIG[goal.goalType] || GOAL_TYPE_CONFIG.project;
-  const months       = monthsFrom(goal.targetDate);
-  const taskProgress = linkedTasks.length > 0
+  const typeConfig    = GOAL_TYPE_CONFIG[goal.goalType] || GOAL_TYPE_CONFIG.project;
+  const months        = monthsFrom(goal.targetDate);
+  const taskProgress  = linkedTasks.length > 0
     ? Math.round((completedTasks.length / linkedTasks.length) * 100) : 0;
-  const hasMoney     = goal.targetAmount != null && goal.currentAmount != null;
+  const displayAmount = trackedValue ?? goal.currentAmount;
+  const hasMoney      = goal.targetAmount != null && displayAmount != null;
   const moneyProgress = hasMoney
-    ? Math.min(100, Math.round((goal.currentAmount / goal.targetAmount) * 100)) : 0;
+    ? Math.min(100, Math.round((displayAmount / goal.targetAmount) * 100)) : 0;
+  const isAutoTracked = goal.trackingSource?.type && goal.trackingSource.type !== 'manual';
+  const netWorth      = totalAssets - totalDebt;
+  const netWorthFmt   = `${netWorth >= 0 ? '+' : ''}$${Math.abs(Math.round(netWorth)).toLocaleString()}`;
   const score        = goal.likelihoodScore;
   const scoreColor   = score >= 70 ? tokens.green : score >= 40 ? tokens.amber : score != null ? tokens.red : tokens.textMuted;
 
@@ -557,22 +635,37 @@ export default function GoalDetailScreen() {
         {/* Financial balance */}
         {goal.goalType === 'financial' && (
           <div style={{ marginBottom: '16px', padding: '12px 14px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: hasMoney ? '12px' : '0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: hasMoney ? '12px' : '0' }}>
               <div>
-                <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: tokens.textMuted, marginBottom: '3px' }}>Current Balance</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '3px' }}>
+                  <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: tokens.textMuted }}>Current Balance</div>
+                  {isAutoTracked && (
+                    <span style={{ fontSize: '9px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: 'rgba(109,191,158,0.15)', color: tokens.green, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Auto-tracked
+                    </span>
+                  )}
+                </div>
                 <div style={{ fontSize: '20px', fontWeight: 700, color: tokens.accent }}>
-                  {goal.currentAmount != null ? `$${goal.currentAmount.toLocaleString()}` : '—'}
+                  {displayAmount != null ? `$${displayAmount.toLocaleString()}` : '—'}
                 </div>
                 {goal.targetAmount != null && (
                   <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>
                     of ${goal.targetAmount.toLocaleString()} target
-                    {goal.plaidAccountId && <span style={{ marginLeft: 6, color: tokens.green }}>· Plaid linked</span>}
                   </div>
                 )}
+                <button
+                  onClick={openSourcePicker}
+                  style={{ background: 'none', border: 'none', fontSize: '11px', color: tokens.textMuted, cursor: 'pointer', padding: '3px 0 0', fontFamily: fonts.body, display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <span style={{ opacity: 0.7 }}>⚙</span>
+                  <span style={{ textDecoration: 'underline', textUnderlineOffset: '2px' }}>{sourceLabel}</span>
+                </button>
               </div>
-              <Button size="sm" variant="ghost" onClick={() => { setNewBalance(goal.currentAmount != null ? String(goal.currentAmount) : ''); setBalanceOpen(true); }}>
-                Update
-              </Button>
+              {!isAutoTracked && (
+                <Button size="sm" variant="ghost" onClick={() => { setNewBalance(goal.currentAmount != null ? String(goal.currentAmount) : ''); setBalanceOpen(true); }}>
+                  Update
+                </Button>
+              )}
             </div>
             {hasMoney && (
               <>
@@ -1040,6 +1133,118 @@ export default function GoalDetailScreen() {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
             <Button variant="ghost" onClick={() => { setFeedbackOpen(false); setFeedbackText(''); }}>Cancel</Button>
             <Button onClick={handleFeedbackSubmit} loading={feedbackSaving} disabled={!feedbackText.trim()}>Save & Regenerate</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Tracking Source Picker Modal */}
+      <Modal open={showSourcePicker} onClose={() => setShowSourcePicker(false)} title="Tracking Source" width={520}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6 }}>
+            Connect this goal's balance to live Finance data, or track it manually.
+          </div>
+
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '8px' }}>Source</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              {[
+                { value: 'manual',           label: 'Manual',              desc: 'Update the balance yourself' },
+                { value: 'debt_total',        label: 'All Debt',            desc: `Sum of all debt accounts · $${totalDebt.toLocaleString()}` },
+                { value: 'debt_highinterest', label: 'High-Interest Debt',  desc: 'Debt accounts above an APR threshold' },
+                { value: 'debt_accounts',     label: 'Specific Accounts',   desc: 'Choose which debt accounts to sum' },
+                { value: 'asset_total',       label: 'Total Assets',        desc: `Sum of all asset accounts · $${totalAssets.toLocaleString()}` },
+                { value: 'net_worth',         label: 'Net Worth',           desc: `Assets minus debts · ${netWorthFmt}` },
+              ].map(opt => (
+                <div
+                  key={opt.value}
+                  onClick={() => setSourceForm(f => ({ ...f, type: opt.value }))}
+                  style={{ display: 'flex', gap: '10px', padding: '9px 12px', borderRadius: '8px', border: `1px solid ${sourceForm.type === opt.value ? tokens.accent : tokens.border}`, background: sourceForm.type === opt.value ? tokens.accentDim : 'transparent', cursor: 'pointer', transition: 'all 0.12s', alignItems: 'center' }}
+                >
+                  <div style={{ width: 14, height: 14, borderRadius: '50%', border: `1.5px solid ${sourceForm.type === opt.value ? tokens.accent : tokens.border}`, background: sourceForm.type === opt.value ? tokens.accent : 'transparent', flexShrink: 0, marginTop: '1px' }} />
+                  <div>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{opt.label}</div>
+                    <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '1px' }}>{opt.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {sourceForm.type === 'debt_highinterest' && (
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>APR Threshold (%)</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <input
+                  type="number" min="0" max="100" step="0.1"
+                  value={sourceForm.rateThreshold}
+                  onChange={e => setSourceForm(f => ({ ...f, rateThreshold: e.target.value }))}
+                  style={{ width: '90px', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}
+                  onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+                  onBlur={e => e.target.style.borderColor = tokens.border}
+                />
+                <span style={{ fontSize: '12px', color: tokens.textMuted }}>
+                  {(() => {
+                    const t = parseFloat(sourceForm.rateThreshold) || 10;
+                    const matches = debtAccounts.filter(a => (a.interestRate || 0) > t);
+                    const total = Math.round(matches.reduce((s, a) => s + (a.balance || 0), 0));
+                    return `${matches.length} account${matches.length !== 1 ? 's' : ''} qualify · $${total.toLocaleString()} total`;
+                  })()}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {sourceForm.type === 'debt_accounts' && (
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>
+                Select Accounts
+                {sourceForm.accountIds.length > 0 && (
+                  <span style={{ fontWeight: 400, marginLeft: '6px', textTransform: 'none', letterSpacing: 0 }}>
+                    · ${Math.round(debtAccounts.filter(a => sourceForm.accountIds.includes(a.id)).reduce((s, a) => s + (a.balance || 0), 0)).toLocaleString()} selected
+                  </span>
+                )}
+              </label>
+              {debtAccounts.length === 0 ? (
+                <div style={{ fontSize: '12px', color: tokens.textMuted }}>No debt accounts on file. Import them from Finance.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '180px', overflowY: 'auto' }}>
+                  {debtAccounts.map(acct => {
+                    const sel = sourceForm.accountIds.includes(acct.id);
+                    return (
+                      <div
+                        key={acct.id}
+                        onClick={() => setSourceForm(f => ({ ...f, accountIds: sel ? f.accountIds.filter(id => id !== acct.id) : [...f.accountIds, acct.id] }))}
+                        style={{ display: 'flex', gap: '10px', padding: '8px 10px', borderRadius: '7px', border: `1px solid ${sel ? tokens.accent : tokens.border}`, background: sel ? tokens.accentDim : 'transparent', cursor: 'pointer', transition: 'all 0.12s', alignItems: 'center' }}
+                      >
+                        <div style={{ width: 14, height: 14, borderRadius: '3px', border: `1.5px solid ${sel ? tokens.accent : tokens.border}`, background: sel ? tokens.accent : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', color: '#fff' }}>
+                          {sel ? '✓' : ''}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <span style={{ fontSize: '13px', color: tokens.textPrimary }}>{acct.name}</span>
+                          {acct.interestRate > 0 && <span style={{ fontSize: '11px', color: tokens.textMuted, marginLeft: '6px' }}>{acct.interestRate}% APR</span>}
+                        </div>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>${(acct.balance || 0).toLocaleString()}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {sourceForm.type !== 'manual' && (
+            <div style={{ padding: '10px 14px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: tokens.textMuted, marginBottom: '3px' }}>Preview</div>
+              <div style={{ fontSize: '18px', fontWeight: 700, color: tokens.accent }}>
+                ${(computeTrackedValueForSource({ type: sourceForm.type, rateThreshold: parseFloat(sourceForm.rateThreshold) || 10, accountIds: sourceForm.accountIds }) || 0).toLocaleString()}
+              </div>
+              <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>will be set as current balance</div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', paddingTop: '4px', borderTop: `1px solid ${tokens.border}` }}>
+            <Button variant="ghost" onClick={() => setShowSourcePicker(false)}>Cancel</Button>
+            <Button onClick={handleSaveSource} loading={savingSource}>Save Source</Button>
           </div>
         </div>
       </Modal>
