@@ -9,7 +9,7 @@ import {
 } from '../../lib/calendar';
 import { Button, Modal, Input, Spinner, priorityColors } from '../ui';
 import { updateTask } from '../../lib/db';
-import { RECURRENCE_OPTIONS } from '../../lib/tasks';
+import { RECURRENCE_OPTIONS, isTaskBlocked } from '../../lib/tasks';
 import PlanScheduleFlow from './PlanScheduleFlow';
 import WorkScheduleImportModal from './WorkScheduleImportModal';
 import { fetchWeeklyWeather, weatherCodeToEmoji, DEFAULT_ZIP } from '../../lib/weather';
@@ -536,6 +536,11 @@ export default function CalendarScreen() {
 
   // ── Auto-schedule single task ──────────────────────────────────────────────
   const handleAutoSchedule = async (task) => {
+    if (isTaskBlocked(task, tasks)) {
+      setDragNoSlot(`"${task.title}" is blocked — complete its dependencies first.`);
+      setTimeout(() => setDragNoSlot(''), 4000);
+      return;
+    }
     setAutoScheduling(prev => new Set([...prev, task.id]));
     setDragNoSlot('');
 
@@ -1133,6 +1138,11 @@ export default function CalendarScreen() {
                           }}
                           title="Click to navigate to this date">
                           {new Date(task.scheduledStart).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {formatEventTime(task.scheduledStart)}
+                        </span>
+                      )}
+                      {isTaskBlocked(task, tasks) && (
+                        <span style={{ fontSize: '9px', fontWeight: 700, color: tokens.amber, background: 'rgba(200,160,50,0.15)', padding: '1px 5px', borderRadius: '3px' }}>
+                          ⊘ Blocked
                         </span>
                       )}
                       {yest    && !isScheduled && <span style={{ fontSize: '9px', color: tokens.amber, fontWeight: 600 }}>⚡ yesterday</span>}

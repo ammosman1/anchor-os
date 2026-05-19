@@ -8,7 +8,7 @@ import { addTask, updateTask, updateProject, saveProfile, getAICache, saveAICach
 import { generateProjectAnalysis } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
 import { calculateMomentum, getMomentumBlurb } from '../../lib/momentum';
-import { RECURRENCE_OPTIONS, getProjectNextAction } from '../../lib/tasks';
+import { RECURRENCE_OPTIONS, getProjectNextAction, isTaskBlocked } from '../../lib/tasks';
 import { Button, Modal, Input, MomentumBar, Spinner } from '../ui';
 
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
@@ -641,10 +641,15 @@ export default function ProjectDetailScreen() {
               />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.4 }}>{task.title}</div>
-                <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px', display: 'flex', gap: '8px' }}>
+                <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                   <span style={{ textTransform: 'capitalize' }}>{task.priority}</span>
                   {task.estimatedMinutes && <span>⏱ {task.estimatedMinutes}m</span>}
                   {due && <span style={{ color: due.color, fontWeight: 600 }}>{due.label}</span>}
+                  {isTaskBlocked(task, tasks) && (
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.amber, background: 'rgba(200,160,50,0.15)', padding: '1px 6px', borderRadius: '4px' }}>
+                      ⊘ Blocked
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

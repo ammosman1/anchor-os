@@ -1,7 +1,7 @@
 // src/lib/aiContext.js
 // Assembles full user context for all AI calls so nothing runs blind
 
-import { calculateUrgency } from './tasks';
+import { calculateUrgency, isTaskBlocked } from './tasks';
 import { calculateMomentum } from './momentum';
 import { getProjectNextAction } from './tasks';
 
@@ -177,6 +177,20 @@ export function buildHolisticContext({
       const workHigh = workTasks.filter(t => t.priority === 'critical' || t.priority === 'high');
       lines.push(`  Work — ${workHigh.length} high/critical, ${workTasks.length - workHigh.length} medium/low`);
     }
+  }
+
+  // Blocked tasks — AI must not suggest or schedule these
+  const blockedOpen = tasks.filter(t => !t.done && isTaskBlocked(t, tasks));
+  if (blockedOpen.length > 0) {
+    lines.push(`\nBLOCKED TASKS — do NOT suggest or schedule these until their blockers are resolved:`);
+    blockedOpen.forEach(t => {
+      const blockerTitles = (t.blockedBy || [])
+        .map(id => tasks.find(b => b.id === id))
+        .filter(b => b && !b.done)
+        .map(b => `"${b.title}"`)
+        .join(', ');
+      lines.push(`  • "${t.title}" → waiting on: ${blockerTitles}`);
+    });
   }
 
   // Stale inbox tasks (not updated in 14+ days, no project)

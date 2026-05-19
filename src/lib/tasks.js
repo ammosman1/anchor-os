@@ -89,6 +89,23 @@ export function nextRecurrenceDate(baseDateStr, recurrence) {
   return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}`;
 }
 
+// Returns true if the task has at least one uncompleted blocker.
+export function isTaskBlocked(task, allTasks) {
+  if (!task.blockedBy?.length) return false;
+  return task.blockedBy.some(id => {
+    const blocker = allTasks.find(t => t.id === id);
+    return blocker && !blocker.done;
+  });
+}
+
+// Returns the uncompleted blocker task objects for a given task.
+export function getBlockers(task, allTasks) {
+  if (!task.blockedBy?.length) return [];
+  return task.blockedBy
+    .map(id => allTasks.find(t => t.id === id))
+    .filter(t => t && !t.done);
+}
+
 // When a recurring task is completed, create the next occurrence in Firestore.
 export async function scheduleNextRecurrence(uid, task) {
   if (!task.recurrence || task.recurrence === 'none') return;

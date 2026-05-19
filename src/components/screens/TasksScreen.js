@@ -4,7 +4,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addTask, updateTask, deleteTask } from '../../lib/db';
-import { RECURRENCE_OPTIONS, scheduleNextRecurrence, calculateUrgency } from '../../lib/tasks';
+import { RECURRENCE_OPTIONS, scheduleNextRecurrence, calculateUrgency, isTaskBlocked } from '../../lib/tasks';
 import { getValidAccessToken, deleteEvent } from '../../lib/calendar';
 import { Card, Button, Input, Select, SectionLabel, Tag, Modal, EmptyState, priorityColors } from '../ui';
 
@@ -53,9 +53,9 @@ const CATEGORY_TO_CONTEXT = {
   business: 'work',
 };
 
-const STATUS_FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'done'];
+const STATUS_FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'blocked', 'done'];
 
-const emptyForm = { title: '', priority: 'high', projectId: '', goalId: '', context: 'personal', notes: '', estimatedMinutes: '', tags: '', recurrence: 'none', focusType: 'deep', dueDate: '' };
+const emptyForm = { title: '', priority: 'high', projectId: '', goalId: '', context: 'personal', notes: '', estimatedMinutes: '', tags: '', recurrence: 'none', focusType: 'deep', dueDate: '', blockedBy: [] };
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -87,6 +87,7 @@ export default function TasksScreen() {
   const [focusTask,    setFocusTask]     = useState(null); // { task, duration, startTime }
   const [timeLeft,     setTimeLeft]      = useState(null); // seconds
   const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
+  const [blockerSearch, setBlockerSearch] = useState('');
 
   // Focus timer countdown
   useEffect(() => {
@@ -136,10 +137,17 @@ export default function TasksScreen() {
       case 'brain-dump': return !t.done && t.source === 'brain-dump';
       case 'critical':   return !t.done && t.priority === 'critical';
       case 'high':       return !t.done && (t.priority === 'critical' || t.priority === 'high');
+      case 'blocked':    return !t.done && isTaskBlocked(t, tasks);
       case 'done':       return t.done;
       default:           return !t.done;
     }
-  }).sort((a, b) => calculateUrgency(b) - calculateUrgency(a));
+  }).sort((a, b) => {
+    // Blocked tasks sink to bottom within their filter group
+    const aBlocked = isTaskBlocked(a, tasks);
+    const bBlocked = isTaskBlocked(b, tasks);
+    if (aBlocked !== bBlocked) return aBlocked ? 1 : -1;
+    return calculateUrgency(b) - calculateUrgency(a);
+  });
 
   const doneCount    = tasks.filter(t => t.done).length;
   const pendingCount = tasks.filter(t => !t.done).length;
@@ -182,6 +190,7 @@ export default function TasksScreen() {
   const openNew = () => {
     setForm(emptyForm);
     setEditing(null);
+    setBlockerSearch('');
     setShowModal(true);
   };
 
@@ -198,8 +207,10 @@ export default function TasksScreen() {
       recurrence:       task.recurrence       || 'none',
       focusType:        task.focusType        || 'deep',
       dueDate:          task.dueDate          || '',
+      blockedBy:        task.blockedBy        || [],
     });
     setEditing(task.id);
+    setBlockerSearch('');
     setShowModal(true);
   };
 
@@ -224,6 +235,7 @@ export default function TasksScreen() {
       recurrence:       form.recurrence || 'none',
       focusType:        form.focusType || 'deep',
       dueDate:          form.dueDate   || null,
+      blockedBy:        form.blockedBy || [],
     };
 
     if (editing) {
@@ -409,6 +421,11 @@ export default function TasksScreen() {
                         {task.context}
                       </span>
                     )}
+                    {isTaskBlocked(task, tasks) && (
+                      <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.amber, background: 'rgba(200,160,50,0.15)', padding: '1px 6px', borderRadius: '4px' }}>
+                        ⊘ Blocked
+                      </span>
+                    )}
                     {source && <span style={{ fontSize: '10px', color: source.color, fontWeight: 600 }}>· {source.label}</span>}
                     <span style={{ fontSize: '10px', color: tokens.textMuted }}>· {timeAgo(task.createdAt)}</span>
                     {task.estimatedMinutes && (
@@ -519,7 +536,7 @@ export default function TasksScreen() {
       </Modal>
 
       {/* Task Edit Modal */}
-      <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Task' : 'New Task'}>
+      <Modal open={showModal} onClose={() => { setShowModal(false); setBlockerSearch(''); }} title={editing ? 'Edit Task' : 'New Task'}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <Input label="Task" value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="What needs to get done?" />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -550,6 +567,67 @@ export default function TasksScreen() {
             </div>
           )}
           <Input label="Tags (comma-separated)" value={form.tags} onChange={v => setForm(f => ({ ...f, tags: v }))} placeholder="e.g. email, client, urgent" />
+
+          {/* Blocked By */}
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>
+              Blocked By
+            </label>
+            {/* Current blockers as removable chips */}
+            {(form.blockedBy || []).length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '6px' }}>
+                {(form.blockedBy || []).map(id => {
+                  const bt = tasks.find(t => t.id === id);
+                  return bt ? (
+                    <span key={id} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', background: 'rgba(200,160,50,0.15)', color: tokens.amber, border: '1px solid rgba(200,160,50,0.3)', borderRadius: '5px', padding: '2px 8px', fontWeight: 600 }}>
+                      ⊘ {bt.title.length > 32 ? bt.title.slice(0, 32) + '…' : bt.title}
+                      <button onClick={() => setForm(f => ({ ...f, blockedBy: f.blockedBy.filter(b => b !== id) }))}
+                        style={{ background: 'none', border: 'none', color: tokens.amber, cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: '0 0 0 2px', fontFamily: fonts.body }}>✕</button>
+                    </span>
+                  ) : null;
+                })}
+              </div>
+            )}
+            <input
+              value={blockerSearch}
+              onChange={e => setBlockerSearch(e.target.value)}
+              placeholder="Search for a task that blocks this one…"
+              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }}
+              onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+              onBlur={e => e.target.style.borderColor = tokens.border}
+            />
+            {blockerSearch.trim() && (
+              <div style={{ marginTop: '4px', border: `1px solid ${tokens.border}`, borderRadius: '8px', overflow: 'hidden', background: tokens.bgCard }}>
+                {tasks
+                  .filter(t =>
+                    !t.done &&
+                    t.id !== editing &&
+                    t.title.toLowerCase().includes(blockerSearch.toLowerCase()) &&
+                    !(form.blockedBy || []).includes(t.id)
+                  )
+                  .slice(0, 5)
+                  .map((t, i, arr) => (
+                    <div key={t.id}
+                      onMouseDown={() => {
+                        setForm(f => ({ ...f, blockedBy: [...(f.blockedBy || []), t.id] }));
+                        setBlockerSearch('');
+                      }}
+                      style={{ padding: '8px 12px', fontSize: '13px', color: tokens.textPrimary, cursor: 'pointer', borderBottom: i < arr.length - 1 ? `1px solid ${tokens.border}` : 'none', display: 'flex', alignItems: 'center', gap: '8px' }}
+                      onMouseEnter={e => e.currentTarget.style.background = tokens.bgGlass}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <span style={{ fontSize: '10px', color: tokens.textMuted, textTransform: 'capitalize' }}>{t.priority}</span>
+                      {t.title}
+                    </div>
+                  ))
+                }
+                {tasks.filter(t => !t.done && t.id !== editing && t.title.toLowerCase().includes(blockerSearch.toLowerCase()) && !(form.blockedBy || []).includes(t.id)).length === 0 && (
+                  <div style={{ padding: '8px 12px', fontSize: '12px', color: tokens.textMuted }}>No matching tasks</div>
+                )}
+              </div>
+            )}
+          </div>
+
           <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Any context..." multiline rows={2} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <Input label="Est. Minutes" value={form.estimatedMinutes} onChange={v => setForm(f => ({ ...f, estimatedMinutes: v }))} placeholder="30, 60..." type="number" />
@@ -564,7 +642,7 @@ export default function TasksScreen() {
             <Select label="Repeat" value={form.recurrence} onChange={v => setForm(f => ({ ...f, recurrence: v }))} options={RECURRENCE_OPTIONS} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <Button onClick={() => setShowModal(false)} variant="ghost">Cancel</Button>
+            <Button onClick={() => { setShowModal(false); setBlockerSearch(''); }} variant="ghost">Cancel</Button>
             <Button onClick={handleSave} loading={saving} disabled={!form.title.trim()}>{editing ? 'Save' : 'Add Task'}</Button>
           </div>
         </div>
