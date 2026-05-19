@@ -67,10 +67,22 @@ ${currentTime ? `- CURRENT TIME: ${currentTime}. Never schedule any block starti
 - Tasks marked WORK TASK must only be scheduled Monday–Friday during typical business hours (8am–5pm)
 - Tasks marked OVERDUE or pushed 2+ times must be scheduled first, today if possible
 - Tasks with due dates within 2 days get top priority in the schedule
-- Critical and high priority tasks get the earliest, best available slots
+
+PRIORITY-FIRST ORDERING:
+- Schedule ALL critical tasks before any high tasks; ALL high before medium; ALL medium before low
+- Within the same priority tier, sort by: OVERDUE first, then due soonest, then by focusType fit for the time window
+- Never schedule a medium or low task into a prime morning deep-work slot if any critical or high task is unscheduled
+
+CONTEXT RUNS (consecutive focus blocks):
+- If 3 or more tasks belong to the same project AND are all high or critical priority, schedule them back-to-back as a "context run" — group them in the same morning or afternoon window
+- Context runs minimize context-switching and preserve focus
+- Label context-run tasks in their "reason" field: "Context run: [Project Name]"
+- Add a single 10-minute break after a context run, not between each task
+
+GENERAL:
 - OUTDOOR tasks must only be placed on weather-suitable days
 - Never schedule deep work in an afternoon low-focus slot if a morning slot is available
-- Add 10-minute buffers between consecutive blocks — don't stack them back-to-back
+- Add 10-minute buffers between standalone consecutive blocks — don't stack them back-to-back
 - Do not schedule more than 5 hours of focused work per day
 - If a task won't fit one day, roll it to the next available day
 - If a task won't fit in the entire window, omit it — do not overload

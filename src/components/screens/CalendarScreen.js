@@ -157,6 +157,11 @@ export default function CalendarScreen() {
   const [autoScheduling, setAutoScheduling] = useState(new Set());
   // Work hours warning
   const [workHoursWarning, setWorkHoursWarning] = useState(null); // { task, day, mins }
+  // Task split
+  const [splitTask,     setSplitTask]     = useState(null);
+  const [splitSpent,    setSplitSpent]    = useState('');
+  const [splitRemaining,setSplitRemaining]= useState('');
+  const [splitSaving,   setSplitSaving]   = useState(false);
 
   const scrollRef               = useRef(null);
   const fetched                 = useRef(new Set());
@@ -164,6 +169,7 @@ export default function CalendarScreen() {
   const tasksRef                = useRef(tasks);
   const draggedSidebarTask      = useRef(null);
   const isDraggingFromSidebar   = useRef(false);
+  const draggedCalendarTask     = useRef(null);  // task block being re-dragged from the grid
   const [dragState, setDragState] = useState(null);
 
   const yesterdayStr = ymd(new Date(Date.now() - 86400000));
@@ -258,6 +264,7 @@ export default function CalendarScreen() {
           _isTask: true,
           _anchor: true,
           _done: !!t.done,
+          _outdoor: !!t.outdoor,
           summary: t.title,
           priority: t.priority,
           start: { dateTime: t.scheduledStart },
@@ -617,6 +624,7 @@ export default function CalendarScreen() {
   const handleSidebarDragStart = (e, task) => {
     draggedSidebarTask.current = task;
     isDraggingFromSidebar.current = true;
+    draggedCalendarTask.current = null;
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', task.id);
   };
@@ -627,8 +635,23 @@ export default function CalendarScreen() {
     setDragOverInfo(null);
   };
 
+  // ── Drag from calendar grid (task block reschedule) ────────────────────────
+  const handleCalendarTaskDragStart = (e, task) => {
+    draggedCalendarTask.current = task;
+    isDraggingFromSidebar.current = false;
+    draggedSidebarTask.current = null;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', task.id);
+    e.stopPropagation();
+  };
+
+  const handleCalendarTaskDragEnd = () => {
+    draggedCalendarTask.current = null;
+    setDragOverInfo(null);
+  };
+
   const handleCalendarDragOver = useCallback((e, dayIndex, day) => {
-    if (!isDraggingFromSidebar.current) return;
+    if (!isDraggingFromSidebar.current && !draggedCalendarTask.current) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const rect = e.currentTarget.getBoundingClientRect();
@@ -640,11 +663,14 @@ export default function CalendarScreen() {
 
   const handleCalendarDrop = useCallback(async (e, dayIndex, day) => {
     e.preventDefault();
-    const task = draggedSidebarTask.current;
+    const sidebarTask  = draggedSidebarTask.current;
+    const calendarTask = draggedCalendarTask.current;
+    const task = sidebarTask || calendarTask;
     if (!task) return;
 
     draggedSidebarTask.current = null;
     isDraggingFromSidebar.current = false;
+    draggedCalendarTask.current = null;
 
     const rect = e.currentTarget.getBoundingClientRect();
     const y    = e.clientY - rect.top;
@@ -660,7 +686,11 @@ export default function CalendarScreen() {
       return;
     }
 
-    await scheduleTaskAtSlot(task, day, mins);
+    if (calendarTask) {
+      await rescheduleCalendarTask(calendarTask, day, mins);
+    } else {
+      await scheduleTaskAtSlot(task, day, mins);
+    }
   }, [userProfile]); // eslint-disable-line
 
   const scheduleTaskAtSlot = async (task, day, mins) => {
@@ -696,6 +726,41 @@ export default function CalendarScreen() {
     }
 
     await updateTask(user.uid, task.id, updates);
+  };
+
+  const rescheduleCalendarTask = async (calEv, day, mins) => {
+    const realTask = tasks.find(t => t.id === calEv._taskId);
+    if (!realTask) return;
+    if (realTask.calendarEventId && calendarIntegration?.connected) {
+      try {
+        const token = await getValidAccessToken(user.uid, calendarIntegration);
+        if (token) await deleteEvent(token, realTask.calendarEventId);
+      } catch (err) { console.warn('Delete old GCal event failed on reschedule:', err); }
+    }
+    await scheduleTaskAtSlot(realTask, day, mins);
+  };
+
+  const handleSplitTask = async () => {
+    if (!splitTask || splitSaving) return;
+    setSplitSaving(true);
+    try {
+      const remaining = parseInt(splitRemaining, 10) || splitTask.estimatedMinutes || 45;
+      const updates = {
+        status: 'pending',
+        scheduledDate: null, scheduledStart: null, scheduledEnd: null, calendarEventId: null,
+        estimatedMinutes: remaining,
+      };
+      if (splitTask.calendarEventId && calendarIntegration?.connected) {
+        try {
+          const token = await getValidAccessToken(user.uid, calendarIntegration);
+          if (token) await deleteEvent(token, splitTask.calendarEventId);
+        } catch (err) { console.warn('Delete GCal event failed on split:', err); }
+      }
+      await updateTask(user.uid, splitTask.id, updates);
+      setSplitTask(null); setSplitSpent(''); setSplitRemaining('');
+    } finally {
+      setSplitSaving(false);
+    }
   };
 
   const confirmWorkHoursOverride = async () => {
@@ -1226,7 +1291,7 @@ export default function CalendarScreen() {
                           overflow: 'hidden',
                         }}>
                           <div style={{ fontSize: '10px', fontWeight: 600, color: tokens.accent, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {draggedSidebarTask.current?.title}
+                            {draggedSidebarTask.current?.title || draggedCalendarTask.current?.summary}
                             <span style={{ marginLeft: 6, opacity: 0.7 }}>
                               {Math.floor(ghostInfo.mins / 60) % 12 || 12}:{String(ghostInfo.mins % 60).padStart(2, '0')}{ghostInfo.mins < 720 ? 'am' : 'pm'}
                             </span>
@@ -1248,8 +1313,13 @@ export default function CalendarScreen() {
                         const pct        = 100 / ev._totalCols;
                         const isDragging = dragState?.eventId === ev.id;
                         const top        = isDragging ? baseTop + dragState.deltaMins : baseTop;
+                        const dayFc      = weatherForecast?.forecast?.find(f => f.date === ymd(day));
+                        const weatherAlert = ev._isTask && ev._outdoor && dayFc && !dayFc.outdoorFriendly;
                         return (
                           <div key={ev.id}
+                            draggable={ev._isTask && !ev._done}
+                            onDragStart={ev._isTask && !ev._done ? (e) => { e.stopPropagation(); handleCalendarTaskDragStart(e, ev); } : undefined}
+                            onDragEnd={ev._isTask && !ev._done ? handleCalendarTaskDragEnd : undefined}
                             onMouseDown={(e) => { if (!isDragging && !ev._isTask) onEventMouseDown(e, ev); }}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1263,8 +1333,12 @@ export default function CalendarScreen() {
                             }}
                             onMouseEnter={e => { if (!dragState) e.currentTarget.style.filter = 'brightness(1.18)'; }}
                             onMouseLeave={e => e.currentTarget.style.filter = 'none'}
-                            style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: ev._isTask ? 'pointer' : isDragging ? 'grabbing' : 'grab', zIndex: isDragging ? 20 : 5, boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: ev._done ? 0.7 : isDragging ? 0.9 : 1, transition: isDragging ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none' }}>
-                            <div style={{ fontSize: '11px', fontWeight: 700, color: color.text, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }}>
+                            style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: ev._isTask && !ev._done ? 'grab' : ev._isTask ? 'pointer' : isDragging ? 'grabbing' : 'grab', zIndex: isDragging ? 20 : 5, boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: ev._done ? 0.7 : isDragging ? 0.9 : 1, transition: isDragging ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none' }}>
+                            {/* Weather alert badge */}
+                            {weatherAlert && (
+                              <div title={`${dayFc.label} — not ideal for outdoor tasks`} style={{ position: 'absolute', top: 2, right: 4, fontSize: '10px', lineHeight: 1, zIndex: 2 }}>⚠</div>
+                            )}
+                            <div style={{ fontSize: '11px', fontWeight: 700, color: color.text, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', paddingRight: weatherAlert ? '14px' : 0 }}>
                               {ev._isTask && (
                                 <span
                                   onClick={e => {
@@ -1293,6 +1367,23 @@ export default function CalendarScreen() {
                               <div style={{ fontSize: '10px', color: color.text, opacity: 0.7, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 📍 {ev.location}
                               </div>
+                            )}
+                            {/* Split button — only for active anchor task blocks with enough height */}
+                            {ev._isTask && !ev._done && height > 44 && (
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  const t = tasks.find(tk => tk.id === ev._taskId);
+                                  if (!t) return;
+                                  setSplitTask(t);
+                                  setSplitSpent('');
+                                  setSplitRemaining(String(t.estimatedMinutes || 45));
+                                }}
+                                title="Split task — mark partial progress and re-schedule remainder"
+                                style={{ position: 'absolute', bottom: 3, right: 4, background: 'rgba(0,0,0,0.28)', border: 'none', color: color.text, borderRadius: '4px', padding: '1px 5px', fontSize: '9px', cursor: 'pointer', fontFamily: fonts.body, lineHeight: 1.4, opacity: 0.75 }}
+                                onMouseEnter={e => { e.stopPropagation(); e.currentTarget.style.opacity = '1'; }}
+                                onMouseLeave={e => e.currentTarget.style.opacity = '0.75'}
+                              >✂ split</button>
                             )}
                           </div>
                         );
@@ -1493,6 +1584,48 @@ export default function CalendarScreen() {
             <Button onClick={handleCreate} loading={saving} disabled={!newEv.title.trim()}>Create Event</Button>
           </div>
         </div>
+      </Modal>
+
+      {/* ── Split Task Modal ── */}
+      <Modal open={!!splitTask} onClose={() => { setSplitTask(null); setSplitSpent(''); setSplitRemaining(''); }} title="Split Task">
+        {splitTask && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ padding: '10px 14px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}`, fontSize: '13px', color: tokens.textPrimary, fontWeight: 500 }}>
+              {splitTask.title}
+            </div>
+            <p style={{ fontSize: '13px', color: tokens.textSecondary, margin: 0, lineHeight: 1.6 }}>
+              Mark partial progress on this task. It will be unscheduled and moved back to your sidebar so you can reschedule the remaining time.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Time Spent (min)</label>
+                <input type="number" min="1" max="480" value={splitSpent}
+                  onChange={e => {
+                    setSplitSpent(e.target.value);
+                    const spent = parseInt(e.target.value, 10);
+                    const orig  = splitTask.estimatedMinutes || 45;
+                    if (!isNaN(spent) && spent > 0) setSplitRemaining(String(Math.max(5, orig - spent)));
+                  }}
+                  placeholder={`of ${splitTask.estimatedMinutes || 45}`}
+                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Remaining (min)</label>
+                <input type="number" min="5" max="480" value={splitRemaining}
+                  onChange={e => setSplitRemaining(e.target.value)}
+                  placeholder="45"
+                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
+              </div>
+            </div>
+            <div style={{ fontSize: '12px', color: tokens.textMuted }}>
+              The task will return to your sidebar with <strong style={{ color: tokens.textPrimary }}>{splitRemaining || (splitTask.estimatedMinutes || 45)} min</strong> remaining — drag it back to the calendar when ready.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <Button onClick={() => { setSplitTask(null); setSplitSpent(''); setSplitRemaining(''); }} variant="ghost">Cancel</Button>
+              <Button onClick={handleSplitTask} loading={splitSaving}>✂ Split &amp; Unschedule</Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* ── Detail Modal ── */}
