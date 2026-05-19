@@ -62,7 +62,6 @@ function AppRoutes() {
           <Route path="/brain-dump" element={<BrainDumpScreen />} />
           <Route path="/advisor"    element={<AdvisorScreen />}   />
           <Route path="/review"     element={<ReviewScreen />}    />
-          <Route path="/decisions"  element={<Navigate to="/ideas" replace />} />
           <Route path="/ideas"      element={<IdeasScreen />}     />
           <Route path="/debt"       element={<DebtScreen />}      />
           <Route path="/life"       element={<LifeScreen />}      />

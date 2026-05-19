@@ -140,7 +140,10 @@ export default function CalendarScreen() {
   const [weatherForecast, setWeatherForecast] = useState(null);
   const [importOpen, setImportOpen]    = useState(false);
   const [sidebarOpen, setSidebarOpen]   = useState(true);
-  const [sidebarFilter, setSidebarFilter] = useState('unscheduled'); // 'unscheduled' | 'all'
+  const [sidebarFilter,       setSidebarFilter]       = useState('unscheduled'); // 'unscheduled' | 'all'
+  const [sidebarSearch,       setSidebarSearch]       = useState('');
+  const [sidebarPriority,     setSidebarPriority]     = useState(''); // '' | 'critical' | 'high' | 'medium' | 'low'
+  const [sidebarProjectId,    setSidebarProjectId]    = useState(''); // '' = all
   const [calView, setCalView]          = useState('week'); // 'day' | '3day' | 'week'
   const [conflicts, setConflicts]      = useState([]);
   // Task edit modal
@@ -217,6 +220,20 @@ export default function CalendarScreen() {
       return (po[a.priority] ?? 9) - (po[b.priority] ?? 9);
     }),
   [tasks]);
+
+  // ── Sidebar filtered tasks ────────────────────────────────────────────────
+  const filteredSidebarTasks = useMemo(() => {
+    const base = sidebarFilter === 'unscheduled' ? unscheduledTasks : allSidebarTasks;
+    return base.filter(t => {
+      if (sidebarPriority && t.priority !== sidebarPriority) return false;
+      if (sidebarProjectId && t.projectId !== sidebarProjectId) return false;
+      if (sidebarSearch) {
+        const q = sidebarSearch.toLowerCase();
+        return t.title?.toLowerCase().includes(q) || t.project?.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }, [sidebarFilter, unscheduledTasks, allSidebarTasks, sidebarSearch, sidebarPriority, sidebarProjectId]);
 
   // ── Task-derived calendar blocks (tasks with a scheduled time slot) ────────
   const taskCalEvents = useMemo(() => {
@@ -859,6 +876,7 @@ export default function CalendarScreen() {
             </div>
           )}
           <Button onClick={() => setPlanOpen(true)} variant="accent" size="sm">✦ Plan Schedule</Button>
+          <Button onClick={() => setImportOpen(true)} variant="ghost" size="sm" title="Import work schedule from photo">📷</Button>
           <Button onClick={goToday} variant="ghost" size="sm">Today</Button>
           <button onClick={prevPeriod}
             style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, color: tokens.textSecondary, borderRadius: '7px', padding: '5px 11px', cursor: 'pointer', fontSize: '13px', fontFamily: fonts.body, lineHeight: 1 }}>‹</button>
@@ -906,15 +924,16 @@ export default function CalendarScreen() {
                 📷 Import Work Schedule
               </button>
             </div>
-            <div style={{ padding: '6px 14px 4px', borderBottom: `1px solid ${tokens.border}` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: tokens.textMuted }}>
-                  {sidebarFilter === 'unscheduled'
-                    ? `Unscheduled · ${unscheduledTasks.length}`
-                    : `All Tasks · ${allSidebarTasks.length}`}
-                </div>
-                {sidebarFilter === 'unscheduled' && <span style={{ fontSize: '10px', color: tokens.textMuted }}>drag to place</span>}
-              </div>
+            <div style={{ padding: '8px 10px', borderBottom: `1px solid ${tokens.border}`, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {/* Search bar */}
+              <input
+                type="text"
+                placeholder="Search tasks…"
+                value={sidebarSearch}
+                onChange={e => setSidebarSearch(e.target.value)}
+                style={{ width: '100%', padding: '5px 9px', background: tokens.bgGlass, border: `1px solid ${tokens.border}`, borderRadius: '6px', color: tokens.textPrimary, fontSize: '11px', fontFamily: fonts.body, outline: 'none', boxSizing: 'border-box' }}
+              />
+              {/* Unscheduled / All toggle */}
               <div style={{ display: 'flex', gap: '4px' }}>
                 {['unscheduled', 'all'].map(f => (
                   <button key={f} onClick={() => setSidebarFilter(f)} style={{
@@ -926,14 +945,48 @@ export default function CalendarScreen() {
                   }}>{f === 'unscheduled' ? 'Unscheduled' : 'All'}</button>
                 ))}
               </div>
+              {/* Priority filter chips */}
+              <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+                {['', 'critical', 'high', 'medium', 'low'].map(p => {
+                  const active = sidebarPriority === p;
+                  const label = p === '' ? 'All' : p.charAt(0).toUpperCase() + p.slice(1);
+                  return (
+                    <button key={p} onClick={() => setSidebarPriority(p)} style={{
+                      padding: '2px 8px', fontSize: '9px', fontWeight: 700, borderRadius: '4px',
+                      background: active ? tokens.accentDim : 'transparent',
+                      border: `1px solid ${active ? tokens.accent : tokens.border}`,
+                      color: active ? tokens.accent : tokens.textMuted,
+                      cursor: 'pointer', fontFamily: fonts.body, transition: 'all 0.1s',
+                    }}>{label}</button>
+                  );
+                })}
+              </div>
+              {/* Project filter */}
+              {projects.length > 0 && (
+                <select
+                  value={sidebarProjectId}
+                  onChange={e => setSidebarProjectId(e.target.value)}
+                  style={{ width: '100%', padding: '4px 7px', background: tokens.bgGlass, border: `1px solid ${tokens.border}`, borderRadius: '6px', color: sidebarProjectId ? tokens.textPrimary : tokens.textMuted, fontSize: '10px', fontFamily: fonts.body, outline: 'none', cursor: 'pointer' }}>
+                  <option value="">All Projects</option>
+                  {projects.filter(p => p.status !== 'complete').map(p => (
+                    <option key={p.id} value={p.id}>{p.title}</option>
+                  ))}
+                </select>
+              )}
+              <div style={{ fontSize: '9px', color: tokens.textMuted }}>
+                {filteredSidebarTasks.length} task{filteredSidebarTasks.length !== 1 ? 's' : ''}
+                {sidebarFilter === 'unscheduled' && filteredSidebarTasks.length > 0 && ' · drag to place'}
+              </div>
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
-              {sidebarFilter === 'unscheduled' && unscheduledTasks.length === 0 && (
+              {filteredSidebarTasks.length === 0 && (
                 <div style={{ padding: '24px 14px', textAlign: 'center', color: tokens.textMuted, fontSize: '12px' }}>
-                  All tasks have time slots ✓
+                  {sidebarSearch || sidebarPriority || sidebarProjectId
+                    ? 'No tasks match filters'
+                    : sidebarFilter === 'unscheduled' ? 'All tasks have time slots ✓' : 'No tasks'}
                 </div>
               )}
-              {(sidebarFilter === 'unscheduled' ? unscheduledTasks : allSidebarTasks).slice(0, 80).map(task => {
+              {filteredSidebarTasks.slice(0, 80).map(task => {
                 const pc      = priorityColors[task.priority] || {};
                 const overdue = task.scheduledDate && task.scheduledDate < yesterdayStr;
                 const yest    = task.scheduledDate === yesterdayStr;

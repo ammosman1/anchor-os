@@ -369,13 +369,13 @@ Return ONLY valid JSON:
   }
 }
 
-export async function buildScheduleForDays({ tasks, slotsMap, days, focusProfile }) {
+export async function buildScheduleForDays({ tasks, slotsMap, days, focusProfile, currentTime }) {
   if (process.env.NODE_ENV === 'production') {
     try {
       const res = await fetch('/api/schedule/build', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tasks, slotsMap, days, focusProfile }),
+        body: JSON.stringify({ tasks, slotsMap, days, focusProfile, currentTime }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -647,7 +647,7 @@ TYPE: ${goal.goalType || 'general'}
 WHY: ${goal.why || 'not specified'}
 TARGET DATE: ${goal.targetDate || 'none set'}
 ${goal.targetAmount ? `TARGET: $${goal.targetAmount.toLocaleString()}` : ''}
-${goal.currentAmount != null ? `CURRENT: $${goal.currentAmount.toLocaleString()} (${Math.round((goal.currentAmount / goal.targetAmount) * 100)}% complete)` : ''}
+${goal.currentAmount != null && goal.targetAmount ? `CURRENT: $${goal.currentAmount.toLocaleString()} (${Math.round((goal.currentAmount / goal.targetAmount) * 100)}% complete)` : goal.currentAmount != null ? `CURRENT: $${goal.currentAmount.toLocaleString()}` : ''}
 ${goal.description ? `CONTEXT: ${goal.description}` : ''}
 
 EXISTING LINKED TASKS: ${existingTasks.filter(t => !t.done).length} open, ${existingTasks.filter(t => t.done).length} completed
@@ -677,14 +677,17 @@ Rules: 2-4 milestones, 5-15 specific tasks, task titles start with action verbs,
 
   const raw = await callAI({
     messages: [{ role: 'user', content }],
-    maxTokens: 1500,
+    maxTokens: 2500,
     systemExtra: 'Return ONLY valid JSON. No markdown. No explanation.',
   });
 
+  if (!raw) return null;
   try {
-    const clean = (raw || '{}').replace(/```json|```/g, '').trim();
+    const clean = raw.replace(/```json|```/g, '').trim();
     const match = clean.match(/\{[\s\S]*\}/);
-    return match ? JSON.parse(match[0]) : null;
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]);
+    return (parsed.tasks?.length > 0 || parsed.milestones?.length > 0) ? parsed : null;
   } catch {
     return null;
   }

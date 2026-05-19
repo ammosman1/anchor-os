@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { useAuth } from './AuthContext';
 import {
   subscribeProjects, subscribeTasks, subscribeDebtAccounts,
-  subscribeIdeas, subscribeDecisions, subscribeBrainDumps,
+  subscribeIdeas, subscribeBrainDumps,
   subscribeWeeklyReviews, subscribeGoals, subscribeCalendarIntegration,
   subscribePlaidItems, subscribeProfile, subscribeDailyReviews, updateProject,
   subscribeManualCashFlow, subscribeAssetAccounts,
@@ -19,7 +19,6 @@ export function DataProvider({ children }) {
   const [tasks,         setTasks]         = useState([]);
   const [debtAccounts,  setDebtAccounts]  = useState([]);
   const [ideas,         setIdeas]         = useState([]);
-  const [decisions,     setDecisions]     = useState([]);
   const [brainDumps,    setBrainDumps]    = useState([]);
   const [weeklyReviews, setWeeklyReviews] = useState([]);
   const [goals,               setGoals]               = useState([]);
@@ -34,7 +33,7 @@ export function DataProvider({ children }) {
   useEffect(() => {
     if (!user) {
       setProjects([]); setTasks([]); setDebtAccounts([]);
-      setIdeas([]); setDecisions([]); setBrainDumps([]);
+      setIdeas([]); setBrainDumps([]);
       setWeeklyReviews([]); setGoals([]); setCalendarIntegration(null); setPlaidItems([]);
       setDailyReviews([]); setManualCashFlow(null); setAssetAccounts([]); setLoaded(false);
       return;
@@ -45,7 +44,6 @@ export function DataProvider({ children }) {
       subscribeTasks(user.uid,         setTasks),
       subscribeDebtAccounts(user.uid,  setDebtAccounts),
       subscribeIdeas(user.uid,         setIdeas),
-      subscribeDecisions(user.uid,     setDecisions),
       subscribeBrainDumps(user.uid,    setBrainDumps),
       subscribeWeeklyReviews(user.uid, setWeeklyReviews),
       subscribeGoals(user.uid,               setGoals),
@@ -114,7 +112,7 @@ export function DataProvider({ children }) {
 
   return (
     <DataContext.Provider value={{
-      projects, tasks, debtAccounts, assetAccounts, ideas, decisions, brainDumps, weeklyReviews, goals, calendarIntegration, plaidItems, userProfile, dailyReviews, manualCashFlow,
+      projects, tasks, debtAccounts, assetAccounts, ideas, brainDumps, weeklyReviews, goals, calendarIntegration, plaidItems, userProfile, dailyReviews, manualCashFlow,
       activeProjects, stalledProjects, todayTasks, totalDebt, totalAssets, activeGoals,
       loaded,
     }}>

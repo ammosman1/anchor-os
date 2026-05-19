@@ -120,26 +120,6 @@ export const subscribeBrainDumps = (uid, cb) =>
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
 
-// ─── Decisions ────────────────────────────────────────────────────────────────
-export const addDecision = (uid, data) =>
-  addDoc(collection(db, 'users', uid, 'decisions'), {
-    ...data,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-
-export const updateDecision = (uid, decisionId, data) =>
-  updateDoc(doc(db, 'users', uid, 'decisions', decisionId), {
-    ...data,
-    updatedAt: serverTimestamp(),
-  });
-
-export const subscribeDecisions = (uid, cb) =>
-  onSnapshot(
-    query(collection(db, 'users', uid, 'decisions'), orderBy('createdAt', 'desc')),
-    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
-  );
-
 // ─── Ideas ────────────────────────────────────────────────────────────────────
 export const addIdea = (uid, data) =>
   addDoc(collection(db, 'users', uid, 'ideas'), {

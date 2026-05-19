@@ -199,6 +199,10 @@ export default function GoalDetailScreen() {
     });
   }, [insights, allActiveGoalTasks]);
 
+  // Throttle Required Actions: suppress if there are already 5+ open tasks or any task > 2h estimated
+  const shouldThrottleActions = allActiveGoalTasks.length >= 5 ||
+    allActiveGoalTasks.some(t => (t.estimatedMinutes || 0) > 120);
+
   const loadInsights = useCallback(async (force = false) => {
     if (!goal || insightsLoading) return;
     if (!force) {
@@ -278,7 +282,7 @@ export default function GoalDetailScreen() {
         projects,
         daysAvailablePerWeek: 3,
       });
-      if (result) {
+      if (result?.tasks?.length > 0 || result?.milestones?.length > 0) {
         setPlan(result);
         setApprovedTasks(new Set(result.tasks?.map((_, i) => i) || []));
       }
@@ -738,32 +742,40 @@ export default function GoalDetailScreen() {
             <>
               {dedupedActions.length > 0 && (
                 <div style={{ marginBottom: '16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary }}>Required Actions</div>
-                    {dedupedActions.filter(a => !addedActions.has(a)).length > 0 && (
-                      <Button size="sm" variant="ghost" onClick={handleBulkCreate} loading={bulkCreating}>
-                        + Create All ({dedupedActions.filter(a => !addedActions.has(a)).length})
-                      </Button>
-                    )}
-                  </div>
-                  {dedupedActions.map((action, i) => {
-                    const added = addedActions.has(action);
-                    return (
-                      <div key={i} style={{ display: 'flex', gap: '10px', padding: '8px 0', borderBottom: i < dedupedActions.length - 1 ? `1px solid ${tokens.border}` : 'none', alignItems: 'center' }}>
-                        <span style={{ color: added ? tokens.green : tokens.accent, fontWeight: 700, fontSize: '12px', flexShrink: 0, minWidth: '16px' }}>
-                          {added ? '✓' : `${i + 1}.`}
-                        </span>
-                        <span style={{ fontSize: '13px', color: added ? tokens.textMuted : tokens.textSecondary, lineHeight: 1.5, flex: 1, textDecoration: added ? 'line-through' : 'none' }}>{action}</span>
-                        {!added && (
-                          <button
-                            onClick={() => openActionModal(action)}
-                            style={{ background: tokens.accentDim, border: `1px solid rgba(200,169,110,0.2)`, borderRadius: '5px', padding: '3px 10px', fontSize: '11px', fontWeight: 600, color: tokens.accent, cursor: 'pointer', flexShrink: 0, fontFamily: fonts.body }}>
-                            + Task
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '10px' }}>Required Actions</div>
+                  {shouldThrottleActions ? (
+                    <div style={{ fontSize: '12px', color: tokens.textMuted, padding: '8px 12px', background: tokens.bgCardHover, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
+                      {allActiveGoalTasks.length} open tasks — clear some before adding more.
+                    </div>
+                  ) : (
+                    <>
+                      {dedupedActions.filter(a => !addedActions.has(a)).length > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
+                          <Button size="sm" variant="ghost" onClick={handleBulkCreate} loading={bulkCreating}>
+                            + Create All ({dedupedActions.filter(a => !addedActions.has(a)).length})
+                          </Button>
+                        </div>
+                      )}
+                      {dedupedActions.map((action, i) => {
+                        const added = addedActions.has(action);
+                        return (
+                          <div key={i} style={{ display: 'flex', gap: '10px', padding: '8px 0', borderBottom: i < dedupedActions.length - 1 ? `1px solid ${tokens.border}` : 'none', alignItems: 'center' }}>
+                            <span style={{ color: added ? tokens.green : tokens.accent, fontWeight: 700, fontSize: '12px', flexShrink: 0, minWidth: '16px' }}>
+                              {added ? '✓' : `${i + 1}.`}
+                            </span>
+                            <span style={{ fontSize: '13px', color: added ? tokens.textMuted : tokens.textSecondary, lineHeight: 1.5, flex: 1, textDecoration: added ? 'line-through' : 'none' }}>{action}</span>
+                            {!added && (
+                              <button
+                                onClick={() => openActionModal(action)}
+                                style={{ background: tokens.accentDim, border: `1px solid rgba(200,169,110,0.2)`, borderRadius: '5px', padding: '3px 10px', fontSize: '11px', fontWeight: 600, color: tokens.accent, cursor: 'pointer', flexShrink: 0, fontFamily: fonts.body }}>
+                                + Task
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
                 </div>
               )}
 

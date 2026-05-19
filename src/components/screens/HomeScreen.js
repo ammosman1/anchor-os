@@ -245,7 +245,7 @@ export default function HomeScreen() {
         id: 'carry-forward', icon: '⚑', urgency: hasHighPriority ? 'high' : 'medium',
         label: `${carryForwardTasks.length} task${carryForwardTasks.length > 1 ? 's' : ''} not completed from previous days`,
         detail: carryForwardTasks.slice(0, 3).map(t => t.title).join(' · ') + (carryForwardTasks.length > 3 ? ` +${carryForwardTasks.length - 3} more` : ''),
-        actionLabel: 'Reschedule →', actionFn: () => setPlanOpen(true),
+        actionLabel: 'Reschedule →', actionFn: () => navigate('/calendar'),
       });
     }
     if (atRiskThisWeek.length > 0) {
@@ -253,7 +253,7 @@ export default function HomeScreen() {
         id: 'at-risk', icon: '⚑', urgency: 'high',
         label: `${atRiskThisWeek.length} task${atRiskThisWeek.length > 1 ? 's' : ''} at risk — due soon, pushed repeatedly`,
         detail: atRiskThisWeek.map(t => t.title).join(' · '),
-        actionLabel: 'Schedule →', actionFn: () => setPlanOpen(true),
+        actionLabel: 'Schedule →', actionFn: () => navigate('/calendar'),
       });
     }
     if (deadlineRiskTasks.length > 0) {
@@ -261,7 +261,7 @@ export default function HomeScreen() {
         id: 'deadline-risk', icon: '⏱', urgency: 'high',
         label: `${deadlineRiskTasks.length} unscheduled task${deadlineRiskTasks.length > 1 ? 's' : ''} due within 7 days`,
         detail: deadlineRiskTasks.slice(0, 2).map(t => t.title).join(' · ') + (deadlineRiskTasks.length > 2 ? ` +${deadlineRiskTasks.length - 2} more` : ''),
-        actionLabel: 'Schedule →', actionFn: () => setPlanOpen(true),
+        actionLabel: 'Schedule →', actionFn: () => navigate('/calendar'),
       });
     }
     if (weatherAlertData) {
@@ -270,7 +270,7 @@ export default function HomeScreen() {
         id: 'weather-alert', icon: '🌧', urgency: 'high',
         label: 'Weather alert — outdoor tasks need rescheduling',
         detail: `${badDay?.label}, ${badDay?.maxTemp}°F, ${badDay?.precipProbability}% rain on ${badDay?.date} · ${badDayTasks.map(t => t.title).join(', ')}`,
-        actionLabel: 'Reschedule →', actionFn: () => setPlanOpen(true),
+        actionLabel: 'Reschedule →', actionFn: () => navigate('/calendar'),
       });
     }
     if (driftingGoals.length > 0) {
@@ -314,7 +314,7 @@ export default function HomeScreen() {
       });
     }
     return items;
-  }, [carryForwardTasks, atRiskThisWeek, deadlineRiskTasks, weatherAlertData, driftingGoals, reviewReminderDue, morningDoneToday, staleInboxTasks, isAfter5pm, eodDoneToday, weeklyReviews, navigate, setPlanOpen]); // eslint-disable-line
+  }, [carryForwardTasks, atRiskThisWeek, deadlineRiskTasks, weatherAlertData, driftingGoals, reviewReminderDue, morningDoneToday, staleInboxTasks, isAfter5pm, eodDoneToday, weeklyReviews, navigate]); // eslint-disable-line
 
   // Compute display-active projects: includes stalled projects with momentum > 50
   // (same displayStatus logic as ProjectsScreen, avoids DataContext auto-stall hiding real activity)
@@ -332,11 +332,34 @@ export default function HomeScreen() {
   }, [projects, tasks]);
 
   // Goal trajectory
-  const activeGoals   = (goals || []).filter(g => g.status === 'active');
-  const scoredGoals   = activeGoals.filter(g => g.likelihoodScore != null);
-  const onTrackGoals  = scoredGoals.filter(g => g.likelihoodScore >= 70);
-  const possibleGoals = scoredGoals.filter(g => g.likelihoodScore >= 50 && g.likelihoodScore < 70);
-  const atRiskGoals   = scoredGoals.filter(g => g.likelihoodScore < 50).sort((a, b) => a.likelihoodScore - b.likelihoodScore);
+  const activeGoals = (goals || []).filter(g => g.status === 'active');
+
+  const goalTrajectoryItems = useMemo(() => {
+    const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); weekStart.setHours(0,0,0,0);
+    const monthsFrom = (yyyyMM) => {
+      if (!yyyyMM) return null;
+      const [y, m] = yyyyMM.split('-').map(Number);
+      const now = new Date();
+      return (y - now.getFullYear()) * 12 + (m - (now.getMonth() + 1));
+    };
+    return activeGoals.map(goal => {
+      const goalTasks    = (tasks || []).filter(t => t.goalId === goal.id);
+      const openCount    = goalTasks.filter(t => !t.done).length;
+      const doneThisWeek = goalTasks.filter(t => {
+        if (!t.done || !t.completedAt) return false;
+        try { return new Date(t.completedAt) >= weekStart; } catch { return false; }
+      }).length;
+      const months = monthsFrom(goal.targetDate);
+      const score  = goal.likelihoodScore;
+      return { goal, openCount, doneThisWeek, months, score };
+    }).sort((a, b) => {
+      // Sort: at-risk (low score) first, then by months ascending
+      if (a.score != null && b.score != null) return a.score - b.score;
+      if (a.score != null) return -1;
+      if (b.score != null) return 1;
+      return 0;
+    });
+  }, [activeGoals, tasks]); // eslint-disable-line
 
   const getHolisticContext = () => buildHolisticContext({
     goals:          goals || [],
@@ -780,85 +803,48 @@ export default function HomeScreen() {
       </div>
 
       {/* Goal Trajectory */}
-      {(scoredGoals.length > 0 || activeGoals.length > 0) && (
+      {activeGoals.length > 0 && (
         <div className="fade-up stagger-4" style={{ marginBottom: '14px' }}>
           <Card>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
               <SectionLabel style={{ marginBottom: 0 }}>Trajectory</SectionLabel>
               <button onClick={() => navigate('/goals')} style={{ background: 'none', border: 'none', fontSize: '11px', color: tokens.accent, cursor: 'pointer' }}>All Goals →</button>
             </div>
-
-            {/* Score summary chips */}
-            {scoredGoals.length > 0 && (
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: atRiskGoals.length > 0 ? '14px' : 0 }}>
-                {onTrackGoals.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: tokens.greenDim, borderRadius: '20px', border: `1px solid ${tokens.green}30` }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: tokens.green, display: 'inline-block' }} />
-                    <span style={{ fontSize: '12px', fontWeight: 600, color: tokens.green }}>{onTrackGoals.length} on track</span>
-                  </div>
-                )}
-                {possibleGoals.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: tokens.amberDim, borderRadius: '20px', border: `1px solid ${tokens.amber}30` }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: tokens.amber, display: 'inline-block' }} />
-                    <span style={{ fontSize: '12px', fontWeight: 600, color: tokens.amber }}>{possibleGoals.length} possible</span>
-                  </div>
-                )}
-                {atRiskGoals.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: tokens.redDim, borderRadius: '20px', border: `1px solid ${tokens.red}30` }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: tokens.red, display: 'inline-block' }} />
-                    <span style={{ fontSize: '12px', fontWeight: 600, color: tokens.red }}>{atRiskGoals.length} at risk</span>
-                  </div>
-                )}
-                {activeGoals.length > scoredGoals.length && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: tokens.bgGlass, borderRadius: '20px', border: `1px solid ${tokens.border}` }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: tokens.textMuted, display: 'inline-block' }} />
-                    <span style={{ fontSize: '12px', fontWeight: 600, color: tokens.textMuted }}>{activeGoals.length - scoredGoals.length} unscored</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* At-risk goals list */}
-            {atRiskGoals.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {atRiskGoals.map(goal => (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {goalTrajectoryItems.slice(0, 5).map(({ goal, openCount, doneThisWeek, months, score }) => {
+                const scoreColor = score == null ? tokens.textMuted : score >= 70 ? tokens.green : score >= 50 ? tokens.amber : tokens.red;
+                const deadlineColor = months == null ? tokens.textMuted : months <= 0 ? tokens.red : months <= 2 ? tokens.amber : tokens.textMuted;
+                return (
                   <div key={goal.id}
                     onClick={() => navigate(`/goals/${goal.id}`)}
-                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', background: tokens.redDim, borderRadius: '8px', border: `1px solid ${tokens.red}20`, cursor: 'pointer', transition: 'opacity 0.12s' }}
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '10px 12px', background: tokens.bgCardHover, borderRadius: '8px', border: `1px solid ${tokens.border}`, cursor: 'pointer', transition: 'opacity 0.12s' }}
                     onMouseEnter={e => e.currentTarget.style.opacity = '0.8'}
                     onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '13px', fontWeight: 500, color: tokens.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        ⚑ {goal.title}
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {goal.title}
+                      </div>
+                      <div style={{ fontSize: '11px', color: tokens.textSecondary, marginTop: '3px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        {doneThisWeek > 0 && <span style={{ color: tokens.green }}>{doneThisWeek} done this week</span>}
+                        {openCount > 0 && <span>{openCount} open task{openCount !== 1 ? 's' : ''}</span>}
+                        {openCount === 0 && doneThisWeek === 0 && <span style={{ color: tokens.textMuted }}>No tasks linked</span>}
+                        {months != null && <span style={{ color: deadlineColor }}>{months <= 0 ? 'Past target date' : `${months}mo to target`}</span>}
                       </div>
                       {goal.likelihoodReasoning && (
-                        <div style={{ fontSize: '11px', color: tokens.textSecondary, marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {goal.likelihoodReasoning}
                         </div>
                       )}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px' }}>
-                      <span style={{ fontSize: '13px', fontWeight: 700, color: tokens.red }}>{goal.likelihoodScore}%</span>
-                      <span style={{ fontSize: '11px', color: tokens.textMuted }}>→</span>
-                    </div>
+                    {score != null && (
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: scoreColor, marginLeft: '12px', flexShrink: 0 }}>
+                        {score}%
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
-
-            {/* No goals scored yet */}
-            {scoredGoals.length === 0 && activeGoals.length > 0 && (
-              <div style={{ fontSize: '13px', color: tokens.textMuted }}>
-                {activeGoals.length} active goal{activeGoals.length > 1 ? 's' : ''} not yet scored.{' '}
-                <span style={{ color: tokens.accent, cursor: 'pointer' }} onClick={() => navigate('/goals')}>Run analysis →</span>
-              </div>
-            )}
-            {activeGoals.length === 0 && (
-              <div style={{ fontSize: '13px', color: tokens.textMuted }}>
-                No active goals.{' '}
-                <span style={{ color: tokens.accent, cursor: 'pointer' }} onClick={() => navigate('/goals')}>Add your first goal →</span>
-              </div>
-            )}
+                );
+              })}
+            </div>
           </Card>
         </div>
       )}

@@ -5,7 +5,7 @@
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { tasks, slotsMap, days, focusProfile, weatherForecast } = req.body;
+  const { tasks, slotsMap, days, focusProfile, weatherForecast, currentTime } = req.body;
   if (!tasks?.length) return res.status(400).json({ error: 'tasks required' });
   if (!slotsMap || !days?.length) return res.status(400).json({ error: 'slotsMap and days required' });
 
@@ -63,6 +63,7 @@ ${weatherNote}
 ENERGY CONTEXT: ${energyNote}
 
 RULES:
+${currentTime ? `- CURRENT TIME: ${currentTime}. Never schedule any block starting before this time — even if a slot begins earlier, your block must start at or after this timestamp.` : ''}
 - Tasks marked WORK TASK must only be scheduled Monday–Friday during typical business hours (8am–5pm)
 - Tasks marked OVERDUE or pushed 2+ times must be scheduled first, today if possible
 - Tasks with due dates within 2 days get top priority in the schedule

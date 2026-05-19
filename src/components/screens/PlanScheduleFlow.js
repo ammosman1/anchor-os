@@ -145,11 +145,32 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
         for (const day of days) slotsMap[day] = getFreeSlots([], day + 'T12:00:00', wh);
       }
 
+      // Clip today's slots — remove anything ending before now+15min, trim slots that start in the past
+      const now = new Date();
+      const minStart = new Date(now.getTime() + 15 * 60 * 1000);
+      const todayStr = now.toISOString().split('T')[0];
+      if (slotsMap[todayStr]) {
+        slotsMap[todayStr] = slotsMap[todayStr]
+          .map(slot => {
+            const slotEnd = new Date(slot.end);
+            if (slotEnd <= minStart) return null;
+            const slotStart = new Date(slot.start);
+            if (slotStart < minStart) {
+              const newDuration = Math.round((slotEnd - minStart) / 60000);
+              if (newDuration < 30) return null;
+              return { start: minStart.toISOString(), end: slot.end, durationMins: newDuration };
+            }
+            return slot;
+          })
+          .filter(Boolean);
+      }
+
       setBuildStatus('AI is building your plan...');
       const result = await buildScheduleForDays({
         tasks: selected,
         slotsMap,
         days,
+        currentTime: now.toISOString(),
         focusProfile: { recentEnergy: userProfile?.energyToday ? userProfile.energyToday * 10 : 70 },
         weatherForecast: weatherForecast?.forecast || null,
       });

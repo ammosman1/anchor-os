@@ -57,7 +57,7 @@ ${reviewText}` }],
 }
 
 // ─── Morning Review ───────────────────────────────────────────────────────────
-function MorningReview({ tasks, projects, totalDebt, onSave }) {
+function MorningReview({ tasks, projects, goals, debtAccounts, totalDebt, onSave }) {
   const { user }  = useAuth();
   const [step,    setStep]    = useState(0);
   const [answers, setAnswers] = useState({ priorities: '', mustWin: '', mindset: '' });
@@ -77,8 +77,14 @@ function MorningReview({ tasks, projects, totalDebt, onSave }) {
     if (step < steps.length - 1) { setStep(s => s + 1); return; }
     setLoading(true);
     const reviewText = `Priorities: ${answers.priorities}\nMust-win: ${answers.mustWin}\nMindset: ${answers.mindset}`;
+    const pendingTasks = tasks.filter(t => !t.done);
+    const overdueCount = pendingTasks.filter(t => t.dueDate && new Date(t.dueDate + 'T00:00:00') < new Date()).length;
+    const activeGoals  = (goals || []).filter(g => g.status === 'active');
+    const goalsLine    = activeGoals.length > 0 ? activeGoals.slice(0, 4).map(g => `${g.title}${g.likelihoodScore != null ? ` (${g.likelihoodScore}% likely)` : ''}`).join(', ') : 'none';
+    const debtLine     = totalDebt > 0 ? `$${totalDebt.toLocaleString()} total debt` : null;
+    const contextLines = [`${pendingTasks.length} pending tasks${overdueCount > 0 ? `, ${overdueCount} overdue` : ''}`, `Active goals: ${goalsLine}`, debtLine].filter(Boolean).join(' · ');
     const [text, suggestedTaskList] = await Promise.all([
-      callAI({ messages: [{ role: 'user', content: `Morning review ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.\n${reviewText}\nPending tasks: ${tasks.filter(t => !t.done).length}. Give me a sharp game plan. 3 sentences max.` }], maxTokens: 200 }),
+      callAI({ messages: [{ role: 'user', content: `Morning review ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.\n${reviewText}\nCONTEXT: ${contextLines}\nGive a sharp game plan focused on the must-win. Reference relevant goals or debt if priorities mention them. 3 sentences max.` }], maxTokens: 220 }),
       generateTasksFromReview(user?.uid, reviewText, callAI, projects),
     ]);
     setAiText(text || 'Clear priorities set. Execute your must-win first.');
@@ -93,6 +99,8 @@ function MorningReview({ tasks, projects, totalDebt, onSave }) {
     await addTask(user.uid, { title: task.title, priority: task.priority || 'medium', project: linkedProject?.title || 'Inbox', projectId: linkedProject?.id || null, source: 'review' });
     setAddedTasks(prev => [...prev, task.title]);
   };
+
+  const existsInBacklog = (title) => (tasks || []).some(t => !t.done && t.title?.toLowerCase().trim() === title?.toLowerCase().trim());
 
   const current = steps[step];
 
@@ -114,7 +122,9 @@ function MorningReview({ tasks, projects, totalDebt, onSave }) {
               </div>
               {addedTasks.includes(task.title)
                 ? <span style={{ fontSize: '11px', color: tokens.green }}>✓ Added</span>
-                : <button onClick={() => addSuggestedTask(task)} style={{ fontSize: '11px', color: tokens.accent, background: tokens.accentDim, border: 'none', borderRadius: '4px', padding: '3px 10px', cursor: 'pointer', fontFamily: fonts.body }}>+ Add</button>
+                : existsInBacklog(task.title)
+                  ? <span style={{ fontSize: '11px', color: tokens.textMuted }}>Already in backlog</span>
+                  : <button onClick={() => addSuggestedTask(task)} style={{ fontSize: '11px', color: tokens.accent, background: tokens.accentDim, border: 'none', borderRadius: '4px', padding: '3px 10px', cursor: 'pointer', fontFamily: fonts.body }}>+ Add</button>
               }
             </div>
           ))}
@@ -253,7 +263,7 @@ function TaskTriage({ tasks, uid }) {
 }
 
 // ─── EOD Review ───────────────────────────────────────────────────────────────
-function EODReview({ tasks, projects, onSave }) {
+function EODReview({ tasks, projects, goals, debtAccounts, totalDebt, onSave }) {
   const { user }  = useAuth();
   const [step,    setStep]    = useState(0);
   const [answers, setAnswers] = useState({ accomplished: '', unfinished: '', reflection: '' });
@@ -276,8 +286,12 @@ function EODReview({ tasks, projects, onSave }) {
     if (step < steps.length - 1) { setStep(s => s + 1); return; }
     setLoading(true);
     const reviewText = `Accomplished: ${answers.accomplished}\nUnfinished: ${answers.unfinished}\nReflection: ${answers.reflection}`;
+    const activeGoals = (goals || []).filter(g => g.status === 'active');
+    const goalsLine   = activeGoals.length > 0 ? activeGoals.slice(0, 4).map(g => `${g.title}${g.likelihoodScore != null ? ` (${g.likelihoodScore}%)` : ''}`).join(', ') : 'none';
+    const debtLine    = totalDebt > 0 ? `$${totalDebt.toLocaleString()} total debt` : null;
+    const contextLines = [`Completed: ${doneTasks.length}, Overdue: ${overdueTasks.length}`, `Active goals: ${goalsLine}`, debtLine].filter(Boolean).join(' · ');
     const [text, suggestedTaskList] = await Promise.all([
-      callAI({ messages: [{ role: 'user', content: `EOD review ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.\n${reviewText}\nCompleted today: ${doneTasks.length} tasks. Overdue: ${overdueTasks.length}. Brief honest reflection and one focus for tomorrow. 3 sentences max.` }], maxTokens: 200 }),
+      callAI({ messages: [{ role: 'user', content: `EOD review ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.\n${reviewText}\nCONTEXT: ${contextLines}\nBrief honest reflection. Name one concrete win. One focus for tomorrow that moves a goal. 3 sentences max.` }], maxTokens: 220 }),
       generateTasksFromReview(user?.uid, reviewText, callAI, projects),
     ]);
     setAiText(text || 'Solid day. Carry unfinished items forward with intention.');
@@ -292,6 +306,8 @@ function EODReview({ tasks, projects, onSave }) {
     await addTask(user.uid, { title: task.title, priority: task.priority || 'medium', project: linkedProject?.title || 'Inbox', projectId: linkedProject?.id || null, source: 'review' });
     setAddedTasks(prev => [...prev, task.title]);
   };
+
+  const existsInBacklog = (title) => (tasks || []).some(t => !t.done && t.title?.toLowerCase().trim() === title?.toLowerCase().trim());
 
   const current = steps[step];
 
@@ -321,7 +337,9 @@ function EODReview({ tasks, projects, onSave }) {
               </div>
               {addedTasks.includes(task.title)
                 ? <span style={{ fontSize: '11px', color: tokens.green }}>✓ Added</span>
-                : <button onClick={() => addSuggestedTask(task)} style={{ fontSize: '11px', color: tokens.accent, background: tokens.accentDim, border: 'none', borderRadius: '4px', padding: '3px 10px', cursor: 'pointer', fontFamily: fonts.body }}>+ Add</button>
+                : existsInBacklog(task.title)
+                  ? <span style={{ fontSize: '11px', color: tokens.textMuted }}>Already in backlog</span>
+                  : <button onClick={() => addSuggestedTask(task)} style={{ fontSize: '11px', color: tokens.accent, background: tokens.accentDim, border: 'none', borderRadius: '4px', padding: '3px 10px', cursor: 'pointer', fontFamily: fonts.body }}>+ Add</button>
               }
             </div>
           ))}
@@ -692,7 +710,7 @@ function ReviewHistory() {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function ReviewScreen() {
   const { user } = useAuth();
-  const { tasks, projects, totalDebt } = useData();
+  const { tasks, projects, totalDebt, goals, debtAccounts } = useData();
   const [activeTab, setActiveTab] = useState('morning');
 
   const tabs = [
@@ -732,8 +750,8 @@ export default function ReviewScreen() {
       </div>
 
       <div className="fade-up stagger-2">
-        {activeTab === 'morning' && <MorningReview tasks={tasks} projects={projects} totalDebt={totalDebt} onSave={handleSaveDailyReview} />}
-        {activeTab === 'eod'     && <EODReview tasks={tasks} projects={projects} onSave={handleSaveDailyReview} />}
+        {activeTab === 'morning' && <MorningReview tasks={tasks} projects={projects} goals={goals} debtAccounts={debtAccounts} totalDebt={totalDebt} onSave={handleSaveDailyReview} />}
+        {activeTab === 'eod'     && <EODReview tasks={tasks} projects={projects} goals={goals} debtAccounts={debtAccounts} totalDebt={totalDebt} onSave={handleSaveDailyReview} />}
         {activeTab === 'weekly'  && <WeeklyReview tasks={tasks} projects={projects} />}
         {activeTab === 'history' && <ReviewHistory />}
       </div>
