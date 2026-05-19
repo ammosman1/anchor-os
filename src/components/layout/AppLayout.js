@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addTask } from '../../lib/db';
 import { processSmartCapture } from '../../lib/ai';
+import InstallPrompt from '../InstallPrompt';
 
 const NAV_GROUPS = [
   {
@@ -510,6 +511,8 @@ export default function AppLayout({ children }) {
           </div>
         </>
       )}
+
+      <InstallPrompt />
 
       {/* ── Main Content ──────────────────────────────────────────────────────── */}
       <main style={{

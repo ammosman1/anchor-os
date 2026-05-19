@@ -59,6 +59,8 @@ export default function ProfileScreen() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [resetSent,      setResetSent]      = useState(false);
   const [savedSection,   setSavedSection]   = useState('');
+  const [inboundToken,   setInboundToken]   = useState('');
+  const [tokenCopied,    setTokenCopied]    = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -74,8 +76,18 @@ export default function ProfileScreen() {
       if (userProfile.workHours) setWorkHours(userProfile.workHours);
       if (userProfile.calGridStart != null) setCalGridStart(userProfile.calGridStart);
       if (userProfile.calGridEnd   != null) setCalGridEnd(userProfile.calGridEnd);
+
+      // Generate inbound token if missing
+      if (userProfile.inboundEmailToken) {
+        setInboundToken(userProfile.inboundEmailToken);
+      } else if (user) {
+        const token = Array.from(crypto.getRandomValues(new Uint8Array(9)))
+          .map(b => b.toString(36).padStart(2, '0')).join('').slice(0, 16);
+        saveProfile(user.uid, { inboundEmailToken: token });
+        setInboundToken(token);
+      }
     }
-  }, [userProfile]);
+  }, [userProfile, user]); // eslint-disable-line react-hooks/exhaustive-deps -- saveProfile is a stable import
 
   const showSaved = (section) => {
     setSavedSection(section);
@@ -407,6 +419,48 @@ export default function ProfileScreen() {
           </div>
         </Card>
       </div>
+
+      {/* ── Email to Task ── */}
+      {inboundToken && (
+        <div className="fade-up stagger-8" style={{ marginBottom: '12px' }}>
+          <Card>
+            <SectionLabel>Email to Task</SectionLabel>
+            <p style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '-4px', marginBottom: '14px' }}>
+              Forward any email to your unique Anchor address and it will automatically become a task — title, priority, and notes extracted by AI.
+            </p>
+
+            {/* Inbound address */}
+            <div style={{ background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '10px 14px', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <code style={{ flex: 1, fontSize: '12px', color: tokens.accent, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                tasks+{inboundToken}@inbound.anchor-os.app
+              </code>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(`tasks+${inboundToken}@inbound.anchor-os.app`);
+                  setTokenCopied(true);
+                  setTimeout(() => setTokenCopied(false), 2000);
+                }}
+                style={{ background: tokenCopied ? tokens.greenDim : tokens.accentDim, border: `1px solid ${tokenCopied ? tokens.green : 'rgba(200,169,110,0.3)'}`, borderRadius: '6px', padding: '4px 10px', fontSize: '11px', fontWeight: 600, color: tokenCopied ? tokens.green : tokens.accent, cursor: 'pointer', flexShrink: 0, fontFamily: fonts.body, transition: 'all 0.15s' }}>
+                {tokenCopied ? '✓ Copied' : 'Copy'}
+              </button>
+            </div>
+
+            {/* Setup steps */}
+            <div style={{ fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.7 }}>
+              <div style={{ fontWeight: 600, color: tokens.textPrimary, marginBottom: '6px', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Setup (one-time)</div>
+              <ol style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <li>Set up <strong style={{ color: tokens.textPrimary }}>Postmark</strong> (free) → Servers → Inbound Email</li>
+                <li>Point your inbound domain MX records to Postmark's servers</li>
+                <li>Set the webhook URL to: <code style={{ fontSize: '11px', color: tokens.accent }}>https://your-app.vercel.app/api/email/inbound</code></li>
+                <li>In Gmail, create a filter → "Forward to" → paste your Anchor address above</li>
+              </ol>
+              <div style={{ marginTop: '8px', padding: '8px 12px', background: tokens.bgGlass, borderRadius: '6px', fontSize: '11px', color: tokens.textMuted }}>
+                <strong style={{ color: tokens.textPrimary }}>Shortcut:</strong> You can also include <code style={{ color: tokens.accent }}>[anchor:{inboundToken}]</code> in any email subject and forward it to a generic address — Anchor will pick it up.
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* ── Account ── */}
       <div className="fade-up stagger-8">
