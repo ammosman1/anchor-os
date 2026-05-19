@@ -165,6 +165,7 @@ export default function CalendarScreen() {
   const isDraggingFromSidebar   = useRef(false);
   const draggedCalendarTask     = useRef(null);  // task block being re-dragged from the grid
   const [dragState, setDragState] = useState(null);
+  const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
 
   const yesterdayStr = ymd(new Date(Date.now() - 86400000));
 
@@ -495,6 +496,14 @@ export default function CalendarScreen() {
       }
     }
     await updateTask(user.uid, task.id, updates);
+    setCompletionNote({ open: true, task, text: '' });
+  };
+
+  const handleSaveCompletionNote = async () => {
+    if (completionNote.text.trim()) {
+      await updateTask(user.uid, completionNote.task.id, { completionNote: completionNote.text.trim() });
+    }
+    setCompletionNote({ open: false, task: null, text: '' });
   };
 
   const handleUnschedule = async () => {
@@ -1513,7 +1522,7 @@ export default function CalendarScreen() {
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
               <div style={{ display: 'flex', gap: '6px' }}>
-                <Button onClick={() => { handleMarkComplete(editingTask); setEditingTask(null); }} variant="ghost" loading={editSaving}
+                <Button onClick={async () => { const t = editingTask; setEditingTask(null); await handleMarkComplete(t); }} variant="ghost" loading={editSaving}
                   style={{ color: tokens.green, borderColor: tokens.green }}>
                   ✓ Mark Complete
                 </Button>
@@ -1620,6 +1629,30 @@ export default function CalendarScreen() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* ── Completion Note Modal ── */}
+      <Modal open={completionNote.open} onClose={() => setCompletionNote({ open: false, task: null, text: '' })} title="Task Done ✓">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6 }}>
+            Optional: capture what you found, decided, or learned while doing this.
+          </div>
+          <textarea
+            value={completionNote.text}
+            onChange={e => setCompletionNote(n => ({ ...n, text: e.target.value }))}
+            placeholder="e.g. Called vendor — price is $420, need approval from Mike..."
+            autoFocus
+            rows={3}
+            onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleSaveCompletionNote(); }}
+            style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '10px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, resize: 'vertical', boxSizing: 'border-box' }}
+            onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+            onBlur={e => e.target.style.borderColor = tokens.border}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button variant="ghost" onClick={() => setCompletionNote({ open: false, task: null, text: '' })}>Skip</Button>
+            <Button onClick={handleSaveCompletionNote}>Save Note</Button>
+          </div>
+        </div>
       </Modal>
 
       {/* ── Detail Modal ── */}

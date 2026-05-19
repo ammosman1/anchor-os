@@ -578,7 +578,10 @@ LINKED TASKS:
 EXISTING ACTIVE TASKS — do NOT re-suggest any of these in thisWeekActions, they are already being tracked:
 ${linkedTasks.filter(t => !t.done).length > 0 ? linkedTasks.filter(t => !t.done).slice(0, 8).map(t => `- ${t.title}`).join('\n') : 'none'}
 
-CRITICAL: thisWeekActions must be genuinely new actions not already captured above. If all necessary actions are already tracked as tasks, suggest only what is missing or what would accelerate progress beyond what is already planned.
+RECENTLY COMPLETED TASKS — do NOT re-suggest these either, they are already done:
+${completedTasks.slice(-8).map(t => `- ${t.title}${t.completionNote ? ` (outcome: ${t.completionNote})` : ''}`).join('\n') || 'none'}
+
+CRITICAL: thisWeekActions must be genuinely new actions not already captured in either list above. Use the completion notes to inform what is actually resolved vs still open.
 
 EXECUTION DATA (last 4 weeks):
 - Avg weekly rating: ${avgRating ?? 'n/a'}/100 (normalized)

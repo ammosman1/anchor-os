@@ -119,6 +119,8 @@ export default function ProjectDetailScreen() {
   const [editOpen,   setEditOpen]   = useState(false);
   const [editForm,   setEditForm]   = useState({});
   const [editSaving, setEditSaving] = useState(false);
+  // Completion note
+  const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
 
   const buildContext = useCallback(() => {
     let calendarDensity = null;
@@ -330,6 +332,13 @@ export default function ProjectDetailScreen() {
     }
   };
 
+  const handleSaveCompletionNote = async () => {
+    if (completionNote.text.trim()) {
+      await updateTask(user.uid, completionNote.task.id, { completionNote: completionNote.text.trim() });
+    }
+    setCompletionNote({ open: false, task: null, text: '' });
+  };
+
   const handleToggleTask = async (task) => {
     const isDone = !task.done;
     await updateTask(user.uid, task.id, {
@@ -339,6 +348,7 @@ export default function ProjectDetailScreen() {
     });
     // Bump project activity so stall detection and momentum recalculate correctly
     await updateProject(user.uid, projectId, {});
+    if (isDone) setCompletionNote({ open: true, task, text: '' });
   };
 
   if (!project) {
@@ -727,6 +737,30 @@ export default function ProjectDetailScreen() {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
             <Button variant="ghost" onClick={() => setEditOpen(false)}>Cancel</Button>
             <Button onClick={handleEditSave} loading={editSaving} disabled={!editForm.title?.trim()}>Save Changes</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Completion Note Modal ── */}
+      <Modal open={completionNote.open} onClose={() => setCompletionNote({ open: false, task: null, text: '' })} title="Task Done ✓">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6 }}>
+            Optional: capture what you found, decided, or learned while doing this.
+          </div>
+          <textarea
+            value={completionNote.text}
+            onChange={e => setCompletionNote(n => ({ ...n, text: e.target.value }))}
+            placeholder="e.g. Called vendor — price is $420, need approval from Mike..."
+            autoFocus
+            rows={3}
+            onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleSaveCompletionNote(); }}
+            style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '10px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, resize: 'vertical', boxSizing: 'border-box' }}
+            onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+            onBlur={e => e.target.style.borderColor = tokens.border}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button variant="ghost" onClick={() => setCompletionNote({ open: false, task: null, text: '' })}>Skip</Button>
+            <Button onClick={handleSaveCompletionNote}>Save Note</Button>
           </div>
         </div>
       </Modal>

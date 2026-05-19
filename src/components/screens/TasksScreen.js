@@ -86,6 +86,7 @@ export default function TasksScreen() {
   const [schedulingTask, setSchedulingTask] = useState(null);
   const [focusTask,    setFocusTask]     = useState(null); // { task, duration, startTime }
   const [timeLeft,     setTimeLeft]      = useState(null); // seconds
+  const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
 
   // Focus timer countdown
   useEffect(() => {
@@ -145,6 +146,13 @@ export default function TasksScreen() {
   const inboxCount   = tasks.filter(t => !t.done && (!t.projectId || t.project === 'Inbox')).length;
   const brainCount   = tasks.filter(t => !t.done && t.source === 'brain-dump').length;
 
+  const handleSaveCompletionNote = async () => {
+    if (completionNote.text.trim()) {
+      await updateTask(user.uid, completionNote.task.id, { completionNote: completionNote.text.trim() });
+    }
+    setCompletionNote({ open: false, task: null, text: '' });
+  };
+
   const handleToggle = async (task) => {
     if (!task.done) {
       await updateTask(user.uid, task.id, {
@@ -153,6 +161,7 @@ export default function TasksScreen() {
         completedAt: new Date().toISOString(),
       });
       await scheduleNextRecurrence(user.uid, task);
+      setCompletionNote({ open: true, task, text: '' });
     } else {
       await updateTask(user.uid, task.id, { done: false, status: 'pending', completedAt: null });
     }
@@ -485,7 +494,31 @@ export default function TasksScreen() {
         )}
       </div>
 
-      {/* Modal */}
+      {/* Completion Note Modal */}
+      <Modal open={completionNote.open} onClose={() => setCompletionNote({ open: false, task: null, text: '' })} title="Task Done ✓">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6 }}>
+            Optional: capture what you found, decided, or learned while doing this.
+          </div>
+          <textarea
+            value={completionNote.text}
+            onChange={e => setCompletionNote(n => ({ ...n, text: e.target.value }))}
+            placeholder="e.g. Called vendor — price is $420, need approval from Mike..."
+            autoFocus
+            rows={3}
+            onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleSaveCompletionNote(); }}
+            style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '10px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, resize: 'vertical', boxSizing: 'border-box' }}
+            onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+            onBlur={e => e.target.style.borderColor = tokens.border}
+          />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button variant="ghost" onClick={() => setCompletionNote({ open: false, task: null, text: '' })}>Skip</Button>
+            <Button onClick={handleSaveCompletionNote}>Save Note</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Task Edit Modal */}
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Task' : 'New Task'}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <Input label="Task" value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="What needs to get done?" />
