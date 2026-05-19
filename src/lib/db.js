@@ -145,6 +145,9 @@ export const updateIdea = (uid, ideaId, data) =>
     updatedAt: serverTimestamp(),
   });
 
+export const deleteIdea = (uid, ideaId) =>
+  deleteDoc(doc(db, 'users', uid, 'ideas', ideaId));
+
 export const subscribeIdeas = (uid, cb) => {
   if (!uid) return () => {};
   return onSnapshot(
