@@ -1279,10 +1279,10 @@ export default function DebtScreen() {
             Tell Anchor what you're importing so it extracts the right data.
           </p>
           {[
-            { type: 'bank_statement', label: 'Bank Statement',        desc: 'Checking or savings — extracts cash flow and spending',   icon: '🏦' },
+            { type: 'other',         label: 'Auto-detect',            desc: 'Anchor reads the document and extracts accounts + cash flow — use this for most imports', icon: '✦', recommended: true },
+            { type: 'bank_statement', label: 'Bank Statement',        desc: 'Checking/savings only — extracts cash flow, no account balances', icon: '🏦' },
             { type: 'credit_card',   label: 'Credit Card Statement',  desc: 'Extracts balance, APR, and minimum payment',              icon: '💳' },
             { type: 'loan',          label: 'Loan / Mortgage',        desc: 'Extracts current balance and interest rate',              icon: '🏠' },
-            { type: 'other',         label: 'Other / Auto-detect',    desc: 'Excel debt tracker or mixed document',                    icon: '📄' },
           ].map(opt => (
             <button
               key={opt.type}
@@ -1292,8 +1292,11 @@ export default function DebtScreen() {
               onMouseLeave={e => e.currentTarget.style.borderColor = tokens.border}
             >
               <span style={{ fontSize: '20px', flexShrink: 0 }}>{opt.icon}</span>
-              <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{opt.label}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{opt.label}</span>
+                  {opt.recommended && <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.accent, background: tokens.accentDim, padding: '1px 6px', borderRadius: '4px', letterSpacing: '0.05em' }}>RECOMMENDED</span>}
+                </div>
                 <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>{opt.desc}</div>
               </div>
             </button>

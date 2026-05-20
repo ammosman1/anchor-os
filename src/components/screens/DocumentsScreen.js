@@ -116,14 +116,29 @@ export default function DocumentsScreen() {
       const uploadTask  = uploadBytesResumable(storageRef, file);
 
       const downloadUrl = await new Promise((resolve, reject) => {
+        let firstProgressFired = false;
+
+        // If no progress fires within 15 s the request is hanging (likely Storage rules/CORS)
+        const hangTimer = setTimeout(() => {
+          if (!firstProgressFired) {
+            uploadTask.cancel();
+            reject({ code: 'storage/no-progress' });
+          }
+        }, 15000);
+
         uploadTask.on(
           'state_changed',
-          (snap) => setProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 80)),
+          (snap) => {
+            if (!firstProgressFired) { firstProgressFired = true; clearTimeout(hangTimer); }
+            setProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 80));
+          },
           (err) => {
+            clearTimeout(hangTimer);
             if (isDev) console.error('Storage error code:', err?.code, err?.message);
             reject(err);
           },
           async () => {
+            clearTimeout(hangTimer);
             const url = await getDownloadURL(uploadTask.snapshot.ref);
             resolve(url);
           }
@@ -200,8 +215,8 @@ export default function DocumentsScreen() {
     } catch (err) {
       if (isDev) console.error('Upload error:', err);
       const code = err?.code || '';
-      if (code === 'storage/unauthorized' || code === 'storage/unknown') {
-        setUploadError('Upload blocked by Firebase Storage rules. See setup instructions.');
+      if (code === 'storage/no-progress' || code === 'storage/unauthorized' || code === 'storage/unknown') {
+        setUploadError('Upload blocked — Firebase Storage rules not configured. Go to Firebase Console → Storage → Rules and paste the rules from the storage.rules file in the project root, then click Publish.');
       } else if (code === 'storage/canceled') {
         setUploadError('Upload was canceled.');
       } else {
