@@ -674,46 +674,44 @@ export default function DebtScreen() {
 
   // ── Savings analysis handlers
   const handleRunSavingsAnalysis = async () => {
-    const bankDocs = (documents || []).filter(d => d.category === 'bank_statement').slice(0, 3);
+    const bankDocs = (documents || []).filter(d => d.category === 'bank_statement');
     if (!bankDocs.length) return;
     setAnalyzingLoading(true);
     try {
-      // Attempt to download PDFs from storage URLs for rich analysis
-      const bankStatements = await Promise.all(
-        bankDocs.map(async (d) => {
-          const base = { name: d.name, year: d.year, month: d.month };
-          if (!d.storageUrl || d.fileType !== 'application/pdf') return base;
-          try {
-            const fetchRes = await fetch(d.storageUrl);
-            const buf      = await fetchRes.arrayBuffer();
-            let binary     = '';
-            const bytes    = new Uint8Array(buf);
-            for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-            return { ...base, base64: window.btoa(binary) };
-          } catch {
-            return base;
-          }
-        })
-      );
+      // Refresh path: use existing spending categories (from uploads) as context.
+      // Re-downloading PDFs is unreliable and unnecessary — spending patterns
+      // don't change between refreshes; only debt balances do.
+      // Pull categories from existing latest, falling back to most recent history entry.
+      const existingCategories    = (savingsAnalysis?.spendingCategories || []).length > 0
+        ? savingsAnalysis.spendingCategories
+        : (savingsHistory?.[0]?.spendingCategories || []);
+      const existingSubscriptions = (savingsAnalysis?.subscriptions || []).length > 0
+        ? savingsAnalysis.subscriptions
+        : (savingsHistory?.[0]?.subscriptions || []);
+
       const res = await fetch('/api/documents/analyze-savings', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ bankStatements, cashFlow: effectiveFlow, debtAccounts, totalDebt }),
+        body:    JSON.stringify({
+          existingCategories,
+          existingSubscriptions,
+          cashFlow:     effectiveFlow,
+          debtAccounts,
+          totalDebt,
+        }),
       });
       if (res.ok) {
         const fresh = await res.json();
-        // Preserve spending categories/subscriptions from existing analysis if the
-        // fresh result came back empty (e.g. token limit hit on multi-PDF analysis)
-        const merged = {
-          ...fresh,
-          spendingCategories: (fresh.spendingCategories || []).length > 0
-            ? fresh.spendingCategories
-            : (savingsAnalysis?.spendingCategories || []),
-          subscriptions: (fresh.subscriptions || []).length > 0
-            ? fresh.subscriptions
-            : (savingsAnalysis?.subscriptions || []),
-        };
-        await saveSavingsAnalysis(user.uid, merged);
+        // Always keep spending categories from uploads; only update recommendations + totals
+        await saveSavingsAnalysis(user.uid, {
+          spendingCategories:  existingCategories,
+          subscriptions:       existingSubscriptions,
+          recommendations:     fresh.recommendations     || savingsAnalysis?.recommendations     || [],
+          totalMonthlySavings: fresh.totalMonthlySavings ?? savingsAnalysis?.totalMonthlySavings ?? 0,
+          debtFreeAcceleration: fresh.debtFreeAcceleration ?? savingsAnalysis?.debtFreeAcceleration ?? null,
+          monthsAnalyzed:      savingsAnalysis?.monthsAnalyzed || 1,
+          statementCount:      savingsAnalysis?.statementCount || bankDocs.length,
+        });
       }
     } catch (err) {
       if (isDev) console.error('Savings analysis error:', err);
