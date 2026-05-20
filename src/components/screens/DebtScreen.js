@@ -701,8 +701,19 @@ export default function DebtScreen() {
         body:    JSON.stringify({ bankStatements, cashFlow: effectiveFlow, debtAccounts, totalDebt }),
       });
       if (res.ok) {
-        const data = await res.json();
-        await saveSavingsAnalysis(user.uid, data);
+        const fresh = await res.json();
+        // Preserve spending categories/subscriptions from existing analysis if the
+        // fresh result came back empty (e.g. token limit hit on multi-PDF analysis)
+        const merged = {
+          ...fresh,
+          spendingCategories: (fresh.spendingCategories || []).length > 0
+            ? fresh.spendingCategories
+            : (savingsAnalysis?.spendingCategories || []),
+          subscriptions: (fresh.subscriptions || []).length > 0
+            ? fresh.subscriptions
+            : (savingsAnalysis?.subscriptions || []),
+        };
+        await saveSavingsAnalysis(user.uid, merged);
       }
     } catch (err) {
       if (isDev) console.error('Savings analysis error:', err);
