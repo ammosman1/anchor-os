@@ -1,0 +1,18 @@
+rules_version = '2';
+// Firebase Storage security rules for Anchor
+// Deploy: firebase deploy --only storage
+// Or paste into Firebase Console → Storage → Rules
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // User documents: only the authenticated owner can read/write their files
+    match /users/{userId}/documents/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Deny everything else by default
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

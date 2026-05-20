@@ -13,7 +13,7 @@ import { Card, Button, Input, Select, SectionLabel, MomentumBar, Modal, AICard, 
 
 const isDev = process.env.NODE_ENV !== 'production';
 
-// â”€â”€â”€ Payoff simulation math â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Payoff simulation math ───────────────────────────────────────────────────
 function simulatePayoff(accounts, extraPayment, strategy) {
   if (!accounts.length) return { months: 0, totalInterest: 0 };
   let accts = accounts
@@ -115,8 +115,8 @@ function PayoffSimulator({ accounts }) {
         {/* Side by side comparison */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '12px' }}>
           {[
-            { label: 'Avalanche', sublabel: 'Highest rate first', result: avalanche, color: tokens.green, icon: 'â–²' },
-            { label: 'Snowball',  sublabel: 'Lowest balance first', result: snowball, color: tokens.blue,  icon: 'â—' },
+            { label: 'Avalanche', sublabel: 'Highest rate first', result: avalanche, color: tokens.green, icon: '▲' },
+            { label: 'Snowball',  sublabel: 'Lowest balance first', result: snowball, color: tokens.blue,  icon: '●' },
           ].map(({ label, sublabel, result, color, icon }) => (
             <div key={label} style={{ padding: '14px', background: tokens.bgCardHover, borderRadius: '10px', border: `1px solid ${tokens.border}` }}>
               <div style={{ fontSize: '11px', fontWeight: 700, color, letterSpacing: '0.06em', marginBottom: '4px' }}>{icon} {label}</div>
@@ -142,7 +142,7 @@ function PayoffSimulator({ accounts }) {
                 {monthsFaster > 0 ? `${monthsToLabel(monthsFaster)} faster than snowball` : 'Same timeline, less interest'}
               </div>
             </div>
-            <span style={{ fontSize: '20px' }}>â–²</span>
+            <span style={{ fontSize: '20px' }}>▲</span>
           </div>
         )}
 
@@ -201,7 +201,7 @@ const typeColors = {
   other:    { bg: 'rgba(28,24,20,0.07)',    text: 'rgba(28,24,20,0.42)'  },
 };
 
-// â”€â”€â”€ File-to-base64 helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── File-to-base64 helper ────────────────────────────────────────────────────
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -211,7 +211,7 @@ function fileToBase64(file) {
   });
 }
 
-// â”€â”€â”€ Format import date â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Format import date ───────────────────────────────────────────────────────
 function fmtImportDate(ts) {
   if (!ts) return '';
   try {
@@ -225,7 +225,7 @@ export default function DebtScreen() {
   const { user }                                                    = useAuth();
   const { debtAccounts, totalDebt, assetAccounts, totalAssets, plaidItems, manualCashFlow, goals, savingsAnalysis, documents } = useData();
 
-  // â”€â”€ Existing account modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Existing account modal ────────────────────────────────────────────────
   const [showModal,     setShowModal]     = useState(false);
   const [form,          setForm]          = useState(emptyForm);
   const [editing,       setEditing]       = useState(null);
@@ -234,13 +234,13 @@ export default function DebtScreen() {
   const [aiLoading,     setAiLoading]     = useState(false);
   const [showAllTx,     setShowAllTx]     = useState(false);
 
-  // â”€â”€ Plaid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Plaid ─────────────────────────────────────────────────────────────────
   const [plaidAccounts, setPlaidAccounts] = useState([]);
   const [transactions,  setTransactions]  = useState([]);
   const [loadingPlaid,  setLoadingPlaid]  = useState(false);
   const [connecting,    setConnecting]    = useState(false);
 
-  // â”€â”€ File import â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── File import ───────────────────────────────────────────────────────────
   const fileInputRef                            = useRef(null);
   const [importLoading,    setImportLoading]    = useState(false);
   const [importError,      setImportError]      = useState('');
@@ -258,18 +258,22 @@ export default function DebtScreen() {
   // ── Savings analysis
   const [analyzingLoading, setAnalyzingLoading] = useState(false);
 
-  // â”€â”€ Asset account modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Document type selector (pre-import)
+  const [pendingImportFiles, setPendingImportFiles] = useState(null);
+  const [showDocTypeModal,   setShowDocTypeModal]   = useState(false);
+
+  // ── Asset account modal ───────────────────────────────────────────────────
   const [showAssetModal, setShowAssetModal] = useState(false);
   const [assetForm,      setAssetForm]      = useState(emptyAssetForm);
   const [editingAsset,   setEditingAsset]   = useState(null);
   const [savingAsset,    setSavingAsset]    = useState(false);
 
-  // â”€â”€ Clarification modal (pre-import: smart account matching) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Clarification modal (pre-import: smart account matching) ─────────────
   const [showClarifyModal, setShowClarifyModal] = useState(false);
   const [clarifyData,      setClarifyData]      = useState(null);  // { matches, questions, insights }
   const [clarifyAnswers,   setClarifyAnswers]   = useState({});    // { [extractedIndex]: 'yes'|'no' }
 
-  // â”€â”€ Plaid load â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Plaid load ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!plaidItems.length) { setPlaidAccounts([]); setTransactions([]); return; }
     let cancelled = false;
@@ -299,7 +303,7 @@ export default function DebtScreen() {
 
   const plaidCashFlow = calcCashFlow(transactions);
 
-  // â”€â”€ Effective cash flow (Plaid preferred, manual fallback) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Effective cash flow (Plaid preferred, manual fallback) ────────────────
   const effectiveFlow = useMemo(() => {
     if (plaidCashFlow) return { income: plaidCashFlow.income, spending: plaidCashFlow.spending, surplus: plaidCashFlow.surplus, source: 'plaid' };
     if (manualCashFlow) return {
@@ -313,7 +317,7 @@ export default function DebtScreen() {
     return null;
   }, [plaidCashFlow, manualCashFlow]); // eslint-disable-line react-hooks/exhaustive-deps -- only the derived cash flow values trigger recalculation; helper functions are stable
 
-  // â”€â”€ Financial health metrics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Financial health metrics ──────────────────────────────────────────────
   const totalMinimums      = debtAccounts.reduce((s, a) => s + (a.minimumPayment || 0), 0);
   const surplus            = effectiveFlow?.surplus ?? 0;
   const extraAfterMinimums = surplus - totalMinimums;
@@ -336,7 +340,7 @@ export default function DebtScreen() {
     return { requiredPerMonth, onPace: surplus >= requiredPerMonth, monthsLeft, goalTitle: finGoal.title };
   }, [finGoal, surplus]);
 
-  // â”€â”€ Plaid connect â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Plaid connect ─────────────────────────────────────────────────────────
   const handleConnect = async () => {
     setConnecting(true);
     try {
@@ -347,7 +351,7 @@ export default function DebtScreen() {
     finally { setConnecting(false); }
   };
 
-  // â”€â”€ Debt account grouping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Debt account grouping ─────────────────────────────────────────────────
   const [openGroups, setOpenGroups] = useState(new Set());
   const toggleGroup = (type) => setOpenGroups(prev => {
     const next = new Set(prev);
@@ -404,10 +408,16 @@ export default function DebtScreen() {
 
   useEffect(() => { if (debtAccounts.length > 0 && !aiText) fetchAI(); }, [debtAccounts]); // eslint-disable-line react-hooks/exhaustive-deps -- fetchAI lacks useCallback; aiText intentionally omitted to avoid re-running when advice text changes
 
-  // â”€â”€ File import (up to 10 files) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const handleFileSelect = async (e) => {
+  // ── File import (up to 10 files) ─────────────────────────────────────────
+  const handleFileSelect = (e) => {
     const files = Array.from(e.target.files || []).slice(0, 10);
+    e.target.value = '';
     if (!files.length) return;
+    setPendingImportFiles(files);
+    setShowDocTypeModal(true);
+  };
+
+  const processImportFiles = async (files, docTypeHint) => {
     setImportLoading(true); setImportError(''); setImportProgress(null);
 
     const token        = auth.currentUser ? await auth.currentUser.getIdToken() : null;
@@ -447,7 +457,7 @@ export default function DebtScreen() {
         const res  = await fetch('/api/finance/extract', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
-          body: JSON.stringify({ ...payload, existingAccounts: debtAccounts }),
+          body: JSON.stringify({ ...payload, existingAccounts: debtAccounts, docTypeHint }),
         });
         const data = await res.json();
         if (!res.ok) { skipped.push(file.name); continue; }
@@ -463,10 +473,10 @@ export default function DebtScreen() {
 
     if (allAccounts.length === 0 && allCashFlows.length === 0) {
       setImportError('No financial data found in the selected files. Check that the files contain account or transaction data.');
-      setImportLoading(false); setImportProgress(null); e.target.value = ''; return;
+      setImportLoading(false); setImportProgress(null); return;
     }
 
-    // Merge accounts â€” deduplicate by normalized name
+    // Merge accounts — deduplicate by normalized name
     // normName strips apostrophes, spaces, punctuation, and parentheses so that
     // "Lowe's" === "Lowes" and "Mastercard (Leadbank)" normalizes cleanly
     const normName = n => (n || '').toLowerCase().replace(/[''`'\s\-.,()]/g, '').trim();
@@ -485,7 +495,7 @@ export default function DebtScreen() {
     }));
 
     // Second-pass containment dedup: catches "Best Buy Credit" vs "Best Buy Credit Card"
-    // (one normalized name is a prefix of the other â†’ likely the same account)
+    // (one normalized name is a prefix of the other → likely the same account)
     const dominated = new Set();
     for (let i = 0; i < preDedupList.length; i++) {
       if (dominated.has(i)) continue;
@@ -505,7 +515,7 @@ export default function DebtScreen() {
     }
     const mergedAccounts = preDedupList.filter((_, i) => !dominated.has(i));
 
-    // Merge cash flow â€” average across files (handles multiple months of same bank without inflating)
+    // Merge cash flow — average across files (handles multiple months of same bank without inflating)
     const mergedCF = allCashFlows.length > 0 ? (() => {
       const n    = allCashFlows.length;
       const inc  = Math.round(allCashFlows.reduce((s, cf) => s + (cf.monthlyIncome   || 0), 0) / n);
@@ -516,14 +526,14 @@ export default function DebtScreen() {
 
     const processedCount = files.length - skipped.length;
     const combinedSummary = files.length > 1
-      ? `Processed ${processedCount} of ${files.length} file${files.length !== 1 ? 's' : ''} â€” found ${mergedAccounts.length} account${mergedAccounts.length !== 1 ? 's' : ''}${allCashFlows.length > 0 ? ` and cash flow from ${allCashFlows.length} source${allCashFlows.length !== 1 ? 's' : ''}` : ''}${skipped.length > 0 ? `. Skipped: ${skipped.join(', ')}` : ''}.`
+      ? `Processed ${processedCount} of ${files.length} file${files.length !== 1 ? 's' : ''} — found ${mergedAccounts.length} account${mergedAccounts.length !== 1 ? 's' : ''}${allCashFlows.length > 0 ? ` and cash flow from ${allCashFlows.length} source${allCashFlows.length !== 1 ? 's' : ''}` : ''}${skipped.length > 0 ? `. Skipped: ${skipped.join(', ')}` : ''}.`
       : (summaries[0] || `Found ${mergedAccounts.length} accounts.`);
 
     const cfForState = mergedCF ? {
       monthlyIncome: String(mergedCF.monthlyIncome), monthlySpending: String(mergedCF.monthlySpending), monthlySurplus: String(mergedCF.monthlySurplus),
     } : { monthlyIncome: '', monthlySpending: '', monthlySurplus: '' };
 
-    // â”€â”€ Smart account matching (clarify API) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Smart account matching (clarify API) ───────────────────────────────
     let finalAccounts = mergedAccounts;
     let clarifyResult = null;
 
@@ -559,16 +569,15 @@ export default function DebtScreen() {
     setImportSummary(combinedSummary);
     setImportFileName(files.map(f => f.name).join(', '));
     setImportLoading(false); setImportProgress(null);
-    e.target.value = '';
 
     const questions = clarifyResult?.questions || [];
     if (questions.length > 0) {
-      // Show clarification step first â€” stash clarify data for handleClarifyComplete
+      // Show clarification step first — stash clarify data for handleClarifyComplete
       setClarifyData(clarifyResult);
       setClarifyAnswers({});
       setShowClarifyModal(true);
     } else {
-      // No questions â€” surface any insights inline then go straight to review
+      // No questions — surface any insights inline then go straight to review
       if (clarifyResult) setClarifyData(clarifyResult);
       setShowImportModal(true);
     }
@@ -595,7 +604,7 @@ export default function DebtScreen() {
       if (clarifyAnswers[i] === 'yes' && q.existingIndex != null && q.existingIndex < debtAccounts.length) {
         return { ...a, isDuplicate: true, existingId: debtAccounts[q.existingIndex].id };
       }
-      return a; // user said "no" â€” treat as new account
+      return a; // user said "no" — treat as new account
     }));
     setShowClarifyModal(false);
     setClarifyData(null);
@@ -603,7 +612,7 @@ export default function DebtScreen() {
     setShowImportModal(true);
   };
 
-  // â”€â”€ Asset account handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Asset account handlers ────────────────────────────────────────────────
   const openAssetNew  = () => { setAssetForm(emptyAssetForm); setEditingAsset(null); setShowAssetModal(true); };
   const openAssetEdit = (a) => {
     setAssetForm({ name: a.name || '', balance: String(a.balance || ''), type: a.type || 'checking', notes: a.notes || '' });
@@ -694,11 +703,11 @@ export default function DebtScreen() {
     });
   };
 
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ maxWidth: 800, margin: '0 auto' }}>
 
-      {/* â”€â”€ Header â”€â”€ */}
+      {/* ── Header ── */}
       <div className="fade-up" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px' }}>
         <div>
           <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Finance</div>
@@ -708,7 +717,7 @@ export default function DebtScreen() {
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
           <Button onClick={() => fileInputRef.current?.click()} loading={importLoading} variant="ghost" size="sm">
-            {importLoading ? (importProgress ? `Reading ${importProgress.current}/${importProgress.total}...` : 'Reading...') : 'â†‘ Import Files'}
+            {importLoading ? (importProgress ? `Reading ${importProgress.current}/${importProgress.total}...` : 'Reading...') : '↑ Import Files'}
           </Button>
           <Button onClick={openNew} variant="ghost" size="sm">+ Manual</Button>
         </div>
@@ -718,18 +727,18 @@ export default function DebtScreen() {
       {importError && (
         <div style={{ marginBottom: '12px', padding: '10px 14px', background: 'rgba(212,122,107,0.1)', border: '1px solid rgba(212,122,107,0.25)', borderRadius: '8px', fontSize: '13px', color: tokens.red, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           {importError}
-          <button onClick={() => setImportError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.red, fontSize: '16px', lineHeight: 1 }}>Ã—</button>
+          <button onClick={() => setImportError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.red, fontSize: '16px', lineHeight: 1 }}>×</button>
         </div>
       )}
 
-      {/* â”€â”€ Plaid: no accounts connected â”€â”€ */}
+      {/* ── Plaid: no accounts connected ── */}
       {plaidItems.length === 0 && (
         <div className="fade-up stagger-1" style={{ marginBottom: '16px' }}>
           <div style={{ background: 'linear-gradient(135deg, rgba(91,143,212,0.08), rgba(91,143,212,0.03))', border: `1px dashed rgba(91,143,212,0.3)`, borderRadius: tokens.radiusLg, padding: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontSize: '14px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '4px' }}>Connect your bank accounts</div>
-                <div style={{ fontSize: '12px', color: tokens.textMuted }}>See live balances and transactions â€” or use â†‘ Import File to upload a statement manually.</div>
+                <div style={{ fontSize: '12px', color: tokens.textMuted }}>See live balances and transactions — or use ↑ Import File to upload a statement manually.</div>
               </div>
               <Button loading={connecting} onClick={handleConnect}>Connect Bank</Button>
             </div>
@@ -737,7 +746,7 @@ export default function DebtScreen() {
         </div>
       )}
 
-      {/* â”€â”€ Plaid: connected accounts â”€â”€ */}
+      {/* ── Plaid: connected accounts ── */}
       {plaidItems.length > 0 && (
         <div className="fade-up stagger-1" style={{ marginBottom: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -754,10 +763,10 @@ export default function DebtScreen() {
                 <Card key={item.id} style={{ padding: '16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: itemAccounts.length ? '12px' : 0 }}>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                      <div style={{ width: 34, height: 34, borderRadius: '8px', background: tokens.bgInput, border: `1px solid ${tokens.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>ðŸ¦</div>
+                      <div style={{ width: 34, height: 34, borderRadius: '8px', background: tokens.bgInput, border: `1px solid ${tokens.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px' }}>🏦</div>
                       <div>
                         <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{item.institutionName}</div>
-                        <div style={{ fontSize: '11px', color: tokens.green, marginTop: '1px' }}>â— Connected</div>
+                        <div style={{ fontSize: '11px', color: tokens.green, marginTop: '1px' }}>● Connected</div>
                       </div>
                     </div>
                     <button onClick={() => deletePlaidItem(user.uid, item.id)} style={{ background: 'none', border: 'none', color: tokens.red, fontSize: '11px', cursor: 'pointer', opacity: 0.55, fontFamily: fonts.body, padding: '2px 6px' }}>Disconnect</button>
@@ -785,19 +794,19 @@ export default function DebtScreen() {
         </div>
       )}
 
-      {/* â”€â”€ Financial Health Dashboard â”€â”€ */}
+      {/* ── Financial Health Dashboard ── */}
       {effectiveFlow && (
         <div className="fade-up stagger-2" style={{ marginBottom: '16px' }}>
 
           {/* Danger / warning alert */}
           {isDanger && (
             <div style={{ marginBottom: '10px', padding: '10px 14px', background: 'rgba(212,122,107,0.1)', border: '1px solid rgba(212,122,107,0.3)', borderRadius: '8px', fontSize: '13px', color: tokens.red, fontWeight: 600 }}>
-              âš  Monthly spending exceeds income by ${Math.abs(surplus).toLocaleString()}. Address this before adding extra debt payments.
+              ⚠ Monthly spending exceeds income by ${Math.abs(surplus).toLocaleString()}. Address this before adding extra debt payments.
             </div>
           )}
           {isWarning && (
             <div style={{ marginBottom: '10px', padding: '10px 14px', background: 'rgba(200,169,110,0.1)', border: '1px solid rgba(200,169,110,0.3)', borderRadius: '8px', fontSize: '13px', color: tokens.amber, fontWeight: 600 }}>
-              âš  Monthly surplus (${surplus.toLocaleString()}) is less than total minimums (${totalMinimums.toLocaleString()}). Review your budget.
+              ⚠ Monthly surplus (${surplus.toLocaleString()}) is less than total minimums (${totalMinimums.toLocaleString()}). Review your budget.
             </div>
           )}
 
@@ -806,7 +815,7 @@ export default function DebtScreen() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
               <SectionLabel style={{ marginBottom: 0 }}>Monthly Cash Flow</SectionLabel>
               <span style={{ fontSize: '10px', color: tokens.textMuted }}>
-                {effectiveFlow.source === 'plaid' ? 'Via Plaid Â· last 30 days' : `Via import Â· ${fmtImportDate(effectiveFlow.importedAt)}${effectiveFlow.importedFrom ? ' Â· ' + effectiveFlow.importedFrom : ''}`}
+                {effectiveFlow.source === 'plaid' ? 'Via Plaid · last 30 days' : `Via import · ${fmtImportDate(effectiveFlow.importedAt)}${effectiveFlow.importedFrom ? ' · ' + effectiveFlow.importedFrom : ''}`}
               </span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', textAlign: 'center' }}>
@@ -867,7 +876,7 @@ export default function DebtScreen() {
                   </div>
                   <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '4px' }}>
                     {goalPace.onPace
-                      ? `Need $${goalPace.requiredPerMonth.toLocaleString()}/mo âœ“`
+                      ? `Need $${goalPace.requiredPerMonth.toLocaleString()}/mo ✓`
                       : `Need $${goalPace.requiredPerMonth.toLocaleString()}/mo, have $${surplus.toLocaleString()}`}
                   </div>
                 </Card>
@@ -877,7 +886,7 @@ export default function DebtScreen() {
         </div>
       )}
 
-      {/* â”€â”€ Net Worth â”€â”€ */}
+      {/* ── Net Worth ── */}
       {(totalDebt > 0 || (assetAccounts || []).length > 0) && (
         <div className="fade-up stagger-3" style={{ marginBottom: '16px' }}>
           <Card>
@@ -900,7 +909,7 @@ export default function DebtScreen() {
         </div>
       )}
 
-      {/* â”€â”€ Recent Transactions (Plaid only) â”€â”€ */}
+      {/* ── Recent Transactions (Plaid only) ── */}
       {transactions.length > 0 && (
         <div className="fade-up stagger-3" style={{ marginBottom: '16px' }}>
           <Card>
@@ -910,7 +919,7 @@ export default function DebtScreen() {
                 <div key={tx.transaction_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${tokens.border}` }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: '13px', color: tokens.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tx.merchant_name || tx.name}</div>
-                    <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '2px' }}>{formatTxDate(tx.date)} Â· {(tx.personal_finance_category?.primary || tx.category?.[0] || 'Uncategorized').replace(/_/g, ' ')}</div>
+                    <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '2px' }}>{formatTxDate(tx.date)} · {(tx.personal_finance_category?.primary || tx.category?.[0] || 'Uncategorized').replace(/_/g, ' ')}</div>
                   </div>
                   <div style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 600, color: tx.amount < 0 ? tokens.green : tokens.textPrimary, flexShrink: 0, marginLeft: '16px' }}>{formatTxAmount(tx.amount)}</div>
                 </div>
@@ -925,7 +934,7 @@ export default function DebtScreen() {
         </div>
       )}
 
-      {/* â”€â”€ Debt Accounts â”€â”€ */}
+      {/* ── Debt Accounts ── */}
       <div className="fade-up stagger-4" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
         <SectionLabel style={{ marginBottom: 0 }}>Debt Accounts</SectionLabel>
         <Button onClick={openNew} size="sm">+ Add Account</Button>
@@ -1040,9 +1049,9 @@ export default function DebtScreen() {
 
       <div className="fade-up stagger-5" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {debtAccounts.length === 0 ? (
-          <EmptyState icon="â—‰" title="No debt accounts tracked" subtitle="Import a bank statement or add accounts manually to get started." action={
+          <EmptyState icon="◉" title="No debt accounts tracked" subtitle="Import a bank statement or add accounts manually to get started." action={
             <div style={{ display: 'flex', gap: '8px' }}>
-              <Button onClick={() => fileInputRef.current?.click()} variant="ghost">â†‘ Import File</Button>
+              <Button onClick={() => fileInputRef.current?.click()} variant="ghost">↑ Import File</Button>
               <Button onClick={openNew}>+ Add Manually</Button>
             </div>
           } />
@@ -1052,7 +1061,7 @@ export default function DebtScreen() {
             const isOpen = openGroups.has(type);
             return (
               <div key={type} style={{ border: `1px solid ${tokens.border}`, borderRadius: tokens.radiusLg, overflow: 'hidden', background: tokens.bgCard }}>
-                {/* Group header â€” click to expand/collapse */}
+                {/* Group header — click to expand/collapse */}
                 <button
                   onClick={() => toggleGroup(type)}
                   style={{ width: '100%', background: 'transparent', border: 'none', padding: '14px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: fonts.body, textAlign: 'left' }}
@@ -1067,10 +1076,10 @@ export default function DebtScreen() {
                         ${totalBalance.toLocaleString()}
                       </div>
                       <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '1px' }}>
-                        Min ${totalMin.toLocaleString()}/mo{totalInterest > 0 ? ` Â· ~$${totalInterest.toLocaleString()}/mo interest` : ''}
+                        Min ${totalMin.toLocaleString()}/mo{totalInterest > 0 ? ` · ~$${totalInterest.toLocaleString()}/mo interest` : ''}
                       </div>
                     </div>
-                    <span style={{ fontSize: '10px', color: tokens.textMuted, display: 'inline-block', transition: 'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'none' }}>â–¼</span>
+                    <span style={{ fontSize: '10px', color: tokens.textMuted, display: 'inline-block', transition: 'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'none' }}>▼</span>
                   </div>
                 </button>
 
@@ -1085,9 +1094,9 @@ export default function DebtScreen() {
                             <div style={{ flex: 1, minWidth: 0, paddingRight: '12px' }}>
                               <div style={{ fontWeight: 600, fontSize: '14px', color: tokens.textPrimary }}>{account.name}</div>
                               <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>
-                                {account.interestRate || 0}% APR Â· Min ${(account.minimumPayment || 0).toLocaleString()}/mo
+                                {account.interestRate || 0}% APR · Min ${(account.minimumPayment || 0).toLocaleString()}/mo
                                 {account.interestRate > 0 && account.balance > 0 && (
-                                  <span style={{ color: tokens.amber }}> Â· ~${Math.round(account.balance * account.interestRate / 100 / 12).toLocaleString()}/mo interest</span>
+                                  <span style={{ color: tokens.amber }}> · ~${Math.round(account.balance * account.interestRate / 100 / 12).toLocaleString()}/mo interest</span>
                                 )}
                               </div>
                             </div>
@@ -1112,7 +1121,7 @@ export default function DebtScreen() {
         )}
       </div>
 
-      {/* â”€â”€ Manual account modal â”€â”€ */}
+      {/* ── Manual account modal ── */}
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Account' : 'Add Debt Account'}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <Input label="Account Name" value={form.name} onChange={v => setForm(f => ({ ...f, name: v }))} placeholder="e.g. IRS Tax Debt 2023" />
@@ -1132,13 +1141,13 @@ export default function DebtScreen() {
         </div>
       </Modal>
 
-      {/* â”€â”€ Import Review Modal â”€â”€ */}
+      {/* ── Import Review Modal ── */}
       <Modal open={showImportModal} onClose={() => setShowImportModal(false)} title="Review Extracted Data">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Summary */}
           {importSummary && (
             <div style={{ padding: '10px 14px', background: tokens.accentDim, borderRadius: '8px', fontSize: '13px', color: tokens.textSecondary }}>
-              âœ¦ {importSummary}
+              ✦ {importSummary}
             </div>
           )}
 
@@ -1147,7 +1156,7 @@ export default function DebtScreen() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
               {clarifyData.insights.map((insight, i) => (
                 <div key={i} style={{ padding: '7px 12px', background: 'rgba(109,191,158,0.08)', border: '1px solid rgba(109,191,158,0.2)', borderRadius: '8px', fontSize: '12px', color: tokens.textSecondary }}>
-                  ðŸ’¡ {insight}
+                  💡 {insight}
                 </div>
               ))}
             </div>
@@ -1175,7 +1184,7 @@ export default function DebtScreen() {
                           style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: `1px solid ${tokens.border}`, padding: '2px 0', fontSize: '14px', fontWeight: 600, color: tokens.textPrimary, fontFamily: fonts.body, outline: 'none' }}
                         />
                       </div>
-                      {a.isDuplicate && <span style={{ fontSize: '10px', color: tokens.amber, background: 'rgba(200,169,110,0.12)', padding: '2px 7px', borderRadius: '4px', fontWeight: 700, flexShrink: 0 }}>exists Â· will update</span>}
+                      {a.isDuplicate && <span style={{ fontSize: '10px', color: tokens.amber, background: 'rgba(200,169,110,0.12)', padding: '2px 7px', borderRadius: '4px', fontWeight: 700, flexShrink: 0 }}>exists · will update</span>}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', paddingLeft: '26px' }}>
                       <div>
@@ -1263,7 +1272,36 @@ export default function DebtScreen() {
         </div>
       </Modal>
 
-      {/* â”€â”€ Clarification Modal (pre-import: smart account matching) â”€â”€ */}
+      {/* ── Document Type Selector Modal ── */}
+      <Modal open={showDocTypeModal} onClose={() => { setShowDocTypeModal(false); setPendingImportFiles(null); }} title="What type of document?">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '8px' }}>
+          <p style={{ fontSize: '13px', color: tokens.textSecondary, margin: '0 0 6px' }}>
+            Tell Anchor what you're importing so it extracts the right data.
+          </p>
+          {[
+            { type: 'bank_statement', label: 'Bank Statement',        desc: 'Checking or savings — extracts cash flow and spending',   icon: '🏦' },
+            { type: 'credit_card',   label: 'Credit Card Statement',  desc: 'Extracts balance, APR, and minimum payment',              icon: '💳' },
+            { type: 'loan',          label: 'Loan / Mortgage',        desc: 'Extracts current balance and interest rate',              icon: '🏠' },
+            { type: 'other',         label: 'Other / Auto-detect',    desc: 'Excel debt tracker or mixed document',                    icon: '📄' },
+          ].map(opt => (
+            <button
+              key={opt.type}
+              onClick={() => { setShowDocTypeModal(false); processImportFiles(pendingImportFiles, opt.type); setPendingImportFiles(null); }}
+              style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', background: tokens.bgCardHover, border: `1px solid ${tokens.border}`, borderRadius: '10px', cursor: 'pointer', textAlign: 'left', width: '100%', transition: 'border-color 0.15s' }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = tokens.accent}
+              onMouseLeave={e => e.currentTarget.style.borderColor = tokens.border}
+            >
+              <span style={{ fontSize: '20px', flexShrink: 0 }}>{opt.icon}</span>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{opt.label}</div>
+                <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>{opt.desc}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </Modal>
+
+      {/* ── Clarification Modal (pre-import: smart account matching) ── */}
       <Modal open={showClarifyModal} onClose={() => { setShowClarifyModal(false); setClarifyData(null); setClarifyAnswers({}); }} title="Verify Accounts">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ fontSize: '13px', color: tokens.textSecondary }}>
@@ -1275,7 +1313,7 @@ export default function DebtScreen() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {clarifyData.insights.map((insight, i) => (
                 <div key={i} style={{ padding: '8px 12px', background: tokens.accentDim, borderRadius: '8px', fontSize: '12px', color: tokens.textSecondary }}>
-                  ðŸ’¡ {insight}
+                  💡 {insight}
                 </div>
               ))}
             </div>
@@ -1312,13 +1350,13 @@ export default function DebtScreen() {
               onClick={handleClarifyComplete}
               disabled={(clarifyData?.questions || []).some(q => !clarifyAnswers[q.extractedIndex])}
             >
-              Continue to Review â†’
+              Continue to Review →
             </Button>
           </div>
         </div>
       </Modal>
 
-      {/* â”€â”€ Asset Account Modal â”€â”€ */}
+      {/* ── Asset Account Modal ── */}
       <Modal open={showAssetModal} onClose={() => setShowAssetModal(false)} title={editingAsset ? 'Edit Asset' : 'Add Asset Account'}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <Input label="Account Name" value={assetForm.name} onChange={v => setAssetForm(f => ({ ...f, name: v }))} placeholder="e.g. Veridian Checking, 401k, Home Equity" />
@@ -1336,7 +1374,7 @@ export default function DebtScreen() {
         </div>
       </Modal>
 
-      {/* â”€â”€ Asset Accounts Section â”€â”€ */}
+      {/* ── Asset Accounts Section ── */}
       <div className="fade-up stagger-6" style={{ marginTop: '32px', paddingTop: '24px', borderTop: `1px solid ${tokens.border}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
           <div>
@@ -1347,7 +1385,7 @@ export default function DebtScreen() {
         </div>
 
         {(assetAccounts || []).length === 0 ? (
-          <EmptyState icon="â—ˆ" title="No asset accounts tracked" subtitle="Add checking, savings, retirement, and investment accounts for a complete net worth picture." action={
+          <EmptyState icon="◈" title="No asset accounts tracked" subtitle="Add checking, savings, retirement, and investment accounts for a complete net worth picture." action={
             <Button onClick={openAssetNew} variant="ghost">+ Add Asset Account</Button>
           } />
         ) : (

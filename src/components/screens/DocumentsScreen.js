@@ -119,7 +119,10 @@ export default function DocumentsScreen() {
         uploadTask.on(
           'state_changed',
           (snap) => setProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 80)),
-          reject,
+          (err) => {
+            if (isDev) console.error('Storage error code:', err?.code, err?.message);
+            reject(err);
+          },
           async () => {
             const url = await getDownloadURL(uploadTask.snapshot.ref);
             resolve(url);
@@ -196,7 +199,14 @@ export default function DocumentsScreen() {
       }
     } catch (err) {
       if (isDev) console.error('Upload error:', err);
-      setUploadError('Upload failed. Please try again.');
+      const code = err?.code || '';
+      if (code === 'storage/unauthorized' || code === 'storage/unknown') {
+        setUploadError('Upload blocked by Firebase Storage rules. See setup instructions.');
+      } else if (code === 'storage/canceled') {
+        setUploadError('Upload was canceled.');
+      } else {
+        setUploadError(`Upload failed (${code || 'unknown error'}). Check your connection and try again.`);
+      }
     } finally {
       setUploading(false);
       setExtracting(false);
