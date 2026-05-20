@@ -60,7 +60,7 @@ const QUOTES = [
 
 export default function HomeScreen() {
   const { user, profile, updateProfile } = useAuth();
-  const { tasks, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile, plaidItems, dailyReviews, manualCashFlow, debtAccounts, assetAccounts, notes, lastWeeklyReset } = useData();
+  const { tasks, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile, plaidItems, dailyReviews, manualCashFlow, debtAccounts, assetAccounts, notes, lastWeeklyReset, savingsAnalysis, savingsHistory } = useData();
   const navigate = useNavigate();
 
   const [energy,      setEnergy]      = useState(profile?.energyToday || 7);
@@ -390,6 +390,8 @@ export default function HomeScreen() {
     assetAccounts:  assetAccounts || [],
     weatherForecast,
     notes:          notes || [],
+    savingsAnalysis,
+    savingsHistory,
   });
 
   const fetchAI = async () => {

@@ -223,7 +223,7 @@ export default function FloatingAdvisor({ open, onClose }) {
   const { projects, tasks, goals, brainDumps, weeklyReviews,
           calendarIntegration, userProfile,
           manualCashFlow, debtAccounts, assetAccounts,
-          notes }                                                      = useData();
+          notes, savingsAnalysis, savingsHistory }                     = useData();
   const { pageContext }                                                = usePageContext();
 
   // panel state — controlled externally via open/onClose props
@@ -319,6 +319,7 @@ export default function FloatingAdvisor({ open, onClose }) {
       goals, tasks, projects, brainDumps, weeklyReviews,
       userProfile, plaidData: manualCashFlow, manualCashFlow,
       debtAccounts, assetAccounts, notes,
+      savingsAnalysis, savingsHistory,
     });
 
     // Page-specific context injection

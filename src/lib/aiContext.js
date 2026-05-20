@@ -13,6 +13,8 @@ export function buildHolisticContext({
   calendarDensity = null, calendarEvents = [],
   weatherForecast = null,
   notes = [],
+  savingsAnalysis = null,
+  savingsHistory = [],
 }) {
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -316,6 +318,59 @@ export function buildHolisticContext({
       assetAccounts.forEach(a => { byType[a.type] = (byType[a.type] || 0) + (a.balance || 0); });
       const breakdown = Object.entries(byType).map(([t, v]) => `${t}:$${v.toLocaleString()}`).join(' | ');
       lines.push(`  Asset breakdown: ${breakdown}`);
+    }
+  }
+
+  // Spending analysis from bank statements
+  if (savingsAnalysis && (savingsAnalysis.spendingCategories || []).length > 0) {
+    lines.push(`\nSPENDING ANALYSIS (from bank statements):`);
+    if (savingsAnalysis.totalMonthlySavings > 0) {
+      lines.push(`  Savings potential: $${savingsAnalysis.totalMonthlySavings.toLocaleString()}/mo`);
+    }
+    if (savingsAnalysis.debtFreeAcceleration) {
+      lines.push(`  Debt-free acceleration: ${savingsAnalysis.debtFreeAcceleration} months sooner if savings applied`);
+    }
+
+    // Spending categories with top merchants
+    lines.push(`  Monthly spending by category:`);
+    (savingsAnalysis.spendingCategories || []).forEach(c => {
+      const topMerchants = (c.transactions || []).slice(0, 3).map(t => `${t.merchant} $${t.amount}`).join(', ');
+      lines.push(`    ${c.icon || ''} ${c.name}: $${(c.monthlyTotal || 0).toLocaleString()}/mo${topMerchants ? ` — ${topMerchants}` : ''}`);
+    });
+
+    // Subscriptions worth reviewing
+    const reviewSubs = (savingsAnalysis.subscriptions || []).filter(s => s.action === 'cancel' || s.action === 'reduce');
+    if (reviewSubs.length > 0) {
+      lines.push(`  Subscriptions to review: ${reviewSubs.map(s => `${s.name} $${s.estimatedMonthly}/mo (${s.action})`).join(', ')}`);
+    }
+
+    // Top recommendations
+    if ((savingsAnalysis.recommendations || []).length > 0) {
+      lines.push(`  Top savings recommendations:`);
+      savingsAnalysis.recommendations.slice(0, 4).forEach(r => {
+        lines.push(`    • ${r.title} — save $${r.monthlySavings}/mo (${r.difficulty})`);
+      });
+    }
+
+    // Month-over-month trends
+    const prev = savingsHistory?.[1];
+    const curr = savingsHistory?.[0];
+    if (prev && curr && (prev.spendingCategories || []).length > 0) {
+      const prevMap = Object.fromEntries((prev.spendingCategories || []).map(c => [c.name, c.monthlyTotal || 0]));
+      const trends = (curr.spendingCategories || [])
+        .map(c => {
+          const prevAmt = prevMap[c.name];
+          if (prevAmt == null) return null;
+          const delta = (c.monthlyTotal || 0) - prevAmt;
+          return { name: c.name, delta };
+        })
+        .filter(Boolean)
+        .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+        .slice(0, 3);
+      if (trends.length > 0) {
+        const trendStr = trends.map(t => `${t.name} ${t.delta > 0 ? '+' : ''}$${Math.round(t.delta)} vs last month`).join(', ');
+        lines.push(`  Month-over-month trends: ${trendStr}`);
+      }
     }
   }
 
