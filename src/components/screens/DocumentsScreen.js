@@ -5,7 +5,7 @@ import { storage } from '../../lib/firebase';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { addDocument, deleteDocument, addTask, saveSavingsAnalysis, deleteSavingsAnalysis } from '../../lib/db';
+import { addDocument, deleteDocument, addTask, saveSavingsAnalysis, saveSavingsAnalysisMonth, deleteSavingsAnalysis } from '../../lib/db';
 import { Button, Modal, Spinner } from '../ui';
 import { fmtShortDate } from '../../lib/dates';
 
@@ -228,18 +228,15 @@ export default function DocumentsScreen() {
 
       setProgress(95);
 
-      // 4. If bank statement → run full savings analysis with actual PDF
+      // 4. If bank statement → run savings analysis on this statement only, save to latest + history
       if (category === 'bank_statement' && base64) {
         try {
-          const existingBankDocs = (documents || [])
-            .filter(d => d.category === 'bank_statement')
-            .slice(0, 2)
-            .map(d => ({ name: d.name, year: d.year, month: d.month }));
+          const stmtYear  = extracted.year  || now.getFullYear();
+          const stmtMonth = extracted.month || (now.getMonth() + 1);
+          const yearMonth = `${stmtYear}-${String(stmtMonth).padStart(2, '0')}`;
 
-          const bankStatements = [
-            { base64, name: extracted.suggestedTitle || file.name, year: extracted.year || now.getFullYear(), month: extracted.month || (now.getMonth() + 1) },
-            ...existingBankDocs,
-          ];
+          // Analyze only this statement so history entries are clean per-month snapshots
+          const bankStatements = [{ base64, name: extracted.suggestedTitle || file.name, year: stmtYear, month: stmtMonth }];
           const totalDebt = (debtAccounts || []).reduce((s, a) => s + (a.balance || 0), 0);
 
           const cfRes = await fetch('/api/documents/analyze-savings', {
@@ -254,7 +251,11 @@ export default function DocumentsScreen() {
           });
           if (cfRes.ok) {
             const savData = await cfRes.json();
-            await saveSavingsAnalysis(user.uid, savData);
+            // Save to latest (current display) and to the month-specific history entry
+            await Promise.all([
+              saveSavingsAnalysis(user.uid, savData),
+              saveSavingsAnalysisMonth(user.uid, yearMonth, savData),
+            ]);
           }
         } catch (err) {
           if (isDev) console.warn('Auto-savings analysis failed:', err);

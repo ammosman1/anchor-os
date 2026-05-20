@@ -486,6 +486,25 @@ export const subscribeSavingsAnalysis = (uid, cb) => {
 export const deleteSavingsAnalysis = (uid) =>
   deleteDoc(doc(db, 'users', uid, 'savingsAnalysis', 'latest'));
 
+// ─── Savings Analysis History ─────────────────────────────────────────────────
+// One document per month, keyed by "YYYY-MM" (the statement period, not analysis date).
+// Separate collection from savingsAnalysis/latest so the live-query doesn't conflict.
+export const saveSavingsAnalysisMonth = (uid, yearMonth, data) =>
+  setDoc(doc(db, 'users', uid, 'savingsAnalysisHistory', yearMonth), {
+    ...data,
+    period:      yearMonth,
+    savedAt:     serverTimestamp(),
+    savedAtMs:   Date.now(),
+  });
+
+export const subscribeSavingsAnalysisHistory = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
+    query(collection(db, 'users', uid, 'savingsAnalysisHistory'), orderBy('savedAt', 'desc'), limit(6)),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  );
+};
+
 // ─── Weekly Resets ────────────────────────────────────────────────────────────
 export const saveWeeklyReset = (uid, weekKey, data) =>
   setDoc(doc(db, 'users', uid, 'weeklyResets', weekKey), {

@@ -223,7 +223,7 @@ function fmtImportDate(ts) {
 export default function DebtScreen() {
   const navigate = useNavigate();
   const { user }                                                    = useAuth();
-  const { debtAccounts, totalDebt, assetAccounts, totalAssets, plaidItems, manualCashFlow, goals, savingsAnalysis, documents } = useData();
+  const { debtAccounts, totalDebt, assetAccounts, totalAssets, plaidItems, manualCashFlow, goals, savingsAnalysis, savingsHistory, documents } = useData();
 
   // ── Existing account modal ────────────────────────────────────────────────
   const [showModal,     setShowModal]     = useState(false);
@@ -993,7 +993,7 @@ export default function DebtScreen() {
       )}
 
       {/* ── Savings Opportunities ── */}
-      {savingsAnalysis ? (
+      {savingsAnalysis && (documents || []).some(d => d.category === 'bank_statement') ? (
         <div className="fade-up stagger-5" style={{ marginBottom: '16px', marginTop: '16px' }}>
           <Card>
             {/* Header */}
@@ -1025,25 +1025,47 @@ export default function DebtScreen() {
               )}
             </div>
 
-            {/* Spending Categories — expandable */}
-            {(savingsAnalysis.spendingCategories || []).length > 0 && (
+            {/* Spending Categories — expandable with month-over-month delta */}
+            {(savingsAnalysis.spendingCategories || []).length > 0 && (() => {
+              // Use the two most recent monthly history entries for delta comparison
+              const prevEntry   = savingsHistory?.[1];
+              const prevLabel   = prevEntry?.period
+                ? new Date(prevEntry.period + '-15').toLocaleString('en-US', { month: 'short' })
+                : null;
+              const prevCatsMap = Object.fromEntries(
+                (prevEntry?.spendingCategories || []).map(c => [c.name, c.monthlyTotal || 0])
+              );
+
+              return (
               <div style={{ marginBottom: '16px' }}>
                 <div style={{ fontSize: '11px', fontWeight: 700, color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>Spending Breakdown</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   {(savingsAnalysis.spendingCategories || []).map((cat, i) => {
-                    const isOpen = openCategories.has(cat.name);
-                    const hasTx  = (cat.transactions || []).length > 0;
+                    const isOpen  = openCategories.has(cat.name);
+                    const hasTx   = (cat.transactions || []).length > 0;
+                    const hasPrev = prevLabel && prevCatsMap[cat.name] != null;
+                    const delta   = hasPrev ? (cat.monthlyTotal || 0) - prevCatsMap[cat.name] : null;
+
                     return (
                       <div key={i} style={{ border: `1px solid ${tokens.border}`, borderRadius: '10px', overflow: 'hidden' }}>
                         <button
                           onClick={() => hasTx && toggleCategory(cat.name)}
                           style={{ width: '100%', background: tokens.bgCardHover, border: 'none', padding: '10px 14px', cursor: hasTx ? 'pointer' : 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: fonts.body, textAlign: 'left' }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                             <span style={{ fontSize: '18px' }}>{cat.icon || '📊'}</span>
                             <span style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{cat.name}</span>
+                            {delta !== null && (
+                              <span style={{
+                                fontSize: '10px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px',
+                                color:      delta <= 0 ? tokens.green : tokens.red,
+                                background: delta <= 0 ? 'rgba(109,191,158,0.1)' : 'rgba(212,122,107,0.1)',
+                              }}>
+                                {delta <= 0 ? '▼' : '▲'} ${Math.abs(Math.round(delta))} vs {prevLabel}
+                              </span>
+                            )}
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
                             <span style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 700, color: tokens.textSecondary }}>
                               ${(cat.monthlyTotal || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}/mo
                             </span>
@@ -1072,7 +1094,8 @@ export default function DebtScreen() {
                   })}
                 </div>
               </div>
-            )}
+              );
+            })()}
 
             {/* Subscriptions */}
             {(savingsAnalysis.subscriptions || []).filter(s => s.action === 'cancel' || s.action === 'reduce').length > 0 && (
