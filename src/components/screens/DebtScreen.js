@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { getDebtAdvice } from '../../lib/ai';
 import { auth } from '../../lib/firebase';
-import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask, addAssetAccount, updateAssetAccount, deleteAssetAccount, addDebtBalanceSnapshot, saveSavingsAnalysis } from '../../lib/db';
+import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask, addAssetAccount, updateAssetAccount, deleteAssetAccount, addDebtBalanceSnapshot, saveSavingsAnalysis, saveSavingsAnalysisMonth } from '../../lib/db';
 import { openPlaidLink, calcCashFlow, formatTxAmount, formatTxDate } from '../../lib/plaid';
 import { Card, Button, Input, Select, SectionLabel, MomentumBar, Modal, AICard, EmptyState } from '../ui';
 
@@ -678,39 +678,61 @@ export default function DebtScreen() {
     if (!bankDocs.length) return;
     setAnalyzingLoading(true);
     try {
-      // Refresh path: use existing spending categories (from uploads) as context.
-      // Re-downloading PDFs is unreliable and unnecessary — spending patterns
-      // don't change between refreshes; only debt balances do.
-      // Pull categories from existing latest, falling back to most recent history entry.
-      const existingCategories    = (savingsAnalysis?.spendingCategories || []).length > 0
-        ? savingsAnalysis.spendingCategories
-        : (savingsHistory?.[0]?.spendingCategories || []);
-      const existingSubscriptions = (savingsAnalysis?.subscriptions || []).length > 0
-        ? savingsAnalysis.subscriptions
-        : (savingsHistory?.[0]?.subscriptions || []);
+      // If history is missing (statements uploaded before history feature existed),
+      // seed it first by fetching each PDF server-side (avoids browser CORS issues).
+      const historyEmpty = !savingsHistory || savingsHistory.length === 0;
+      const categoriesEmpty = !(savingsAnalysis?.spendingCategories || []).length;
+
+      if (historyEmpty || categoriesEmpty) {
+        const pdfDocs = bankDocs.filter(d => d.fileType === 'application/pdf' && d.storageUrl).slice(0, 3);
+        for (const d of pdfDocs) {
+          const yearMonth = d.year && d.month
+            ? `${d.year}-${String(d.month).padStart(2, '0')}`
+            : null;
+          try {
+            const r = await fetch('/api/documents/analyze-savings', {
+              method:  'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body:    JSON.stringify({
+                documentUrls: [{ url: d.storageUrl, name: d.name, year: d.year, month: d.month }],
+                cashFlow:     effectiveFlow,
+                debtAccounts,
+                totalDebt,
+              }),
+            });
+            if (r.ok) {
+              const data = await r.json();
+              const saves = [saveSavingsAnalysis(user.uid, { ...data, monthsAnalyzed: pdfDocs.length })];
+              if (yearMonth) saves.push(saveSavingsAnalysisMonth(user.uid, yearMonth, data));
+              await Promise.all(saves);
+            }
+          } catch (err) {
+            if (isDev) console.warn('History seed failed for', d.name, err);
+          }
+        }
+        setAnalyzingLoading(false);
+        return;
+      }
+
+      // Normal refresh: existing categories are present — regenerate recommendations only
+      const existingCategories    = savingsAnalysis.spendingCategories || [];
+      const existingSubscriptions = savingsAnalysis.subscriptions      || [];
 
       const res = await fetch('/api/documents/analyze-savings', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          existingCategories,
-          existingSubscriptions,
-          cashFlow:     effectiveFlow,
-          debtAccounts,
-          totalDebt,
-        }),
+        body:    JSON.stringify({ existingCategories, existingSubscriptions, cashFlow: effectiveFlow, debtAccounts, totalDebt }),
       });
       if (res.ok) {
         const fresh = await res.json();
-        // Always keep spending categories from uploads; only update recommendations + totals
         await saveSavingsAnalysis(user.uid, {
-          spendingCategories:  existingCategories,
-          subscriptions:       existingSubscriptions,
-          recommendations:     fresh.recommendations     || savingsAnalysis?.recommendations     || [],
-          totalMonthlySavings: fresh.totalMonthlySavings ?? savingsAnalysis?.totalMonthlySavings ?? 0,
+          spendingCategories:   existingCategories,
+          subscriptions:        existingSubscriptions,
+          recommendations:      fresh.recommendations      || savingsAnalysis?.recommendations      || [],
+          totalMonthlySavings:  fresh.totalMonthlySavings  ?? savingsAnalysis?.totalMonthlySavings  ?? 0,
           debtFreeAcceleration: fresh.debtFreeAcceleration ?? savingsAnalysis?.debtFreeAcceleration ?? null,
-          monthsAnalyzed:      savingsAnalysis?.monthsAnalyzed || 1,
-          statementCount:      savingsAnalysis?.statementCount || bankDocs.length,
+          monthsAnalyzed:       savingsAnalysis?.monthsAnalyzed || 1,
+          statementCount:       savingsAnalysis?.statementCount || bankDocs.length,
         });
       }
     } catch (err) {

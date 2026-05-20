@@ -1,7 +1,10 @@
 // api/documents/analyze-savings.js
 // AI-powered savings analysis from real bank statement PDFs.
-// Accepts up to 3 PDF base64 strings; falls back to metadata-only if no PDFs provided.
-// Returns hierarchical spending categories with merchant drill-down.
+// Three analysis paths:
+//   1. documentUrls  — server fetches PDFs from Firebase Storage (history seed / no CORS issues)
+//   2. bankStatements with base64 — browser-uploaded PDF (new upload path)
+//   3. existingCategories — text context only, refresh recommendations without re-parsing PDFs
+//   4. metadata fallback — document descriptions only
 
 export const config = {
   api: { bodyParser: { sizeLimit: '20mb' } },
@@ -11,17 +14,15 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   const {
-    bankStatements        = [],   // [{ base64?, name, year, month }] — upload path
-    documents             = [],   // legacy metadata-only fallback
-    existingCategories    = [],   // refresh path: pre-parsed spending categories
-    existingSubscriptions = [],   // refresh path: pre-parsed subscriptions
+    bankStatements        = [],  // [{ base64, name, year, month }] — browser upload
+    documentUrls          = [],  // [{ url, name, year, month }]    — server-side fetch (one at a time)
+    documents             = [],  // legacy metadata-only fallback
+    existingCategories    = [],  // refresh path: pre-parsed spending categories
+    existingSubscriptions = [],  // refresh path: pre-parsed subscriptions
     cashFlow,
-    debtAccounts   = [],
-    totalDebt      = 0,
+    debtAccounts = [],
+    totalDebt    = 0,
   } = req.body;
-
-  const statementsWithPdf = bankStatements.filter(s => s.base64);
-  const statementCount    = statementsWithPdf.length || bankStatements.length || documents.length || 1;
 
   const cashFlowCtx = cashFlow
     ? `Monthly income: $${(cashFlow.income || cashFlow.monthlyIncome || 0).toLocaleString()}, spending: $${(cashFlow.spending || cashFlow.monthlySpending || 0).toLocaleString()}, surplus: $${(cashFlow.surplus || cashFlow.monthlySurplus || 0).toLocaleString()}`
@@ -31,40 +32,64 @@ export default async function handler(req, res) {
     ? `Total debt: $${(totalDebt || 0).toLocaleString()}. Accounts: ${debtAccounts.map(a => `${a.name} ($${(a.balance || 0).toLocaleString()}, ${a.interestRate || 0}% APR)`).join('; ')}`
     : 'No debt accounts tracked';
 
-  let messages;
+  // Path 1: server-side URL fetch (one document per call, caller loops)
+  if (documentUrls.length > 0) {
+    const d = documentUrls[0];
+    try {
+      const resp = await fetch(d.url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const buf    = await resp.arrayBuffer();
+      const base64 = Buffer.from(buf).toString('base64');
+      const stmt   = [{ base64, name: d.name, year: d.year, month: d.month }];
+      const blocks = [
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 }, title: d.name || 'Bank Statement' },
+        { type: 'text', text: buildPdfPrompt(stmt, cashFlowCtx, debtCtx) },
+      ];
+      return runAnalysis(res, [{ role: 'user', content: blocks }], 1);
+    } catch (err) {
+      console.error('Server-side PDF fetch failed:', err.message);
+      return res.status(500).json({ error: 'Could not fetch PDF from storage' });
+    }
+  }
 
+  // Path 2: browser-uploaded base64
+  const statementsWithPdf = bankStatements.filter(s => s.base64);
   if (statementsWithPdf.length > 0) {
-    // Upload path — full PDF analysis
-    const limited       = statementsWithPdf.slice(0, 3);
-    const contentBlocks = [];
-    for (const s of limited) {
-      contentBlocks.push({
+    const limited = statementsWithPdf.slice(0, 3);
+    const blocks  = [
+      ...limited.map(s => ({
         type:   'document',
         source: { type: 'base64', media_type: 'application/pdf', data: s.base64 },
         title:  s.name || 'Bank Statement',
-      });
-    }
-    contentBlocks.push({ type: 'text', text: buildPdfPrompt(limited, cashFlowCtx, debtCtx) });
-    messages = [{ role: 'user', content: contentBlocks }];
-  } else if (existingCategories.length > 0) {
-    // Refresh path — use pre-parsed spending data, regenerate recommendations only
-    messages = [{ role: 'user', content: buildRefreshPrompt(existingCategories, existingSubscriptions, cashFlowCtx, debtCtx) }];
-  } else {
-    // Fallback — metadata only
-    const docCtx = [...bankStatements, ...documents].slice(0, 6)
-      .map(d => `- ${d.name || 'Unknown'}${d.year ? ` (${d.year})` : ''}: ${d.description || 'No description'}`)
-      .join('\n') || 'No bank statement details available';
-    messages = [{ role: 'user', content: buildMetadataPrompt(docCtx, cashFlowCtx, debtCtx) }];
+      })),
+      { type: 'text', text: buildPdfPrompt(limited, cashFlowCtx, debtCtx) },
+    ];
+    return runAnalysis(res, [{ role: 'user', content: blocks }], limited.length);
   }
 
+  // Path 3: refresh — use existing category data, regenerate recommendations only
+  if (existingCategories.length > 0) {
+    const msg = buildRefreshPrompt(existingCategories, existingSubscriptions, cashFlowCtx, debtCtx);
+    return runAnalysis(res, [{ role: 'user', content: msg }], 1);
+  }
+
+  // Path 4: metadata-only fallback
+  const docCtx = [...bankStatements, ...documents].slice(0, 6)
+    .map(d => `- ${d.name || 'Unknown'}${d.year ? ` (${d.year})` : ''}: ${d.description || 'No description'}`)
+    .join('\n') || 'No bank statement details available';
+  const statementCount = documents.length || bankStatements.length || 1;
+  return runAnalysis(res, [{ role: 'user', content: buildMetadataPrompt(docCtx, cashFlowCtx, debtCtx) }], statementCount);
+}
+
+async function runAnalysis(res, messages, statementCount) {
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'Content-Type':    'application/json',
-        'x-api-key':       process.env.ANTHROPIC_API_KEY,
+        'Content-Type':      'application/json',
+        'x-api-key':         process.env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
-        'anthropic-beta':  'pdfs-2024-09-25',
+        'anthropic-beta':    'pdfs-2024-09-25',
       },
       body: JSON.stringify({
         model:      'claude-haiku-4-5-20251001',
@@ -80,17 +105,17 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'AI analysis failed' });
     }
 
-    const data  = await response.json();
-    const raw   = data?.content?.[0]?.text || '{}';
-    const clean = raw.replace(/```json|```/g, '').trim();
-    const match = clean.match(/\{[\s\S]*\}/);
+    const data   = await response.json();
+    const raw    = data?.content?.[0]?.text || '{}';
+    const clean  = raw.replace(/```json|```/g, '').trim();
+    const match  = clean.match(/\{[\s\S]*\}/);
     const parsed = match ? JSON.parse(match[0]) : {};
 
     return res.status(200).json({
-      spendingCategories:  parsed.spendingCategories  || [],
-      subscriptions:       parsed.subscriptions       || [],
-      recommendations:     parsed.recommendations     || [],
-      totalMonthlySavings: parsed.totalMonthlySavings || 0,
+      spendingCategories:   parsed.spendingCategories   || [],
+      subscriptions:        parsed.subscriptions        || [],
+      recommendations:      parsed.recommendations      || [],
+      totalMonthlySavings:  parsed.totalMonthlySavings  || 0,
       debtFreeAcceleration: parsed.debtFreeAcceleration || null,
       statementCount,
       monthsAnalyzed: parsed.monthsAnalyzed || statementCount,
