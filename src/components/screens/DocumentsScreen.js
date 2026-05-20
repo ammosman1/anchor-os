@@ -5,7 +5,7 @@ import { storage } from '../../lib/firebase';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { addDocument, deleteDocument, addTask } from '../../lib/db';
+import { addDocument, deleteDocument, addTask, saveSavingsAnalysis } from '../../lib/db';
 import { Button, Modal, Spinner } from '../ui';
 import { fmtShortDate } from '../../lib/dates';
 
@@ -54,7 +54,7 @@ const CURRENT_MONTH_NAME = new Date().toLocaleString('en-US', { month: 'long' })
 
 export default function DocumentsScreen() {
   const { user }       = useAuth();
-  const { documents, tasks } = useData();
+  const { documents, tasks, debtAccounts, manualCashFlow } = useData();
   const fileInputRef   = useRef(null);
 
   const [uploading,    setUploading]    = useState(false);
@@ -166,6 +166,34 @@ export default function DocumentsScreen() {
       });
 
       setProgress(100);
+
+      // Auto-trigger savings analysis when a bank statement is uploaded
+      if ((extracted.category || 'other') === 'bank_statement') {
+        try {
+          const existingBankDocs = (documents || []).filter(d => d.category === 'bank_statement').slice(0, 5);
+          const bankDocs = [
+            { name: extracted.suggestedTitle || file.name, description: extracted.description, vendor: extracted.vendor, year: extracted.year, month: extracted.month },
+            ...existingBankDocs,
+          ];
+          const totalDebt = (debtAccounts || []).reduce((s, a) => s + (a.balance || 0), 0);
+          const cfRes = await fetch('/api/documents/analyze-savings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              documents: bankDocs,
+              cashFlow: manualCashFlow ? { income: manualCashFlow.monthlyIncome, spending: manualCashFlow.monthlySpending, surplus: manualCashFlow.monthlySurplus } : null,
+              debtAccounts: debtAccounts || [],
+              totalDebt,
+            }),
+          });
+          if (cfRes.ok) {
+            const savData = await cfRes.json();
+            await saveSavingsAnalysis(user.uid, savData);
+          }
+        } catch (err) {
+          if (isDev) console.warn('Auto-savings analysis failed:', err);
+        }
+      }
     } catch (err) {
       if (isDev) console.error('Upload error:', err);
       setUploadError('Upload failed. Please try again.');

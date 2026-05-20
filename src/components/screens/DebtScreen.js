@@ -1,12 +1,13 @@
 // src/components/screens/DebtScreen.js
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
+import { useNavigate } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { getDebtAdvice } from '../../lib/ai';
 import { auth } from '../../lib/firebase';
-import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask, addAssetAccount, updateAssetAccount, deleteAssetAccount, addDebtBalanceSnapshot } from '../../lib/db';
+import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask, addAssetAccount, updateAssetAccount, deleteAssetAccount, addDebtBalanceSnapshot, saveSavingsAnalysis } from '../../lib/db';
 import { openPlaidLink, calcCashFlow, formatTxAmount, formatTxDate } from '../../lib/plaid';
 import { Card, Button, Input, Select, SectionLabel, MomentumBar, Modal, AICard, EmptyState } from '../ui';
 
@@ -220,8 +221,9 @@ function fmtImportDate(ts) {
 }
 
 export default function DebtScreen() {
+  const navigate = useNavigate();
   const { user }                                                    = useAuth();
-  const { debtAccounts, totalDebt, assetAccounts, totalAssets, plaidItems, manualCashFlow, goals } = useData();
+  const { debtAccounts, totalDebt, assetAccounts, totalAssets, plaidItems, manualCashFlow, goals, savingsAnalysis, documents } = useData();
 
   // â”€â”€ Existing account modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [showModal,     setShowModal]     = useState(false);
@@ -252,6 +254,9 @@ export default function DebtScreen() {
   const [editableCF,       setEditableCF]       = useState({ monthlyIncome: '', monthlySpending: '', monthlySurplus: '' });
   const [importSaving,     setImportSaving]     = useState(false);
   const [importProgress,   setImportProgress]   = useState(null); // { current, total }
+
+  // ── Savings analysis
+  const [analyzingLoading, setAnalyzingLoading] = useState(false);
 
   // â”€â”€ Asset account modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [showAssetModal, setShowAssetModal] = useState(false);
@@ -651,6 +656,44 @@ export default function DebtScreen() {
     finally { setImportSaving(false); }
   };
 
+  // ── Savings analysis handlers
+  const handleRunSavingsAnalysis = async () => {
+    const bankDocs = (documents || []).filter(d => d.category === 'bank_statement').slice(0, 6);
+    if (bankDocs.length === 0) return;
+    setAnalyzingLoading(true);
+    try {
+      const res = await fetch('/api/documents/analyze-savings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          documents: bankDocs,
+          cashFlow: effectiveFlow,
+          debtAccounts,
+          totalDebt,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        await saveSavingsAnalysis(user.uid, data);
+      }
+    } catch (err) {
+      if (isDev) console.error('Savings analysis error:', err);
+    } finally {
+      setAnalyzingLoading(false);
+    }
+  };
+
+  const handleCreateSavingsTask = async (rec) => {
+    const debtGoal = goals.find(g => g.goalType === 'financial' && g.status === 'active');
+    await addTask(user.uid, {
+      title: rec.title,
+      priority: rec.difficulty === 'easy' ? 'high' : 'medium',
+      goalId: debtGoal?.id || null,
+      source: 'savings-analysis',
+      notes: `Save $${rec.monthlySavings}/mo — ${rec.description}`,
+    });
+  };
+
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (
     <div style={{ maxWidth: 800, margin: '0 auto' }}>
@@ -915,6 +958,83 @@ export default function DebtScreen() {
       {debtAccounts.length > 0 && (
         <div className="fade-up stagger-5">
           <PayoffSimulator accounts={debtAccounts} />
+        </div>
+      )}
+
+      {/* ── Savings Opportunities ── */}
+      {savingsAnalysis ? (
+        <div className="fade-up stagger-5" style={{ marginBottom: '16px', marginTop: '16px' }}>
+          <Card>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+              <div>
+                <SectionLabel style={{ marginBottom: '2px' }}>Savings Opportunities</SectionLabel>
+                <div style={{ fontSize: '11px', color: tokens.textMuted }}>Based on your uploaded bank statements</div>
+              </div>
+              <Button size="sm" loading={analyzingLoading} onClick={handleRunSavingsAnalysis} variant="ghost">Refresh</Button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: savingsAnalysis.debtFreeAcceleration > 0 ? '1fr 1fr' : '1fr', gap: '10px', marginBottom: '16px' }}>
+              <div style={{ padding: '14px', background: tokens.accentDim, borderRadius: '10px', textAlign: 'center' }}>
+                <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Monthly Potential</div>
+                <div style={{ fontFamily: fonts.display, fontSize: '24px', fontWeight: 700, color: tokens.accent }}>
+                  +${(savingsAnalysis.totalMonthlySavings || 0).toLocaleString()}/mo
+                </div>
+              </div>
+              {savingsAnalysis.debtFreeAcceleration > 0 && (
+                <div style={{ padding: '14px', background: 'rgba(109,191,158,0.08)', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(109,191,158,0.15)' }}>
+                  <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Debt-Free Sooner</div>
+                  <div style={{ fontFamily: fonts.display, fontSize: '24px', fontWeight: 700, color: tokens.green }}>
+                    {savingsAnalysis.debtFreeAcceleration}mo
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {(savingsAnalysis.recommendations || []).map((rec, i) => (
+                <div key={i} style={{ padding: '12px 14px', background: tokens.bgCardHover, borderRadius: '10px', border: `1px solid ${tokens.border}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600, fontSize: '13px', color: tokens.textPrimary }}>{rec.title}</span>
+                        <span style={{
+                          fontSize: '10px', padding: '1px 7px', borderRadius: '4px', fontWeight: 700,
+                          background: rec.difficulty === 'easy' ? 'rgba(109,191,158,0.12)' : rec.difficulty === 'medium' ? 'rgba(200,169,110,0.12)' : 'rgba(212,122,107,0.12)',
+                          color: rec.difficulty === 'easy' ? tokens.green : rec.difficulty === 'medium' ? tokens.amber : tokens.red,
+                        }}>{rec.difficulty}</span>
+                      </div>
+                      <div style={{ fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.4 }}>{rec.description}</div>
+                    </div>
+                    <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                      <div style={{ fontFamily: fonts.display, fontSize: '15px', fontWeight: 700, color: tokens.green, whiteSpace: 'nowrap' }}>+${rec.monthlySavings}/mo</div>
+                      <button
+                        onClick={() => handleCreateSavingsTask(rec)}
+                        style={{ marginTop: '4px', fontSize: '10px', color: tokens.accent, background: 'none', border: 'none', cursor: 'pointer', fontFamily: fonts.body, padding: 0 }}
+                      >
+                        + Create task
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      ) : (documents || []).filter(d => d.category === 'bank_statement').length > 0 ? (
+        <div className="fade-up stagger-5" style={{ marginBottom: '16px', marginTop: '16px' }}>
+          <div style={{ padding: '16px 20px', background: tokens.accentDim, borderRadius: tokens.radiusLg, border: `1px dashed ${tokens.accent}` }}>
+            <div style={{ fontWeight: 600, fontSize: '13px', color: tokens.textPrimary, marginBottom: '4px' }}>Analyze Your Spending</div>
+            <div style={{ fontSize: '12px', color: tokens.textSecondary, marginBottom: '12px' }}>Run AI analysis on your uploaded bank statements to find savings opportunities tied to your debt payoff goal.</div>
+            <Button size="sm" loading={analyzingLoading} onClick={handleRunSavingsAnalysis}>Analyze Statements</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="fade-up stagger-5" style={{ marginBottom: '16px', marginTop: '16px' }}>
+          <div style={{ padding: '16px 20px', background: tokens.accentDim, borderRadius: tokens.radiusLg, border: `1px dashed ${tokens.accent}` }}>
+            <div style={{ fontWeight: 600, fontSize: '13px', color: tokens.textPrimary, marginBottom: '4px' }}>Unlock Savings Insights</div>
+            <div style={{ fontSize: '12px', color: tokens.textSecondary, marginBottom: '12px' }}>Upload a bank statement in Documents and I'll identify savings opportunities that could accelerate your debt payoff.</div>
+            <Button size="sm" onClick={() => navigate('/documents')}>Upload Statement</Button>
+          </div>
         </div>
       )}
 

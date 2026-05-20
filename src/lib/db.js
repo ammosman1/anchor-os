@@ -466,3 +466,34 @@ export const subscribeDocuments = (uid, cb) => {
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
 };
+
+// ─── Savings Analysis ─────────────────────────────────────────────────────────
+export const saveSavingsAnalysis = (uid, data) =>
+  setDoc(doc(db, 'users', uid, 'savingsAnalysis', 'latest'), {
+    ...data,
+    analyzedAt: serverTimestamp(),
+    analyzedAtMs: Date.now(),
+  });
+
+export const subscribeSavingsAnalysis = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
+    doc(db, 'users', uid, 'savingsAnalysis', 'latest'),
+    snap => cb(snap.exists() ? snap.data() : null)
+  );
+};
+
+// ─── Weekly Resets ────────────────────────────────────────────────────────────
+export const saveWeeklyReset = (uid, weekKey, data) =>
+  setDoc(doc(db, 'users', uid, 'weeklyResets', weekKey), {
+    ...data,
+    savedAt: serverTimestamp(),
+  });
+
+export const subscribeLastWeeklyReset = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
+    query(collection(db, 'users', uid, 'weeklyResets'), orderBy('savedAt', 'desc'), limit(1)),
+    snap => cb(snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() })
+  );
+};

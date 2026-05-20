@@ -26,6 +26,7 @@ import CalendarScreen  from './components/screens/CalendarScreen';
 import HabitsScreen    from './components/screens/HabitsScreen';
 import NotesScreen     from './components/screens/NotesScreen';
 import DocumentsScreen from './components/screens/DocumentsScreen';
+import WeeklyResetWizard from './components/screens/WeeklyResetWizard';
 
 // Inject global styles once
 if (!document.getElementById('anchor-global-styles')) {
@@ -76,9 +77,10 @@ function AppRoutes() {
             <Route path="/calendar"   element={<CalendarScreen />}  />
             <Route path="/habits"     element={<HabitsScreen />}    />
             <Route path="/notes"      element={<NotesScreen />}     />
-            <Route path="/documents"  element={<DocumentsScreen />} />
-            <Route path="/profile"    element={<ProfileScreen />}   />
-            <Route path="*"           element={<Navigate to="/" />} />
+            <Route path="/documents"     element={<DocumentsScreen />}   />
+            <Route path="/weekly-reset" element={<WeeklyResetWizard />} />
+            <Route path="/profile"      element={<ProfileScreen />}     />
+            <Route path="*"             element={<Navigate to="/" />}   />
           </Routes>
         </AppLayout>
       </PageContextProvider>

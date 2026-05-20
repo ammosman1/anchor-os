@@ -60,7 +60,7 @@ const QUOTES = [
 
 export default function HomeScreen() {
   const { user, profile, updateProfile } = useAuth();
-  const { tasks, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile, plaidItems, dailyReviews, manualCashFlow, debtAccounts, assetAccounts, notes } = useData();
+  const { tasks, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile, plaidItems, dailyReviews, manualCashFlow, debtAccounts, assetAccounts, notes, lastWeeklyReset } = useData();
   const navigate = useNavigate();
 
   const [energy,      setEnergy]      = useState(profile?.energyToday || 7);
@@ -312,8 +312,23 @@ export default function HomeScreen() {
         actionLabel: 'Check in →', actionFn: () => navigate('/review?tab=eod'),
       });
     }
+    const isSunday = new Date().getDay() === 0;
+    if (isSunday) {
+      const sundayKey = (() => {
+        const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - d.getDay());
+        return d.toISOString().split('T')[0];
+      })();
+      if (lastWeeklyReset?.weekKey !== sundayKey) {
+        items.unshift({
+          id: 'weekly-reset', icon: '🔄', urgency: 'high',
+          label: 'Sunday Weekly Reset',
+          detail: 'Review goals, triage tasks, check finances, and set your weekly intention',
+          actionLabel: 'Start Reset →', actionFn: () => navigate('/weekly-reset'),
+        });
+      }
+    }
     return items;
-  }, [carryForwardTasks, atRiskThisWeek, deadlineRiskTasks, weatherAlertData, driftingGoals, reviewReminderDue, morningDoneToday, staleInboxTasks, isAfter5pm, eodDoneToday, weeklyReviews, navigate]); // eslint-disable-line react-hooks/exhaustive-deps -- all semantically meaningful deps are listed; ESLint false-positives on react-router navigate stability
+  }, [carryForwardTasks, atRiskThisWeek, deadlineRiskTasks, weatherAlertData, driftingGoals, reviewReminderDue, morningDoneToday, staleInboxTasks, isAfter5pm, eodDoneToday, weeklyReviews, lastWeeklyReset, navigate]); // eslint-disable-line react-hooks/exhaustive-deps -- all semantically meaningful deps are listed; ESLint false-positives on react-router navigate stability
 
   // Compute display-active projects: includes stalled projects with momentum > 50
   // (same displayStatus logic as ProjectsScreen, avoids DataContext auto-stall hiding real activity)

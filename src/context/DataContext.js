@@ -8,6 +8,7 @@ import {
   subscribePlaidItems, subscribeProfile, subscribeDailyReviews, updateProject,
   subscribeManualCashFlow, subscribeAssetAccounts,
   subscribeHabits, subscribeHabitLogs, subscribeNotes, subscribeDocuments,
+  subscribeSavingsAnalysis, subscribeLastWeeklyReset,
 } from '../lib/db';
 import { setUserPersona } from '../lib/ai';
 import { calculateMomentum } from '../lib/momentum';
@@ -33,6 +34,8 @@ export function DataProvider({ children }) {
   const [habitLogs,           setHabitLogs]           = useState([]);
   const [notes,               setNotes]               = useState([]);
   const [documents,           setDocuments]           = useState([]);
+  const [savingsAnalysis,     setSavingsAnalysis]     = useState(null);
+  const [lastWeeklyReset,     setLastWeeklyReset]     = useState(null);
   const [loaded,              setLoaded]              = useState(false);
 
   useEffect(() => {
@@ -42,6 +45,7 @@ export function DataProvider({ children }) {
       setWeeklyReviews([]); setGoals([]); setCalendarIntegration(null); setPlaidItems([]);
       setDailyReviews([]); setManualCashFlow(null); setAssetAccounts([]);
       setHabits([]); setHabitLogs([]); setNotes([]); setDocuments([]);
+      setSavingsAnalysis(null); setLastWeeklyReset(null);
       setLoaded(false);
       return;
     }
@@ -63,6 +67,8 @@ export function DataProvider({ children }) {
       subscribeHabitLogs(user.uid,           setHabitLogs),
       subscribeNotes(user.uid,               setNotes),
       subscribeDocuments(user.uid,           setDocuments),
+      subscribeSavingsAnalysis(user.uid,     setSavingsAnalysis),
+      subscribeLastWeeklyReset(user.uid,     setLastWeeklyReset),
       subscribeProfile(user.uid, (prof) => {
         setUserProfile(prof);
         if (prof?.persona) setUserPersona(prof.persona);
@@ -124,7 +130,7 @@ export function DataProvider({ children }) {
   return (
     <DataContext.Provider value={{
       projects, tasks, debtAccounts, assetAccounts, ideas, brainDumps, weeklyReviews, goals, calendarIntegration, plaidItems, userProfile, dailyReviews, manualCashFlow,
-      habits, habitLogs, notes, documents,
+      habits, habitLogs, notes, documents, savingsAnalysis, lastWeeklyReset,
       activeProjects, stalledProjects, todayTasks, totalDebt, totalAssets, activeGoals,
       loaded,
     }}>
