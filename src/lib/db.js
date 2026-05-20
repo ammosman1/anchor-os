@@ -483,6 +483,9 @@ export const subscribeSavingsAnalysis = (uid, cb) => {
   );
 };
 
+export const deleteSavingsAnalysis = (uid) =>
+  deleteDoc(doc(db, 'users', uid, 'savingsAnalysis', 'latest'));
+
 // ─── Weekly Resets ────────────────────────────────────────────────────────────
 export const saveWeeklyReset = (uid, weekKey, data) =>
   setDoc(doc(db, 'users', uid, 'weeklyResets', weekKey), {

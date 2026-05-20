@@ -5,7 +5,7 @@ import { storage } from '../../lib/firebase';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { addDocument, deleteDocument, addTask, saveSavingsAnalysis } from '../../lib/db';
+import { addDocument, deleteDocument, addTask, saveSavingsAnalysis, deleteSavingsAnalysis } from '../../lib/db';
 import { Button, Modal, Spinner } from '../ui';
 import { fmtShortDate } from '../../lib/dates';
 
@@ -35,27 +35,50 @@ function fmtBytes(b) {
   return `${(b / 1048576).toFixed(1)} MB`;
 }
 
-
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => {
-      // Strip data URI prefix, keep only base64 part
-      const base64 = reader.result.split(',')[1];
-      resolve(base64);
-    };
+    reader.onload = () => resolve(reader.result.split(',')[1]);
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
 }
 
-const CURRENT_YEAR  = new Date().getFullYear();
+const CURRENT_YEAR       = new Date().getFullYear();
 const CURRENT_MONTH_NAME = new Date().toLocaleString('en-US', { month: 'long' });
 
+const DOC_TYPE_OPTIONS = [
+  {
+    type:        'bank_statement',
+    label:       'Bank Statement',
+    desc:        'Checking or savings account — unlocks AI savings analysis',
+    icon:        '🏦',
+    recommended: true,
+  },
+  {
+    type:  'credit_card',
+    label: 'Credit Card Statement',
+    desc:  'Records balance, APR, and payment history',
+    icon:  '💳',
+  },
+  {
+    type:  'loan',
+    label: 'Loan / Mortgage',
+    desc:  'Records balance and interest rate',
+    icon:  '🏠',
+  },
+  {
+    type:  'other',
+    label: 'Other / Auto-detect',
+    desc:  'Tax docs, invoices, receipts, contracts — AI identifies the type',
+    icon:  '✦',
+  },
+];
+
 export default function DocumentsScreen() {
-  const { user }       = useAuth();
+  const { user }    = useAuth();
   const { documents, tasks, debtAccounts, manualCashFlow } = useData();
-  const fileInputRef   = useRef(null);
+  const fileInputRef = useRef(null);
 
   const [uploading,    setUploading]    = useState(false);
   const [progress,     setProgress]     = useState(0);
@@ -68,7 +91,11 @@ export default function DocumentsScreen() {
   const [filterYear,   setFilterYear]   = useState('');
   const [monthTaskCreated, setMonthTaskCreated] = useState(false);
 
-  // Auto-create monthly "Upload statements" task if not already present
+  // Document type selector state
+  const [pendingFile,      setPendingFile]      = useState(null);
+  const [showTypeModal,    setShowTypeModal]    = useState(false);
+
+  // Auto-create monthly "Upload statements" task
   useEffect(() => {
     if (!user || !tasks || monthTaskCreated) return;
     const taskTitle = `Upload ${CURRENT_MONTH_NAME} ${CURRENT_YEAR} statements`;
@@ -88,7 +115,8 @@ export default function DocumentsScreen() {
     setMonthTaskCreated(true);
   }, [user, tasks, monthTaskCreated]);
 
-  const handleFileSelect = async (e) => {
+  // Step 1: validate file, show type selector
+  const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
@@ -97,7 +125,6 @@ export default function DocumentsScreen() {
       setUploadError(`File too large (${fmtBytes(file.size)}). Maximum 3 MB.`);
       return;
     }
-
     const isPdf   = file.type === 'application/pdf';
     const isImage = file.type.startsWith('image/');
     if (!isPdf && !isImage) {
@@ -106,10 +133,30 @@ export default function DocumentsScreen() {
     }
 
     setUploadError('');
+    setPendingFile(file);
+    setShowTypeModal(true);
+  };
+
+  // Step 2: user picks type → begin upload
+  const handleTypeSelected = (docType) => {
+    setShowTypeModal(false);
+    const file = pendingFile;
+    setPendingFile(null);
+    if (file) processUpload(file, docType);
+  };
+
+  // Core upload + extract + savings pipeline
+  const processUpload = async (file, docType) => {
     setUploading(true);
     setProgress(0);
 
+    let base64 = null;
     try {
+      // Read base64 early — needed for both extraction and savings analysis
+      if (file.type === 'application/pdf') {
+        base64 = await fileToBase64(file);
+      }
+
       // 1. Upload to Firebase Storage
       const storagePath = `users/${user.uid}/documents/${Date.now()}_${file.name}`;
       const storageRef  = ref(storage, storagePath);
@@ -117,8 +164,6 @@ export default function DocumentsScreen() {
 
       const downloadUrl = await new Promise((resolve, reject) => {
         let firstProgressFired = false;
-
-        // If no progress fires within 15 s the request is hanging (likely Storage rules/CORS)
         const hangTimer = setTimeout(() => {
           if (!firstProgressFired) {
             uploadTask.cancel();
@@ -130,13 +175,9 @@ export default function DocumentsScreen() {
           'state_changed',
           (snap) => {
             if (!firstProgressFired) { firstProgressFired = true; clearTimeout(hangTimer); }
-            setProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 80));
+            setProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 75));
           },
-          (err) => {
-            clearTimeout(hangTimer);
-            if (isDev) console.error('Storage error code:', err?.code, err?.message);
-            reject(err);
-          },
+          (err) => { clearTimeout(hangTimer); reject(err); },
           async () => {
             clearTimeout(hangTimer);
             const url = await getDownloadURL(uploadTask.snapshot.ref);
@@ -145,24 +186,26 @@ export default function DocumentsScreen() {
         );
       });
 
-      setProgress(85);
+      setProgress(80);
       setExtracting(true);
 
       // 2. Extract metadata via AI
       let extracted = {};
       try {
-        const base64 = await fileToBase64(file);
-        const res    = await fetch('/api/documents/extract', {
-          method: 'POST',
+        const res = await fetch('/api/documents/extract', {
+          method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileData: base64, mimeType: file.type }),
+          body:    JSON.stringify({ fileData: base64 || await fileToBase64(file), mimeType: file.type }),
         });
         if (res.ok) extracted = await res.json();
       } catch (err) {
         if (isDev) console.warn('Extraction failed, saving without metadata:', err);
       }
 
-      setProgress(95);
+      // User-selected type overrides AI-detected category (except 'other' = auto-detect)
+      const category = docType !== 'other' ? docType : (extracted.category || 'other');
+
+      setProgress(90);
       setExtracting(false);
 
       // 3. Save to Firestore
@@ -174,7 +217,7 @@ export default function DocumentsScreen() {
         fileType:    file.type,
         storageUrl:  downloadUrl,
         storagePath,
-        category:    extracted.category || 'other',
+        category,
         year:        extracted.year  || now.getFullYear(),
         month:       extracted.month || (now.getMonth() + 1),
         vendor:      extracted.vendor      || null,
@@ -183,23 +226,28 @@ export default function DocumentsScreen() {
         description: extracted.description || null,
       });
 
-      setProgress(100);
+      setProgress(95);
 
-      // Auto-trigger savings analysis when a bank statement is uploaded
-      if ((extracted.category || 'other') === 'bank_statement') {
+      // 4. If bank statement → run full savings analysis with actual PDF
+      if (category === 'bank_statement' && base64) {
         try {
-          const existingBankDocs = (documents || []).filter(d => d.category === 'bank_statement').slice(0, 5);
-          const bankDocs = [
-            { name: extracted.suggestedTitle || file.name, description: extracted.description, vendor: extracted.vendor, year: extracted.year, month: extracted.month },
+          const existingBankDocs = (documents || [])
+            .filter(d => d.category === 'bank_statement')
+            .slice(0, 2)
+            .map(d => ({ name: d.name, year: d.year, month: d.month }));
+
+          const bankStatements = [
+            { base64, name: extracted.suggestedTitle || file.name, year: extracted.year || now.getFullYear(), month: extracted.month || (now.getMonth() + 1) },
             ...existingBankDocs,
           ];
           const totalDebt = (debtAccounts || []).reduce((s, a) => s + (a.balance || 0), 0);
+
           const cfRes = await fetch('/api/documents/analyze-savings', {
-            method: 'POST',
+            method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              documents: bankDocs,
-              cashFlow: manualCashFlow ? { income: manualCashFlow.monthlyIncome, spending: manualCashFlow.monthlySpending, surplus: manualCashFlow.monthlySurplus } : null,
+            body:    JSON.stringify({
+              bankStatements,
+              cashFlow:     manualCashFlow ? { income: manualCashFlow.monthlyIncome, spending: manualCashFlow.monthlySpending, surplus: manualCashFlow.monthlySurplus } : null,
               debtAccounts: debtAccounts || [],
               totalDebt,
             }),
@@ -212,11 +260,13 @@ export default function DocumentsScreen() {
           if (isDev) console.warn('Auto-savings analysis failed:', err);
         }
       }
+
+      setProgress(100);
     } catch (err) {
       if (isDev) console.error('Upload error:', err);
       const code = err?.code || '';
       if (code === 'storage/no-progress' || code === 'storage/unauthorized' || code === 'storage/unknown') {
-        setUploadError('Upload blocked — Firebase Storage rules not configured. Go to Firebase Console → Storage → Rules and paste the rules from the storage.rules file in the project root, then click Publish.');
+        setUploadError('Upload blocked — Firebase Storage rules not configured. Go to Firebase Console → Storage → Rules and paste the rules from storage.rules, then click Publish.');
       } else if (code === 'storage/canceled') {
         setUploadError('Upload was canceled.');
       } else {
@@ -233,14 +283,17 @@ export default function DocumentsScreen() {
     if (!deleteConf || deleting) return;
     setDeleting(true);
     try {
-      // Delete from Storage
       if (deleteConf.storagePath) {
-        try {
-          await deleteObject(ref(storage, deleteConf.storagePath));
-        } catch (err) { if (isDev) console.warn('Storage delete failed:', err); }
+        try { await deleteObject(ref(storage, deleteConf.storagePath)); } catch (err) { if (isDev) console.warn('Storage delete failed:', err); }
       }
-      // Delete from Firestore
       await deleteDocument(user.uid, deleteConf.id);
+
+      // If no bank statements remain, clear savings analysis
+      const remainingBankDocs = (documents || []).filter(d => d.id !== deleteConf.id && d.category === 'bank_statement');
+      if (remainingBankDocs.length === 0) {
+        try { await deleteSavingsAnalysis(user.uid); } catch (err) { if (isDev) console.warn('deleteSavingsAnalysis failed:', err); }
+      }
+
       setDeleteConf(null);
       if (selected?.id === deleteConf.id) setSelected(null);
     } finally {
@@ -258,13 +311,14 @@ export default function DocumentsScreen() {
     [documents]
   );
 
-  const filtered = useMemo(() => {
-    return (documents || []).filter(d => {
-      if (filterCat  && d.category !== filterCat)  return false;
+  const filtered = useMemo(() =>
+    (documents || []).filter(d => {
+      if (filterCat  && d.category !== filterCat) return false;
       if (filterYear && d.year     !== parseInt(filterYear)) return false;
       return true;
-    });
-  }, [documents, filterCat, filterYear]);
+    }),
+    [documents, filterCat, filterYear]
+  );
 
   return (
     <div>
@@ -276,21 +330,16 @@ export default function DocumentsScreen() {
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {(uploading || extracting) && <Spinner size={14} />}
-          <Button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            variant="accent"
-          >
-            {uploading ? (extracting ? '✦ Extracting…' : `Uploading ${progress}%`) : '↑ Upload Document'}
+          <Button onClick={() => fileInputRef.current?.click()} disabled={uploading} variant="accent">
+            {uploading ? (extracting ? '✦ Analyzing…' : `Uploading ${progress}%`) : '↑ Upload Document'}
           </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,image/*"
-            onChange={handleFileSelect}
-            style={{ display: 'none' }}
-          />
+          <input ref={fileInputRef} type="file" accept=".pdf,image/*" onChange={handleFileSelect} style={{ display: 'none' }} />
         </div>
+      </div>
+
+      {/* Hint text */}
+      <div style={{ fontSize: '12px', color: tokens.textMuted, marginBottom: '16px', lineHeight: 1.5 }}>
+        Archive bank statements, credit card statements, tax documents, and more. Bank statements automatically unlock AI savings analysis in Finance OS.
       </div>
 
       {/* Upload error */}
@@ -342,8 +391,11 @@ export default function DocumentsScreen() {
         <div style={{ textAlign: 'center', padding: '60px 20px', color: tokens.textMuted }}>
           <div style={{ fontSize: '36px', marginBottom: '12px', opacity: 0.4 }}>▣</div>
           <div style={{ fontSize: '15px', fontWeight: 600, marginBottom: '6px', color: tokens.textSecondary }}>No documents yet</div>
-          <div style={{ fontSize: '13px', marginBottom: '20px', lineHeight: 1.6 }}>
+          <div style={{ fontSize: '13px', marginBottom: '6px', lineHeight: 1.6 }}>
             Upload bank statements, invoices, receipts, and contracts. AI extracts key details automatically.
+          </div>
+          <div style={{ fontSize: '12px', color: tokens.textMuted, marginBottom: '20px', lineHeight: 1.5 }}>
+            Tip: uploading a bank statement unlocks savings analysis in Finance OS.
           </div>
           <Button onClick={() => fileInputRef.current?.click()} variant="accent">↑ Upload First Document</Button>
         </div>
@@ -353,23 +405,18 @@ export default function DocumentsScreen() {
       {filtered.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {filtered.map(doc => (
-            <div key={doc.id}
-              onClick={() => setSelected(doc)}
+            <div key={doc.id} onClick={() => setSelected(doc)}
               style={{
                 background: tokens.bgCard, border: `1px solid ${selected?.id === doc.id ? tokens.accent : tokens.border}`,
                 borderRadius: '10px', padding: '12px 16px', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: '12px',
-                transition: 'border-color 0.12s',
+                display: 'flex', alignItems: 'center', gap: '12px', transition: 'border-color 0.12s',
               }}
               onMouseEnter={e => { if (selected?.id !== doc.id) e.currentTarget.style.borderColor = tokens.borderHover; }}
               onMouseLeave={e => { if (selected?.id !== doc.id) e.currentTarget.style.borderColor = tokens.border; }}
             >
-              {/* Icon */}
               <div style={{ width: 36, height: 36, borderRadius: '8px', background: tokens.bgGlass, border: `1px solid ${tokens.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', flexShrink: 0 }}>
                 {doc.fileType === 'application/pdf' ? '📄' : '🖼'}
               </div>
-
-              {/* Info */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {doc.name}
@@ -391,8 +438,6 @@ export default function DocumentsScreen() {
                   )}
                 </div>
               </div>
-
-              {/* Date + size */}
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <div style={{ fontSize: '11px', color: tokens.textMuted }}>{fmtShortDate(doc.createdAt)}</div>
                 {doc.fileSize && <div style={{ fontSize: '10px', color: tokens.textDisabled, marginTop: '2px' }}>{fmtBytes(doc.fileSize)}</div>}
@@ -406,11 +451,37 @@ export default function DocumentsScreen() {
         <div style={{ textAlign: 'center', padding: '40px', color: tokens.textMuted, fontSize: '13px' }}>No documents match the selected filters.</div>
       )}
 
-      {/* Detail panel */}
+      {/* Document type selector modal */}
+      <Modal open={showTypeModal} onClose={() => { setShowTypeModal(false); setPendingFile(null); }} title="What type of document?">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <p style={{ fontSize: '13px', color: tokens.textSecondary, margin: '0 0 6px' }}>
+            Choose the document type so Anchor knows what to extract and analyze.
+          </p>
+          {DOC_TYPE_OPTIONS.map(opt => (
+            <button key={opt.type} onClick={() => handleTypeSelected(opt.type)}
+              style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', background: tokens.bgCardHover, border: `1px solid ${tokens.border}`, borderRadius: '10px', cursor: 'pointer', textAlign: 'left', width: '100%', transition: 'border-color 0.15s', fontFamily: fonts.body }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = tokens.accent}
+              onMouseLeave={e => e.currentTarget.style.borderColor = tokens.border}
+            >
+              <span style={{ fontSize: '20px', flexShrink: 0 }}>{opt.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{opt.label}</span>
+                  {opt.recommended && (
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.accent, background: tokens.accentDim, padding: '1px 6px', borderRadius: '4px', letterSpacing: '0.05em' }}>RECOMMENDED</span>
+                  )}
+                </div>
+                <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>{opt.desc}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </Modal>
+
+      {/* Document detail panel */}
       <Modal open={!!selected} onClose={() => setSelected(null)} title={selected?.name || 'Document'}>
         {selected && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {/* Category + date row */}
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {selected.category && (
                 <span style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '6px', background: tokens.accentDim, color: tokens.accent, fontWeight: 600 }}>
@@ -424,7 +495,6 @@ export default function DocumentsScreen() {
               )}
             </div>
 
-            {/* Extracted info grid */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               {selected.vendor && (
                 <div style={{ padding: '10px 12px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
@@ -454,7 +524,6 @@ export default function DocumentsScreen() {
               )}
             </div>
 
-            {/* AI description */}
             {selected.description && (
               <div style={{ padding: '12px 14px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
                 <div style={{ fontSize: '10px', color: tokens.textMuted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '6px' }}>✦ AI Summary</div>
@@ -462,7 +531,6 @@ export default function DocumentsScreen() {
               </div>
             )}
 
-            {/* Original file name */}
             {selected.fileName && selected.fileName !== selected.name && (
               <div style={{ fontSize: '11px', color: tokens.textMuted }}>Original file: {selected.fileName}</div>
             )}
@@ -486,6 +554,10 @@ export default function DocumentsScreen() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <p style={{ margin: 0, fontSize: '14px', color: tokens.textSecondary, lineHeight: 1.6 }}>
               Permanently delete <strong style={{ color: tokens.textPrimary }}>{deleteConf.name}</strong>? The file will be removed from storage and cannot be recovered.
+              {deleteConf.category === 'bank_statement' &&
+                (documents || []).filter(d => d.category === 'bank_statement').length <= 1 &&
+                <span style={{ display: 'block', marginTop: '8px', color: tokens.amber }}>This is your last bank statement — savings analysis will be cleared.</span>
+              }
             </p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
               <Button onClick={() => setDeleteConf(null)} variant="ghost">Cancel</Button>

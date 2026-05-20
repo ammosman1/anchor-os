@@ -1,85 +1,77 @@
 // api/documents/analyze-savings.js
-// AI-powered savings analysis — scans bank statement metadata + cash flow to surface recommendations
+// AI-powered savings analysis from real bank statement PDFs.
+// Accepts up to 3 PDF base64 strings; falls back to metadata-only if no PDFs provided.
+// Returns hierarchical spending categories with merchant drill-down.
+
+export const config = {
+  api: { bodyParser: { sizeLimit: '20mb' } },
+};
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { documents, cashFlow, debtAccounts, totalDebt } = req.body;
+  const {
+    bankStatements = [],   // [{ base64?, name, year, month }]
+    documents      = [],   // legacy metadata-only fallback
+    cashFlow,
+    debtAccounts   = [],
+    totalDebt      = 0,
+  } = req.body;
 
-  if (!documents || documents.length === 0) {
-    return res.status(400).json({ error: 'No bank statement documents provided' });
-  }
+  const statementsWithPdf = bankStatements.filter(s => s.base64);
+  const statementCount    = statementsWithPdf.length || bankStatements.length || documents.length;
 
-  const docContext = documents.slice(0, 6).map(d =>
-    `- ${d.name || 'Unknown'}${d.year ? ` (${d.year})` : ''}: ${d.description || 'No description available'}`
-  ).join('\n');
-
-  const cashFlowContext = cashFlow
+  const cashFlowCtx = cashFlow
     ? `Monthly income: $${(cashFlow.income || cashFlow.monthlyIncome || 0).toLocaleString()}, spending: $${(cashFlow.spending || cashFlow.monthlySpending || 0).toLocaleString()}, surplus: $${(cashFlow.surplus || cashFlow.monthlySurplus || 0).toLocaleString()}`
     : 'No cash flow data available';
 
-  const debtContext = debtAccounts && debtAccounts.length > 0
-    ? `Total debt: $${(totalDebt || 0).toLocaleString()}. Accounts: ${debtAccounts.map(a => `${a.name} ($${(a.balance || 0).toLocaleString()}, ${a.interestRate || 0}% APR, $${a.minimumPayment || 0}/mo min)`).join('; ')}`
+  const debtCtx = debtAccounts.length > 0
+    ? `Total debt: $${(totalDebt || 0).toLocaleString()}. Accounts: ${debtAccounts.map(a => `${a.name} ($${(a.balance || 0).toLocaleString()}, ${a.interestRate || 0}% APR)`).join('; ')}`
     : 'No debt accounts tracked';
 
-  const prompt = `You are a personal finance advisor. Analyze this person's financial situation and identify actionable savings opportunities to accelerate debt payoff.
+  let messages;
 
-CASH FLOW:
-${cashFlowContext}
+  if (statementsWithPdf.length > 0) {
+    const limited       = statementsWithPdf.slice(0, 3);
+    const contentBlocks = [];
 
-DEBT SITUATION:
-${debtContext}
-
-BANK STATEMENT SUMMARIES:
-${docContext}
-
-Based on all available data, identify specific savings opportunities. Be practical and specific — focus on subscriptions, discretionary spending, and areas with high ROI for effort. If data is limited, make conservative recommendations based on typical spending patterns for this income level.
-
-Return ONLY valid JSON (no markdown or explanation):
-{
-  "categories": [
-    { "name": "string", "estimatedMonthly": number, "icon": "single emoji" }
-  ],
-  "subscriptions": [
-    { "name": "string", "estimatedMonthly": number, "action": "cancel|reduce|keep" }
-  ],
-  "recommendations": [
-    {
-      "title": "Short action title (e.g. 'Cancel unused streaming services')",
-      "monthlySavings": number,
-      "description": "1-2 sentences: what to do and why it matters for debt payoff",
-      "difficulty": "easy|medium|hard"
+    for (const s of limited) {
+      contentBlocks.push({
+        type:   'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: s.base64 },
+        title:  s.name || 'Bank Statement',
+      });
     }
-  ],
-  "totalMonthlySavings": number,
-  "debtFreeAcceleration": number or null
-}
-
-Rules:
-- Only include recommendations where savings are reasonably likely
-- Keep totalMonthlySavings realistic (sum of all recommendation monthlySavings)
-- debtFreeAcceleration = estimated months sooner debt-free if all savings applied to highest-interest debt (null if no debt)
-- Include 3-6 recommendations maximum`;
+    contentBlocks.push({ type: 'text', text: buildPdfPrompt(limited, cashFlowCtx, debtCtx) });
+    messages = [{ role: 'user', content: contentBlocks }];
+  } else {
+    // Fallback: use document metadata
+    const docCtx = [...bankStatements, ...documents].slice(0, 6)
+      .map(d => `- ${d.name || 'Unknown'}${d.year ? ` (${d.year})` : ''}: ${d.description || 'No description'}`)
+      .join('\n') || 'No bank statement details available';
+    messages = [{ role: 'user', content: buildMetadataPrompt(docCtx, cashFlowCtx, debtCtx) }];
+  }
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'Content-Type':    'application/json',
+        'x-api-key':       process.env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
+        'anthropic-beta':  'pdfs-2024-09-25',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1500,
-        system: 'You are a personal finance advisor. Return only valid JSON. No preamble, no explanation.',
-        messages: [{ role: 'user', content: prompt }],
+        model:      'claude-haiku-4-5-20251001',
+        max_tokens: 3000,
+        system:     'You are a personal finance advisor. Return only valid JSON. No preamble, no explanation.',
+        messages,
       }),
     });
 
     if (!response.ok) {
       const err = await response.text();
-      console.error('Anthropic error:', err);
+      console.error('Anthropic analyze-savings error:', err);
       return res.status(500).json({ error: 'AI analysis failed' });
     }
 
@@ -89,9 +81,104 @@ Rules:
     const match = clean.match(/\{[\s\S]*\}/);
     const parsed = match ? JSON.parse(match[0]) : {};
 
-    return res.status(200).json(parsed);
+    return res.status(200).json({
+      spendingCategories:  parsed.spendingCategories  || [],
+      subscriptions:       parsed.subscriptions       || [],
+      recommendations:     parsed.recommendations     || [],
+      totalMonthlySavings: parsed.totalMonthlySavings || 0,
+      debtFreeAcceleration: parsed.debtFreeAcceleration || null,
+      statementCount,
+      monthsAnalyzed: parsed.monthsAnalyzed || statementCount,
+    });
   } catch (err) {
     console.error('Savings analysis error:', err);
     return res.status(500).json({ error: 'Analysis failed' });
   }
+}
+
+function buildPdfPrompt(statements, cashFlowCtx, debtCtx) {
+  const names = statements.map(s => s.name || 'Bank Statement').join(', ');
+  const multi = statements.length > 1;
+
+  return `Analyze ${multi ? 'these ' + statements.length + ' bank statements' : 'this bank statement'} (${names}).
+
+FINANCIAL CONTEXT:
+Cash flow: ${cashFlowCtx}
+Debt situation: ${debtCtx}
+
+${multi ? 'Average spending across all statements to produce representative monthly figures.' : ''}
+
+Extract REAL transaction data. Use actual merchant names found in the statements.
+
+Return ONLY valid JSON (no markdown, no explanation):
+{
+  "spendingCategories": [
+    {
+      "name": "Dining & Restaurants",
+      "icon": "🍽️",
+      "monthlyTotal": 450.00,
+      "transactions": [
+        { "merchant": "McDonald's", "amount": 45.00, "frequency": "~5x/month" },
+        { "merchant": "Chipotle",   "amount": 38.00, "frequency": "~2x/month" }
+      ]
+    }
+  ],
+  "subscriptions": [
+    { "name": "Netflix", "estimatedMonthly": 15.99, "action": "keep" }
+  ],
+  "recommendations": [
+    {
+      "title": "Short action title",
+      "monthlySavings": 150,
+      "description": "Specific advice referencing real merchants or patterns seen in the statements",
+      "difficulty": "easy",
+      "categoryRef": "Dining & Restaurants"
+    }
+  ],
+  "totalMonthlySavings": 400,
+  "debtFreeAcceleration": 6,
+  "monthsAnalyzed": ${statements.length}
+}
+
+Rules:
+- spendingCategories: only include categories with $50+/month; list top 3-5 merchants per category
+- subscriptions: only list clearly identified recurring charges
+- recommendations: 3-6 specific, actionable items; reference real merchant names where applicable
+- totalMonthlySavings: realistic sum of all recommendation monthlySavings
+- debtFreeAcceleration: months sooner debt-free if all savings applied to highest-rate debt; null if no debt
+- Return ONLY the JSON object`;
+}
+
+function buildMetadataPrompt(docCtx, cashFlowCtx, debtCtx) {
+  return `You are a personal finance advisor. Identify actionable savings opportunities from this person's financial data.
+
+Cash flow: ${cashFlowCtx}
+Debt: ${debtCtx}
+Bank statements on file: ${docCtx}
+
+Return ONLY valid JSON (no markdown, no explanation):
+{
+  "spendingCategories": [
+    { "name": "Dining & Restaurants", "icon": "🍽️", "monthlyTotal": 300, "transactions": [] }
+  ],
+  "subscriptions": [
+    { "name": "Streaming services", "estimatedMonthly": 50, "action": "reduce" }
+  ],
+  "recommendations": [
+    {
+      "title": "Action title",
+      "monthlySavings": 100,
+      "description": "Specific, realistic advice for this income level",
+      "difficulty": "easy",
+      "categoryRef": ""
+    }
+  ],
+  "totalMonthlySavings": 300,
+  "debtFreeAcceleration": null,
+  "monthsAnalyzed": 1
+}
+
+Rules:
+- 3-5 recommendations maximum; keep estimates conservative
+- Return ONLY the JSON object`;
 }

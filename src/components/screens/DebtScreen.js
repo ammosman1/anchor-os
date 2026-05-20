@@ -257,6 +257,13 @@ export default function DebtScreen() {
 
   // ── Savings analysis
   const [analyzingLoading, setAnalyzingLoading] = useState(false);
+  const [openCategories,   setOpenCategories]   = useState(new Set());
+
+  const toggleCategory = (name) => setOpenCategories(prev => {
+    const next = new Set(prev);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    return next;
+  });
 
   // ── Document type selector (pre-import)
   const [pendingImportFiles, setPendingImportFiles] = useState(null);
@@ -667,19 +674,31 @@ export default function DebtScreen() {
 
   // ── Savings analysis handlers
   const handleRunSavingsAnalysis = async () => {
-    const bankDocs = (documents || []).filter(d => d.category === 'bank_statement').slice(0, 6);
-    if (bankDocs.length === 0) return;
+    const bankDocs = (documents || []).filter(d => d.category === 'bank_statement').slice(0, 3);
+    if (!bankDocs.length) return;
     setAnalyzingLoading(true);
     try {
+      // Attempt to download PDFs from storage URLs for rich analysis
+      const bankStatements = await Promise.all(
+        bankDocs.map(async (d) => {
+          const base = { name: d.name, year: d.year, month: d.month };
+          if (!d.storageUrl || d.fileType !== 'application/pdf') return base;
+          try {
+            const fetchRes = await fetch(d.storageUrl);
+            const buf      = await fetchRes.arrayBuffer();
+            let binary     = '';
+            const bytes    = new Uint8Array(buf);
+            for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+            return { ...base, base64: window.btoa(binary) };
+          } catch {
+            return base;
+          }
+        })
+      );
       const res = await fetch('/api/documents/analyze-savings', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          documents: bankDocs,
-          cashFlow: effectiveFlow,
-          debtAccounts,
-          totalDebt,
-        }),
+        body:    JSON.stringify({ bankStatements, cashFlow: effectiveFlow, debtAccounts, totalDebt }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -712,7 +731,10 @@ export default function DebtScreen() {
         <div>
           <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Finance</div>
           <h1 style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>Finance OS</h1>
-          <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '6px' }}>Real accounts. Real numbers. No guessing.</p>
+          <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '4px', marginBottom: 0 }}>Real accounts. Real numbers. No guessing.</p>
+          <p style={{ color: tokens.textMuted, fontSize: '11px', marginTop: '3px', marginBottom: 0 }}>
+            Use ↑ Import Files to add debt accounts from statements. For savings analysis, upload bank statements in the <button onClick={() => navigate('/documents')} style={{ background: 'none', border: 'none', color: tokens.accent, cursor: 'pointer', fontFamily: fonts.body, fontSize: '11px', padding: 0, textDecoration: 'underline' }}>Documents</button> tab.
+          </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf" multiple onChange={handleFileSelect} style={{ display: 'none' }} />
@@ -974,14 +996,18 @@ export default function DebtScreen() {
       {savingsAnalysis ? (
         <div className="fade-up stagger-5" style={{ marginBottom: '16px', marginTop: '16px' }}>
           <Card>
+            {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
               <div>
                 <SectionLabel style={{ marginBottom: '2px' }}>Savings Opportunities</SectionLabel>
-                <div style={{ fontSize: '11px', color: tokens.textMuted }}>Based on your uploaded bank statements</div>
+                <div style={{ fontSize: '11px', color: tokens.textMuted }}>
+                  Based on {savingsAnalysis.monthsAnalyzed > 1 ? `${savingsAnalysis.monthsAnalyzed} months of` : 'your'} bank statements
+                </div>
               </div>
               <Button size="sm" loading={analyzingLoading} onClick={handleRunSavingsAnalysis} variant="ghost">Refresh</Button>
             </div>
 
+            {/* Stats row */}
             <div style={{ display: 'grid', gridTemplateColumns: savingsAnalysis.debtFreeAcceleration > 0 ? '1fr 1fr' : '1fr', gap: '10px', marginBottom: '16px' }}>
               <div style={{ padding: '14px', background: tokens.accentDim, borderRadius: '10px', textAlign: 'center' }}>
                 <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Monthly Potential</div>
@@ -999,41 +1025,120 @@ export default function DebtScreen() {
               )}
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {(savingsAnalysis.recommendations || []).map((rec, i) => (
-                <div key={i} style={{ padding: '12px 14px', background: tokens.bgCardHover, borderRadius: '10px', border: `1px solid ${tokens.border}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-                        <span style={{ fontWeight: 600, fontSize: '13px', color: tokens.textPrimary }}>{rec.title}</span>
-                        <span style={{
-                          fontSize: '10px', padding: '1px 7px', borderRadius: '4px', fontWeight: 700,
-                          background: rec.difficulty === 'easy' ? 'rgba(109,191,158,0.12)' : rec.difficulty === 'medium' ? 'rgba(200,169,110,0.12)' : 'rgba(212,122,107,0.12)',
-                          color: rec.difficulty === 'easy' ? tokens.green : rec.difficulty === 'medium' ? tokens.amber : tokens.red,
-                        }}>{rec.difficulty}</span>
+            {/* Spending Categories — expandable */}
+            {(savingsAnalysis.spendingCategories || []).length > 0 && (
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>Spending Breakdown</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {(savingsAnalysis.spendingCategories || []).map((cat, i) => {
+                    const isOpen = openCategories.has(cat.name);
+                    const hasTx  = (cat.transactions || []).length > 0;
+                    return (
+                      <div key={i} style={{ border: `1px solid ${tokens.border}`, borderRadius: '10px', overflow: 'hidden' }}>
+                        <button
+                          onClick={() => hasTx && toggleCategory(cat.name)}
+                          style={{ width: '100%', background: tokens.bgCardHover, border: 'none', padding: '10px 14px', cursor: hasTx ? 'pointer' : 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontFamily: fonts.body, textAlign: 'left' }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '18px' }}>{cat.icon || '📊'}</span>
+                            <span style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{cat.name}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 700, color: tokens.textSecondary }}>
+                              ${(cat.monthlyTotal || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}/mo
+                            </span>
+                            {hasTx && (
+                              <span style={{ fontSize: '10px', color: tokens.textMuted, display: 'inline-block', transition: 'transform 0.2s', transform: isOpen ? 'rotate(180deg)' : 'none' }}>▼</span>
+                            )}
+                          </div>
+                        </button>
+                        {isOpen && hasTx && (
+                          <div style={{ borderTop: `1px solid ${tokens.border}`, background: tokens.bgCard }}>
+                            {(cat.transactions || []).map((tx, j) => (
+                              <div key={j} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 14px 8px 42px', borderBottom: j < cat.transactions.length - 1 ? `1px solid ${tokens.border}` : 'none' }}>
+                                <div>
+                                  <div style={{ fontSize: '12px', color: tokens.textPrimary, fontWeight: 500 }}>{tx.merchant}</div>
+                                  {tx.frequency && <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '1px' }}>{tx.frequency}</div>}
+                                </div>
+                                <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textSecondary, fontFamily: fonts.display }}>
+                                  ${(tx.amount || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <div style={{ fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.4 }}>{rec.description}</div>
-                    </div>
-                    <div style={{ flexShrink: 0, textAlign: 'right' }}>
-                      <div style={{ fontFamily: fonts.display, fontSize: '15px', fontWeight: 700, color: tokens.green, whiteSpace: 'nowrap' }}>+${rec.monthlySavings}/mo</div>
-                      <button
-                        onClick={() => handleCreateSavingsTask(rec)}
-                        style={{ marginTop: '4px', fontSize: '10px', color: tokens.accent, background: 'none', border: 'none', cursor: 'pointer', fontFamily: fonts.body, padding: 0 }}
-                      >
-                        + Create task
-                      </button>
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
+
+            {/* Subscriptions */}
+            {(savingsAnalysis.subscriptions || []).filter(s => s.action === 'cancel' || s.action === 'reduce').length > 0 && (
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>Subscriptions to Review</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {(savingsAnalysis.subscriptions || []).filter(s => s.action !== 'keep').map((sub, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: tokens.bgCardHover, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '12px', color: tokens.textPrimary, fontWeight: 500 }}>{sub.name}</span>
+                        <span style={{
+                          fontSize: '10px', padding: '1px 6px', borderRadius: '4px', fontWeight: 700,
+                          background: sub.action === 'cancel' ? 'rgba(212,122,107,0.12)' : 'rgba(200,169,110,0.12)',
+                          color: sub.action === 'cancel' ? tokens.red : tokens.amber,
+                        }}>{sub.action}</span>
+                      </div>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: tokens.textSecondary, fontFamily: fonts.display }}>
+                        ${(sub.estimatedMonthly || 0).toFixed(2)}/mo
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Recommendations */}
+            {(savingsAnalysis.recommendations || []).length > 0 && (
+              <div>
+                <div style={{ fontSize: '11px', fontWeight: 700, color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>Top Actions</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {(savingsAnalysis.recommendations || []).map((rec, i) => (
+                    <div key={i} style={{ padding: '12px 14px', background: tokens.bgCardHover, borderRadius: '10px', border: `1px solid ${tokens.border}` }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 600, fontSize: '13px', color: tokens.textPrimary }}>{rec.title}</span>
+                            <span style={{
+                              fontSize: '10px', padding: '1px 7px', borderRadius: '4px', fontWeight: 700,
+                              background: rec.difficulty === 'easy' ? 'rgba(109,191,158,0.12)' : rec.difficulty === 'medium' ? 'rgba(200,169,110,0.12)' : 'rgba(212,122,107,0.12)',
+                              color: rec.difficulty === 'easy' ? tokens.green : rec.difficulty === 'medium' ? tokens.amber : tokens.red,
+                            }}>{rec.difficulty}</span>
+                          </div>
+                          <div style={{ fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.4 }}>{rec.description}</div>
+                        </div>
+                        <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                          <div style={{ fontFamily: fonts.display, fontSize: '15px', fontWeight: 700, color: tokens.green, whiteSpace: 'nowrap' }}>+${rec.monthlySavings}/mo</div>
+                          <button
+                            onClick={() => handleCreateSavingsTask(rec)}
+                            style={{ marginTop: '4px', fontSize: '10px', color: tokens.accent, background: 'none', border: 'none', cursor: 'pointer', fontFamily: fonts.body, padding: 0 }}
+                          >
+                            + Create task
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </Card>
         </div>
       ) : (documents || []).filter(d => d.category === 'bank_statement').length > 0 ? (
         <div className="fade-up stagger-5" style={{ marginBottom: '16px', marginTop: '16px' }}>
           <div style={{ padding: '16px 20px', background: tokens.accentDim, borderRadius: tokens.radiusLg, border: `1px dashed ${tokens.accent}` }}>
             <div style={{ fontWeight: 600, fontSize: '13px', color: tokens.textPrimary, marginBottom: '4px' }}>Analyze Your Spending</div>
-            <div style={{ fontSize: '12px', color: tokens.textSecondary, marginBottom: '12px' }}>Run AI analysis on your uploaded bank statements to find savings opportunities tied to your debt payoff goal.</div>
+            <div style={{ fontSize: '12px', color: tokens.textSecondary, marginBottom: '12px' }}>Run AI analysis on your uploaded bank statements to find specific savings opportunities tied to your debt payoff goal.</div>
             <Button size="sm" loading={analyzingLoading} onClick={handleRunSavingsAnalysis}>Analyze Statements</Button>
           </div>
         </div>
@@ -1041,8 +1146,8 @@ export default function DebtScreen() {
         <div className="fade-up stagger-5" style={{ marginBottom: '16px', marginTop: '16px' }}>
           <div style={{ padding: '16px 20px', background: tokens.accentDim, borderRadius: tokens.radiusLg, border: `1px dashed ${tokens.accent}` }}>
             <div style={{ fontWeight: 600, fontSize: '13px', color: tokens.textPrimary, marginBottom: '4px' }}>Unlock Savings Insights</div>
-            <div style={{ fontSize: '12px', color: tokens.textSecondary, marginBottom: '12px' }}>Upload a bank statement in Documents and I'll identify savings opportunities that could accelerate your debt payoff.</div>
-            <Button size="sm" onClick={() => navigate('/documents')}>Upload Statement</Button>
+            <div style={{ fontSize: '12px', color: tokens.textSecondary, marginBottom: '12px' }}>Upload a bank statement in the Documents tab and I'll find specific savings opportunities — like which merchants to cut — to accelerate your debt payoff.</div>
+            <Button size="sm" onClick={() => navigate('/documents')}>Go to Documents</Button>
           </div>
         </div>
       )}
