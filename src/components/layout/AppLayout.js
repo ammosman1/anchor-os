@@ -9,6 +9,7 @@ import { processSmartCapture } from '../../lib/ai';
 import InstallPrompt from '../InstallPrompt';
 import FloatingAdvisor from '../FloatingAdvisor';
 import BottomNav from './BottomNav';
+import SearchModal from '../SearchModal';
 
 const NAV_GROUPS = [
   {
@@ -89,6 +90,7 @@ export default function AppLayout({ children }) {
   const [captureText, setCaptureText] = useState('');
   const [captureProj, setCaptureProj] = useState('Inbox');
   const [captureSaving, setCaptureSaving] = useState(false);
+  const [searchOpen,  setSearchOpen]    = useState(false);
   const captureInputRef               = useRef(null);
 
   const photoURL    = user?.photoURL;
@@ -149,12 +151,14 @@ export default function AppLayout({ children }) {
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === 'Escape' && captureOpen) closeCapture();
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && !captureOpen) { e.preventDefault(); openCapture(); }
+      if (e.key === 'Escape' && captureOpen) { closeCapture(); return; }
+      if (e.key === 'Escape' && searchOpen) { setSearchOpen(false); return; }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && !captureOpen && !searchOpen) { e.preventDefault(); openCapture(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === '/' && !captureOpen && !searchOpen) { e.preventDefault(); setSearchOpen(true); }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [captureOpen]); // eslint-disable-line react-hooks/exhaustive-deps -- openCapture/closeCapture lack useCallback; adding them would cause the listener to re-register on every render
+  }, [captureOpen, searchOpen]); // eslint-disable-line react-hooks/exhaustive-deps -- openCapture/closeCapture lack useCallback; adding them would cause the listener to re-register on every render
 
   const navItemStyle = (active) => ({
     width: '100%',
@@ -242,6 +246,22 @@ export default function AppLayout({ children }) {
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />
+
+        {/* Search button */}
+        <button
+          onClick={() => setSearchOpen(true)}
+          style={{
+            background: 'transparent', border: `1px solid ${tokens.border}`,
+            borderRadius: '8px', padding: '5px 9px',
+            cursor: 'pointer', color: tokens.textSecondary,
+            fontSize: '15px', lineHeight: 1,
+            transition: 'all 0.15s', flexShrink: 0,
+          }}
+          title="Search (⌘/)"
+          aria-label="Search"
+          onMouseEnter={e => { e.currentTarget.style.borderColor = tokens.accent; e.currentTarget.style.color = tokens.accent; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = tokens.border; e.currentTarget.style.color = tokens.textSecondary; }}
+        >⌕</button>
 
         {/* Hamburger */}
         <button
@@ -413,6 +433,7 @@ export default function AppLayout({ children }) {
       )}
 
       <FloatingAdvisor open={advisorOpen} onClose={() => setAdvisorOpen(false)} />
+      <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
 
       <BottomNav advisorOpen={advisorOpen} onAdvisorToggle={() => setAdvisorOpen(o => !o)} />
 

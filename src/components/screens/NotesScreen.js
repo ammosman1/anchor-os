@@ -1,5 +1,6 @@
 // src/components/screens/NotesScreen.js
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
@@ -215,16 +216,27 @@ function NoteDetail({ note, goals, projects, user, onBack, onDeleted }) {
 export default function NotesScreen() {
   const { user }              = useAuth();
   const { notes, goals, projects } = useData();
+  const location                   = useLocation();
   const [view,       setView]       = useState('list'); // 'list' | 'detail'
   const [activeNote, setActiveNote] = useState(null);   // null = new note
   const [search,     setSearch]     = useState('');
   const [filterGoal, setFilterGoal] = useState('');
+  const autoOpenedRef               = useRef(false);
 
   const activeGoals    = (goals || []).filter(g => g.status === 'active');
   const activeProjects = (projects || []).filter(p => p.status === 'active');
 
   const openNote = (note) => { setActiveNote(note); setView('detail'); };
   const openNew  = ()     => { setActiveNote(null); setView('detail'); };
+
+  // Auto-open a specific note when navigated here from search
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    const openId = location.state?.openNoteId;
+    if (!openId || !notes.length) return;
+    const note = notes.find(n => n.id === openId);
+    if (note) { openNote(note); autoOpenedRef.current = true; }
+  }, [notes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredNotes = useMemo(() => {
     return (notes || []).filter(n => {
