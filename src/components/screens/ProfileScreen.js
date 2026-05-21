@@ -185,7 +185,9 @@ export default function ProfileScreen() {
         method:  'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { error: text.slice(0, 120) }; }
       if (res.ok) {
         setTestEmailState('sent');
         setTestEmailMsg(`Sent to ${data.sentTo}`);

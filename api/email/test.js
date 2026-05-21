@@ -10,7 +10,8 @@ export default async function handler(req, res) {
 
   let uid;
   try {
-    uid = await verifyAuthToken(req);
+    const decoded = await verifyAuthToken(req);
+    uid = decoded.uid;
   } catch {
     return res.status(401).json({ error: 'Unauthorized' });
   }
