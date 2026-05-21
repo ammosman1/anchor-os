@@ -342,30 +342,32 @@ export function buildHolisticContext({
       lines.push(`    ${c.icon || ''} ${c.name}: $${(c.monthlyTotal || 0).toLocaleString()}/mo${topMerchants ? ` — ${topMerchants}` : ''}`);
     });
 
-    // Subscriptions worth reviewing
-    const reviewSubs = (savingsAnalysis.subscriptions || []).filter(s => s.action === 'cancel' || s.action === 'reduce');
+    // Subscriptions still to action (exclude ones already marked done)
+    const makeSubId  = name => ('sub-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-')).slice(0, 60);
+    const actedOnSubIds = new Set((actedOnRecommendations || []).filter(r => r.type === 'subscription').map(r => r.id));
+    const reviewSubs = (savingsAnalysis.subscriptions || []).filter(s =>
+      (s.action === 'cancel' || s.action === 'reduce') && !actedOnSubIds.has(makeSubId(s.name))
+    );
     if (reviewSubs.length > 0) {
-      lines.push(`  Subscriptions to review: ${reviewSubs.map(s => `${s.name} $${s.estimatedMonthly}/mo (${s.action})`).join(', ')}`);
+      lines.push(`  Subscriptions still to review: ${reviewSubs.map(s => `${s.name} $${s.estimatedMonthly}/mo (${s.action})`).join(', ')}`);
     }
 
-    // Top recommendations (active only — not yet acted on)
-    const actedOnIds = new Set((actedOnRecommendations || []).map(r => r.id));
-    const makeRecId = t => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60);
-    const activeRecs = (savingsAnalysis.recommendations || []).filter(r => !actedOnIds.has(makeRecId(r.title)));
-    if (activeRecs.length > 0) {
-      lines.push(`  Pending savings recommendations:`);
-      activeRecs.slice(0, 4).forEach(r => {
+    // Top recommendations
+    if ((savingsAnalysis.recommendations || []).length > 0) {
+      lines.push(`  Savings recommendations:`);
+      (savingsAnalysis.recommendations || []).slice(0, 4).forEach(r => {
         lines.push(`    • ${r.title} — save $${r.monthlySavings}/mo (${r.difficulty})`);
       });
     }
 
-    // Locked-in savings already acted on
+    // Locked-in savings — specific subscriptions cancelled + any other acted-on items
     if ((actedOnRecommendations || []).length > 0) {
       const lockedTotal = actedOnRecommendations.reduce((s, r) => s + (r.monthlySavings || 0), 0);
-      lines.push(`  Locked-in savings (already acted on): $${lockedTotal.toLocaleString()}/mo across ${actedOnRecommendations.length} changes`);
-      actedOnRecommendations.slice(0, 3).forEach(r => {
-        lines.push(`    ✓ ${r.title} — $${r.monthlySavings}/mo`);
-      });
+      const lockedSubs  = actedOnRecommendations.filter(r => r.type === 'subscription');
+      lines.push(`  Confirmed savings locked in: $${lockedTotal.toLocaleString()}/mo`);
+      if (lockedSubs.length > 0) {
+        lines.push(`  Subscriptions cancelled/actioned: ${lockedSubs.map(s => `${s.title} $${s.monthlySavings}/mo (${s.description})`).join(', ')}`);
+      }
     }
 
     // Month-over-month trends

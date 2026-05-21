@@ -520,6 +520,19 @@ export const markRecommendationActedOn = (uid, rec) => {
   });
 };
 
+export const markSubscriptionActedOn = (uid, sub) => {
+  const id = ('sub-' + sub.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')).slice(0, 60);
+  return setDoc(doc(db, 'users', uid, 'actedOnRecommendations', id), {
+    id,
+    title:          sub.name,
+    monthlySavings: sub.estimatedMonthly || 0,
+    description:    sub.action || '',
+    type:           'subscription',
+    actedOnAt:      serverTimestamp(),
+    actedOnAtMs:    Date.now(),
+  });
+};
+
 export const subscribeActedOnRecommendations = (uid, cb) => {
   if (!uid) return () => {};
   return onSnapshot(
