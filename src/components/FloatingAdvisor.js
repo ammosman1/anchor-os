@@ -224,7 +224,7 @@ export default function FloatingAdvisor({ open, onClose }) {
           calendarIntegration, userProfile,
           manualCashFlow, debtAccounts, assetAccounts,
           notes, savingsAnalysis, savingsHistory, actedOnRecommendations,
-          habits, habitLogs, dailyReviews }                            = useData();
+          habits, habitLogs, dailyReviews, brainDumpDigests }          = useData();
   const { pageContext }                                                = usePageContext();
 
   // panel state — controlled externally via open/onClose props
@@ -317,7 +317,7 @@ export default function FloatingAdvisor({ open, onClose }) {
   // ── build AI context (chat) ────────────────────────────────────────────────
   const buildContext = () => {
     const base = buildHolisticContext({
-      goals, tasks, projects, brainDumps, weeklyReviews,
+      goals, tasks, projects, brainDumps, brainDumpDigests, weeklyReviews,
       userProfile, plaidData: manualCashFlow, manualCashFlow,
       debtAccounts, assetAccounts, notes,
       savingsAnalysis, savingsHistory, actedOnRecommendations,

@@ -9,9 +9,9 @@ import {
   subscribeManualCashFlow, subscribeAssetAccounts,
   subscribeHabits, subscribeHabitLogs, subscribeNotes, subscribeDocuments,
   subscribeSavingsAnalysis, subscribeSavingsAnalysisHistory, subscribeLastWeeklyReset,
-  subscribeActedOnRecommendations,
+  subscribeActedOnRecommendations, saveBrainDumpDigest, subscribeBrainDumpDigests,
 } from '../lib/db';
-import { setUserPersona } from '../lib/ai';
+import { setUserPersona, generateWeeklyBrainDumpDigest } from '../lib/ai';
 import { calculateMomentum } from '../lib/momentum';
 
 const DataContext = createContext(null);
@@ -39,7 +39,9 @@ export function DataProvider({ children }) {
   const [savingsHistory,          setSavingsHistory]          = useState([]);
   const [lastWeeklyReset,         setLastWeeklyReset]         = useState(null);
   const [actedOnRecommendations,  setActedOnRecommendations]  = useState([]);
+  const [brainDumpDigests,        setBrainDumpDigests]        = useState([]);
   const [loaded,              setLoaded]              = useState(false);
+  const digestingRef = useRef(false);
 
   useEffect(() => {
     if (!user) {
@@ -49,7 +51,7 @@ export function DataProvider({ children }) {
       setDailyReviews([]); setManualCashFlow(null); setAssetAccounts([]);
       setHabits([]); setHabitLogs([]); setNotes([]); setDocuments([]);
       setSavingsAnalysis(null); setSavingsHistory([]); setLastWeeklyReset(null);
-      setActedOnRecommendations([]);
+      setActedOnRecommendations([]); setBrainDumpDigests([]);
       setLoaded(false);
       return;
     }
@@ -75,6 +77,7 @@ export function DataProvider({ children }) {
       subscribeSavingsAnalysisHistory(user.uid,   setSavingsHistory),
       subscribeLastWeeklyReset(user.uid,          setLastWeeklyReset),
       subscribeActedOnRecommendations(user.uid,   setActedOnRecommendations),
+      subscribeBrainDumpDigests(user.uid,         setBrainDumpDigests),
       subscribeProfile(user.uid, (prof) => {
         setUserProfile(prof);
         if (prof?.persona) setUserPersona(prof.persona);
@@ -125,6 +128,59 @@ export function DataProvider({ children }) {
     return () => clearTimeout(stallTimerRef.current);
   }, [projects, tasks, user]); // eslint-disable-line react-hooks/exhaustive-deps -- updateProject is a stable db import, not a reactive value
 
+  // Auto-generate weekly brain dump digests for weeks older than 14 days.
+  // Processes one missing week per effect run so we never hammer the AI.
+  useEffect(() => {
+    if (!user || !brainDumps.length || digestingRef.current) return;
+
+    const FOURTEEN_DAYS = 14 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - FOURTEEN_DAYS;
+
+    const oldDumps = brainDumps.filter(d => {
+      const ms = d.createdAt?.toMillis?.() || (d.createdAt ? new Date(d.createdAt).getTime() : 0);
+      return ms > 0 && ms < cutoff;
+    });
+    if (!oldDumps.length) return;
+
+    // Group by week (ISO Monday date string)
+    const getMondayKey = (date) => {
+      const d = new Date(date);
+      const day = d.getDay();
+      d.setDate(d.getDate() - day + (day === 0 ? -6 : 1));
+      d.setHours(0, 0, 0, 0);
+      return d.toISOString().slice(0, 10);
+    };
+
+    const byWeek = {};
+    oldDumps.forEach(d => {
+      const ms = d.createdAt?.toMillis?.() || new Date(d.createdAt).getTime();
+      const key = getMondayKey(new Date(ms));
+      if (!byWeek[key]) byWeek[key] = [];
+      byWeek[key].push(d);
+    });
+
+    const existingKeys = new Set(brainDumpDigests.map(d => d.id));
+    const missing = Object.entries(byWeek).find(([k]) => !existingKeys.has(k));
+    if (!missing) return;
+
+    const [weekKey, entries] = missing;
+    digestingRef.current = true;
+    generateWeeklyBrainDumpDigest(entries)
+      .then(digest => {
+        if (!digest) return;
+        const end = new Date(weekKey);
+        end.setDate(end.getDate() + 6);
+        saveBrainDumpDigest(user.uid, weekKey, {
+          weekStart: weekKey,
+          weekEnd:   end.toISOString().slice(0, 10),
+          digest,
+          entryCount: entries.length,
+        });
+      })
+      .catch(() => {})
+      .finally(() => { digestingRef.current = false; });
+  }, [brainDumps, brainDumpDigests, user]); // eslint-disable-line react-hooks/exhaustive-deps -- saveBrainDumpDigest and generateWeeklyBrainDumpDigest are stable module imports
+
   // Derived data
   const activeProjects  = projects.filter(p => p.status === 'active');
   const stalledProjects = projects.filter(p => p.status === 'stalled');
@@ -137,6 +193,7 @@ export function DataProvider({ children }) {
     <DataContext.Provider value={{
       projects, tasks, debtAccounts, assetAccounts, ideas, brainDumps, weeklyReviews, goals, calendarIntegration, plaidItems, userProfile, dailyReviews, manualCashFlow,
       habits, habitLogs, notes, documents, savingsAnalysis, savingsHistory, lastWeeklyReset, actedOnRecommendations,
+      brainDumpDigests,
       activeProjects, stalledProjects, todayTasks, totalDebt, totalAssets, activeGoals,
       loaded,
     }}>

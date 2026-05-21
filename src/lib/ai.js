@@ -134,6 +134,24 @@ Rules:
   }
 }
 
+export async function generateWeeklyBrainDumpDigest(entries) {
+  const entryText = entries
+    .map(e => `- ${e.summary || e.rawText?.slice(0, 300) || ''}`)
+    .filter(Boolean)
+    .join('\n');
+
+  const content = `Based on these brain dump entries from a single week, write a 3-4 sentence summary of what was on this person's mind. Be specific about the actual topics, concerns, and themes — not generic. This will be used as long-term memory context for an AI assistant.
+
+Brain dumps:
+${entryText}`;
+
+  return callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 200,
+    systemExtra: 'Return only the summary paragraph. No labels, no preamble.',
+  });
+}
+
 export async function processBrainDump(rawText) {
   const content = `Process this brain dump and return ONLY valid JSON, no markdown, no preamble:
 {

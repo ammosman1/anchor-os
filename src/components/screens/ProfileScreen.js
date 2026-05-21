@@ -33,7 +33,7 @@ function Toggle({ enabled, onChange }) {
 
 export default function ProfileScreen() {
   const { user, logout }  = useAuth();
-  const { userProfile }   = useData();
+  const { userProfile, brainDumpDigests = [] } = useData();
   const fileInputRef      = useRef(null);
 
   const [displayName,    setDisplayName]    = useState('');
@@ -460,6 +460,42 @@ export default function ProfileScreen() {
             {savedSection === 'persona' && <span style={{ fontSize: '12px', color: tokens.green }}>✓ Saved</span>}
             <span style={{ fontSize: '11px', color: tokens.textMuted, marginLeft: 'auto' }}>{persona.length} chars</span>
           </div>
+        </Card>
+      </div>
+
+      {/* ── AI Memory ── */}
+      <div className="fade-up stagger-7" style={{ marginBottom: '12px' }}>
+        <Card>
+          <SectionLabel>AI Memory — Brain Dump Digests</SectionLabel>
+          <p style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '-4px', marginBottom: '14px' }}>
+            Brain dumps older than 2 weeks are automatically compressed into weekly summaries. The AI uses these as long-term memory when giving advice.
+          </p>
+          {brainDumpDigests.length === 0 ? (
+            <div style={{ fontSize: '12px', color: tokens.textMuted, fontStyle: 'italic' }}>
+              No digests yet — brain dumps from completed weeks will be auto-summarized in the background.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ fontSize: '12px', color: tokens.accent, fontWeight: 600 }}>
+                {brainDumpDigests.length} week{brainDumpDigests.length !== 1 ? 's' : ''} of history in AI memory
+              </div>
+              {brainDumpDigests.map(d => (
+                <div key={d.id} style={{ borderLeft: `2px solid ${tokens.accentDim}`, paddingLeft: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '5px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.04em' }}>
+                      Week of {new Date(d.weekStart + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                    <span style={{ fontSize: '10px', color: tokens.textMuted }}>
+                      {d.entryCount} entr{d.entryCount !== 1 ? 'ies' : 'y'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.65 }}>
+                    {d.digest}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </Card>
       </div>
 

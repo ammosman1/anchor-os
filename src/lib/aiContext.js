@@ -7,7 +7,7 @@ import { getProjectNextAction } from './tasks';
 
 export function buildHolisticContext({
   goals = [], tasks = [], projects = [],
-  brainDumps = [], weeklyReviews = [],
+  brainDumps = [], brainDumpDigests = [], weeklyReviews = [],
   userProfile = null, plaidData = null, manualCashFlow = null,
   debtAccounts = [], assetAccounts = [],
   calendarDensity = null, calendarEvents = [],
@@ -238,18 +238,18 @@ export function buildHolisticContext({
     });
   }
 
-  // Recent brain dumps (last 90 days)
-  const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+  // Recent brain dumps (last 30 days — full individual entries)
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
   const recentDumps = brainDumps.filter(d => {
     if (d.archived) return false;
     try {
       const ms = d.createdAt?.toMillis?.() || new Date(d.createdAt).getTime();
-      return ms > ninetyDaysAgo;
+      return ms > thirtyDaysAgo;
     } catch { return false; }
-  }).slice(0, 20);
+  }).slice(0, 30);
 
   if (recentDumps.length > 0) {
-    lines.push(`\nRECENT BRAIN DUMPS (last 14 days — ${recentDumps.length} entries):`);
+    lines.push(`\nRECENT BRAIN DUMPS (last 30 days — ${recentDumps.length} entries):`);
     recentDumps.forEach(d => {
       const dateStr = (() => {
         try {
@@ -264,6 +264,17 @@ export function buildHolisticContext({
       } else if (d.rawText) {
         lines.push(`  [${dateStr}] ${d.rawText.slice(0, 220).replace(/\n/g, ' ')}${d.rawText.length > 220 ? '…' : ''}`);
       }
+    });
+  }
+
+  // Older brain dump history — weekly digests (30 days → 2 years)
+  if (brainDumpDigests.length > 0) {
+    lines.push(`\nBRAIN DUMP HISTORY — WEEKLY DIGESTS:`);
+    brainDumpDigests.forEach(d => {
+      try {
+        const weekStr = new Date(d.weekStart + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        lines.push(`  Week of ${weekStr}: ${d.digest}`);
+      } catch { /* skip malformed */ }
     });
   }
 

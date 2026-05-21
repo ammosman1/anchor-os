@@ -155,6 +155,21 @@ export const subscribeBrainDumps = (uid, cb) => {
   );
 };
 
+// ─── Brain Dump Digests ───────────────────────────────────────────────────────
+export const saveBrainDumpDigest = (uid, weekKey, data) =>
+  setDoc(doc(db, 'users', uid, 'brainDumpDigests', weekKey), {
+    ...data,
+    createdAt: serverTimestamp(),
+  }, { merge: true });
+
+export const subscribeBrainDumpDigests = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
+    query(collection(db, 'users', uid, 'brainDumpDigests'), orderBy('weekStart', 'desc'), limit(104)),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  );
+};
+
 // ─── Ideas ────────────────────────────────────────────────────────────────────
 export const addIdea = (uid, data) =>
   addDoc(collection(db, 'users', uid, 'ideas'), {
