@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { addTask, updateTask, deleteTask } from '../../lib/db';
+import { addTask, updateTask, deleteTask, addNote } from '../../lib/db';
 import { RECURRENCE_OPTIONS, scheduleNextRecurrence, calculateUrgency, isTaskBlocked } from '../../lib/tasks';
 import { getValidAccessToken, deleteEvent } from '../../lib/calendar';
 import { Card, Button, Input, Select, SectionLabel, Tag, Modal, EmptyState, priorityColors } from '../ui';
@@ -86,7 +86,7 @@ export default function TasksScreen() {
   const [schedulingTask, setSchedulingTask] = useState(null);
   const [focusTask,    setFocusTask]     = useState(null); // { task, duration, startTime }
   const [timeLeft,     setTimeLeft]      = useState(null); // seconds
-  const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
+  const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '', saveToNotes: false });
   const [blockerSearch, setBlockerSearch] = useState('');
 
   // Focus timer countdown
@@ -155,10 +155,24 @@ export default function TasksScreen() {
   const brainCount   = tasks.filter(t => !t.done && t.source === 'brain-dump').length;
 
   const handleSaveCompletionNote = async () => {
-    if (completionNote.text.trim()) {
-      await updateTask(user.uid, completionNote.task.id, { completionNote: completionNote.text.trim() });
+    const noteText = completionNote.text.trim();
+    if (noteText) {
+      const task = completionNote.task;
+      const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const appended = task.notes
+        ? `${task.notes}\n\n✓ Completed ${dateStr}: ${noteText}`
+        : `✓ Completed ${dateStr}: ${noteText}`;
+      await updateTask(user.uid, task.id, { completionNote: noteText, notes: appended });
+      if (completionNote.saveToNotes) {
+        await addNote(user.uid, {
+          title: task.title,
+          body:  `Completed ${dateStr}\n\n${noteText}`,
+          tags:  ['task-completion'],
+          pinned: false,
+        });
+      }
     }
-    setCompletionNote({ open: false, task: null, text: '' });
+    setCompletionNote({ open: false, task: null, text: '', saveToNotes: false });
   };
 
   const handleToggle = async (task) => {
@@ -485,7 +499,9 @@ export default function TasksScreen() {
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px', flexShrink: 0 }}>
                   <Tag label={task.priority} color={pc.bg} textColor={pc.text} />
                   <div style={{ display: 'flex', gap: '2px' }}>
-                    {!task.done && (
+                    {task.done ? (
+                      <button onClick={() => openEdit(task)} style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', fontFamily: fonts.body }}>View</button>
+                    ) : (
                       <>
                         <button
                           onClick={() => startFocus(task)}
@@ -512,7 +528,7 @@ export default function TasksScreen() {
       </div>
 
       {/* Completion Note Modal */}
-      <Modal open={completionNote.open} onClose={() => setCompletionNote({ open: false, task: null, text: '' })} title="Task Done ✓">
+      <Modal open={completionNote.open} onClose={() => setCompletionNote({ open: false, task: null, text: '', saveToNotes: false })} title="Task Done ✓">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6 }}>
             Optional: capture what you found, decided, or learned while doing this.
@@ -522,14 +538,23 @@ export default function TasksScreen() {
             onChange={e => setCompletionNote(n => ({ ...n, text: e.target.value }))}
             placeholder="e.g. Called vendor — price is $420, need approval from Mike..."
             autoFocus
-            rows={3}
+            rows={4}
             onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleSaveCompletionNote(); }}
             style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '10px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, resize: 'vertical', boxSizing: 'border-box' }}
             onFocus={e => e.target.style.borderColor = tokens.borderFocus}
             onBlur={e => e.target.style.borderColor = tokens.border}
           />
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: tokens.textSecondary }}>
+            <input
+              type="checkbox"
+              checked={completionNote.saveToNotes}
+              onChange={e => setCompletionNote(n => ({ ...n, saveToNotes: e.target.checked }))}
+              style={{ accentColor: tokens.accent, width: 14, height: 14, cursor: 'pointer' }}
+            />
+            Also save to Notes for future reference
+          </label>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <Button variant="ghost" onClick={() => setCompletionNote({ open: false, task: null, text: '' })}>Skip</Button>
+            <Button variant="ghost" onClick={() => setCompletionNote({ open: false, task: null, text: '', saveToNotes: false })}>Skip</Button>
             <Button onClick={handleSaveCompletionNote}>Save Note</Button>
           </div>
         </div>
@@ -628,7 +653,13 @@ export default function TasksScreen() {
             )}
           </div>
 
-          <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Any context..." multiline rows={2} />
+          <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Any context..." multiline rows={4} />
+          {editing?.completionNote && (
+            <div style={{ padding: '10px 12px', background: `${tokens.greenDim}`, border: `1px solid ${tokens.green}22`, borderRadius: '8px', fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.6 }}>
+              <span style={{ fontWeight: 700, color: tokens.green, fontSize: '10px', letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>✓ Completion Note</span>
+              {editing.completionNote}
+            </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <Input label="Est. Minutes" value={form.estimatedMinutes} onChange={v => setForm(f => ({ ...f, estimatedMinutes: v }))} placeholder="30, 60..." type="number" />
             <div>

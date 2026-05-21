@@ -62,8 +62,9 @@ export const getPulseCache = async (uid) => {
   try {
     const snap = await getDoc(doc(db, 'users', uid, 'aiCache', pulseKey()));
     if (!snap.exists()) return null;
-    const raw = snap.data()?.pulseData;
-    return raw ? JSON.parse(raw) : null;
+    const d = snap.data();
+    const raw = d?.pulseData;
+    return raw ? { data: JSON.parse(raw), cachedAtMs: d.cachedAtMs || null } : null;
   } catch {
     return null;
   }

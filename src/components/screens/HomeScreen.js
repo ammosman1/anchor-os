@@ -74,8 +74,9 @@ export default function HomeScreen() {
   const [weekFocusLoading, setWeekFocusLoading] = useState(false);
   const [quote]                         = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
 
-  const [pulseData,    setPulseData]    = useState(null);
-  const [pulseLoading, setPulseLoading] = useState(false);
+  const [pulseData,     setPulseData]     = useState(null);
+  const [pulseLoading,  setPulseLoading]  = useState(false);
+  const [pulseCachedAt, setPulseCachedAt] = useState(null);
 
   const [feedback, setFeedback] = useState({ open: false, key: '', text: '', saving: false });
   const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
@@ -437,7 +438,7 @@ export default function HomeScreen() {
     if (!force) {
       try {
         const cached = await getPulseCache(user.uid);
-        if (cached) { setPulseData(cached); return; }
+        if (cached) { setPulseData(cached.data); setPulseCachedAt(cached.cachedAtMs); return; }
       } catch {}
     }
     setPulseLoading(true);
@@ -451,6 +452,7 @@ export default function HomeScreen() {
       });
       if (result) {
         setPulseData(result);
+        setPulseCachedAt(Date.now());
         savePulseCache(user.uid, result).catch(() => {});
       }
     } catch {}
@@ -697,7 +699,7 @@ export default function HomeScreen() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: pulseData ? '12px' : 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.textMuted, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Today's Pulse</span>
-                {pulseData && <span style={{ fontSize: '10px', color: tokens.textMuted }}>· {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                {pulseCachedAt && <span style={{ fontSize: '10px', color: tokens.textMuted }}>· updated {new Date(pulseCachedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
               </div>
               <button
                 onClick={() => { setPulseData(null); fetchPulse(true); }}

@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { getDebtAdvice } from '../../lib/ai';
 import { auth } from '../../lib/firebase';
-import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask, addAssetAccount, updateAssetAccount, deleteAssetAccount, addDebtBalanceSnapshot, saveSavingsAnalysis, saveSavingsAnalysisMonth, markRecommendationActedOn, markSubscriptionActedOn } from '../../lib/db';
+import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask, addAssetAccount, updateAssetAccount, deleteAssetAccount, addDebtBalanceSnapshot, saveSavingsAnalysis, saveSavingsAnalysisMonth, markRecommendationActedOn, markSubscriptionActedOn, getAICache, saveAICache } from '../../lib/db';
 import { openPlaidLink, calcCashFlow, formatTxAmount, formatTxDate } from '../../lib/plaid';
 import { Card, Button, Input, Select, SectionLabel, MomentumBar, Modal, AICard, EmptyState } from '../ui';
 
@@ -232,6 +232,7 @@ export default function DebtScreen() {
   const [saving,        setSaving]        = useState(false);
   const [aiText,        setAiText]        = useState('');
   const [aiLoading,     setAiLoading]     = useState(false);
+  const [aiCachedAt,    setAiCachedAt]    = useState(null);
   const [showAllTx,     setShowAllTx]     = useState(false);
 
   // ── Plaid ─────────────────────────────────────────────────────────────────
@@ -387,11 +388,29 @@ export default function DebtScreen() {
       });
   }, [debtAccounts]); // eslint-disable-line react-hooks/exhaustive-deps -- DEBT_TYPES is a module-level constant, not a reactive value
 
-  const fetchAI = async () => {
+  const debtCacheKey = () => {
+    const d = new Date();
+    return `debt-advice-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+
+  const fetchAI = async (force = false) => {
     if (!debtAccounts.length) return;
+    if (!force) {
+      try {
+        const cached = await getAICache(user.uid, debtCacheKey(), 24);
+        if (cached) {
+          setAiText(cached);
+          setAiCachedAt(Date.now());
+          return;
+        }
+      } catch {}
+    }
     setAiLoading(true);
     const text = await getDebtAdvice(debtAccounts);
-    setAiText(text || 'Focus on the highest-interest debt first. Every extra dollar there saves the most.');
+    const result = text || 'Focus on the highest-interest debt first. Every extra dollar there saves the most.';
+    setAiText(result);
+    setAiCachedAt(Date.now());
+    saveAICache(user.uid, debtCacheKey(), result).catch(() => {});
     setAiLoading(false);
   };
 
@@ -1013,7 +1032,11 @@ export default function DebtScreen() {
 
       {debtAccounts.length > 0 && (
         <div className="fade-up stagger-5" style={{ marginBottom: '16px' }}>
-          <AICard text={aiText} loading={aiLoading} onRefresh={fetchAI} label="PAYOFF STRATEGY" />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <span style={{ fontSize: '10px', color: tokens.textMuted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Payoff Strategy</span>
+            {aiCachedAt && <span style={{ fontSize: '10px', color: tokens.textMuted }}>updated {new Date(aiCachedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>}
+          </div>
+          <AICard text={aiText} loading={aiLoading} onRefresh={() => { setAiText(''); fetchAI(true); }} label="PAYOFF STRATEGY" />
         </div>
       )}
 
