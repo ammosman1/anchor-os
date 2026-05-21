@@ -95,7 +95,7 @@ export default function GoalDetailScreen() {
   const { goalId }   = useParams();
   const navigate     = useNavigate();
   const { user }     = useAuth();
-  const { goals, tasks, weeklyReviews, projects, plaidItems, brainDumps, userProfile, manualCashFlow, debtAccounts, assetAccounts, totalDebt, totalAssets, savingsAnalysis, savingsHistory } = useData();
+  const { goals, tasks, weeklyReviews, projects, plaidItems, brainDumps, userProfile, manualCashFlow, debtAccounts, assetAccounts, totalDebt, totalAssets, savingsAnalysis, savingsHistory, habits, habitLogs, dailyReviews } = useData();
   const { setPageContext } = usePageContext();
 
   const goal            = goals.find(g => g.id === goalId);
@@ -288,6 +288,9 @@ export default function GoalDetailScreen() {
         assetAccounts: assetAccounts || [],
         savingsAnalysis,
         savingsHistory,
+        habits:       habits || [],
+        habitLogs:    habitLogs || [],
+        dailyReviews: dailyReviews || [],
       });
       const result = await generateGoalInsights({
         goal,

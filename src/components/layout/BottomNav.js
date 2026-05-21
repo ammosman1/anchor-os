@@ -4,6 +4,22 @@ import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 
+const ADVISOR_GLOW_CSS = `
+  @keyframes advisorPulse {
+    0%, 100% {
+      box-shadow: 0 4px 14px rgba(154,120,48,0.5), 0 0 0 0 rgba(200,165,60,0);
+    }
+    50% {
+      box-shadow: 0 6px 22px rgba(154,120,48,0.75), 0 0 18px 5px rgba(200,165,60,0.22);
+    }
+  }
+  @keyframes advisorRingPulse {
+    0%, 100% { opacity: 0; transform: translateX(-50%) scale(1); }
+    40%       { opacity: 0.35; transform: translateX(-50%) scale(1.28); }
+    70%       { opacity: 0; transform: translateX(-50%) scale(1.5); }
+  }
+`;
+
 const NAV_ITEMS = [
   { path: '/',         icon: '⌂', label: 'Today'    },
   { path: '/tasks',    icon: '✓', label: 'Tasks'    },
@@ -22,6 +38,8 @@ export default function BottomNav({ advisorOpen, onAdvisorToggle }) {
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
 
   return (
+    <>
+    <style>{ADVISOR_GLOW_CSS}</style>
     <nav style={{
       position:   'fixed',
       bottom:     0,
@@ -47,6 +65,22 @@ export default function BottomNav({ advisorOpen, onAdvisorToggle }) {
               justifyContent: 'center',
               position: 'relative',
             }}>
+              {/* Expanding ring behind button */}
+              {!advisorOpen && (
+                <div style={{
+                  position:     'absolute',
+                  bottom:       10,
+                  left:         '50%',
+                  transform:    'translateX(-50%)',
+                  width:        50,
+                  height:       50,
+                  borderRadius: '50%',
+                  border:       `2px solid rgba(200,165,60,0.5)`,
+                  pointerEvents: 'none',
+                  animation:    'advisorRingPulse 2.8s ease-in-out infinite',
+                  zIndex:       192,
+                }} />
+              )}
               <button
                 onClick={onAdvisorToggle}
                 title="AI Advisor"
@@ -60,26 +94,27 @@ export default function BottomNav({ advisorOpen, onAdvisorToggle }) {
                   borderRadius: '50%',
                   background:   advisorOpen
                     ? 'linear-gradient(135deg, #8B6E3A 0%, #A08040 100%)'
-                    : `linear-gradient(135deg, ${tokens.accent} 0%, #C8A050 100%)`,
-                  border:     'none',
-                  boxShadow:  `0 4px 14px rgba(154,120,48,${advisorOpen ? '0.3' : '0.45'})`,
-                  cursor:     'pointer',
-                  display:    'flex',
-                  alignItems: 'center',
+                    : `linear-gradient(135deg, ${tokens.accent} 0%, #C8A050 50%, #E8C070 100%)`,
+                  border:       advisorOpen ? 'none' : `1.5px solid rgba(240,200,100,0.4)`,
+                  boxShadow:    advisorOpen
+                    ? `0 4px 14px rgba(154,120,48,0.3)`
+                    : undefined,
+                  animation:    advisorOpen ? 'none' : 'advisorPulse 2.8s ease-in-out infinite',
+                  cursor:       'pointer',
+                  display:      'flex',
+                  alignItems:   'center',
                   justifyContent: 'center',
-                  fontSize:   advisorOpen ? '16px' : '19px',
-                  color:      '#0C0E12',
-                  lineHeight: 1,
-                  transition: 'transform 0.18s, box-shadow 0.18s, background 0.18s',
-                  zIndex:     193,
+                  fontSize:     advisorOpen ? '16px' : '19px',
+                  color:        '#0C0E12',
+                  lineHeight:   1,
+                  transition:   'transform 0.18s, background 0.18s',
+                  zIndex:       193,
                 }}
                 onMouseEnter={e => {
                   e.currentTarget.style.transform = 'translateX(-50%) scale(1.1)';
-                  e.currentTarget.style.boxShadow = `0 6px 20px rgba(154,120,48,0.55)`;
                 }}
                 onMouseLeave={e => {
                   e.currentTarget.style.transform = 'translateX(-50%) scale(1)';
-                  e.currentTarget.style.boxShadow = `0 4px 14px rgba(154,120,48,${advisorOpen ? '0.3' : '0.45'})`;
                 }}
               >
                 {advisorOpen ? '✕' : '✦'}
@@ -147,5 +182,6 @@ export default function BottomNav({ advisorOpen, onAdvisorToggle }) {
         );
       })}
     </nav>
+    </>
   );
 }

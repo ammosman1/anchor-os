@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     timeMax:      timeMax || new Date(now.setHours(23, 59, 59, 999)).toISOString(),
     singleEvents: 'true',
     orderBy:      'startTime',
-    maxResults:   '50',
+    maxResults:   '250',
   });
 
   try {

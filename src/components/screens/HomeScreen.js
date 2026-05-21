@@ -60,14 +60,12 @@ const QUOTES = [
 
 export default function HomeScreen() {
   const { user, profile, updateProfile } = useAuth();
-  const { tasks, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile, plaidItems, dailyReviews, manualCashFlow, debtAccounts, assetAccounts, notes, lastWeeklyReset, savingsAnalysis, savingsHistory } = useData();
+  const { tasks, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile, plaidItems, dailyReviews, manualCashFlow, debtAccounts, assetAccounts, notes, lastWeeklyReset, savingsAnalysis, savingsHistory, habits, habitLogs } = useData();
   const navigate = useNavigate();
 
   const [energy,      setEnergy]      = useState(profile?.energyToday || 7);
   const [aiBriefing,  setAiBriefing]  = useState(null);
   const [aiLoading,   setAiLoading]   = useState(false);
-  const [quickTask,   setQuickTask]   = useState('');
-  const [addingTask,  setAddingTask]  = useState(false);
   const [planOpen,    setPlanOpen]    = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [editForm,    setEditForm]    = useState({});
@@ -392,6 +390,9 @@ export default function HomeScreen() {
     notes:          notes || [],
     savingsAnalysis,
     savingsHistory,
+    habits:         habits || [],
+    habitLogs:      habitLogs || [],
+    dailyReviews:   dailyReviews || [],
   });
 
   const fetchAI = async () => {
@@ -518,21 +519,6 @@ export default function HomeScreen() {
       await updateTask(user.uid, completionNote.task.id, { completionNote: completionNote.text.trim() });
     }
     setCompletionNote({ open: false, task: null, text: '' });
-  };
-
-  const handleQuickAdd = async () => {
-    if (!quickTask.trim()) return;
-    setAddingTask(true);
-    await addTask(user.uid, {
-      title: quickTask.trim(),
-      priority: 'high',
-      project: 'Inbox',
-      energy: 'medium',
-      source: 'quick-capture',
-      status: 'pending',
-    });
-    setQuickTask('');
-    setAddingTask(false);
   };
 
   const openEdit = (task) => {
@@ -673,31 +659,6 @@ export default function HomeScreen() {
       )}
 
 
-
-      {/* Quick Capture */}
-      <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
-        <div style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: tokens.radiusLg, padding: '14px 16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <span style={{ fontSize: '16px', flexShrink: 0 }}>⚡</span>
-          <input
-            value={quickTask}
-            onChange={e => setQuickTask(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleQuickAdd(); }}
-            placeholder="Quick capture — what's on your mind?"
-            style={{ flex: 1, background: 'transparent', border: 'none', color: tokens.textPrimary, fontSize: '14px', outline: 'none', fontFamily: fonts.body }}
-          />
-          {quickTask.trim() ? (
-            <button onClick={handleQuickAdd} disabled={addingTask}
-              style={{ background: tokens.accent, color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', flexShrink: 0, fontFamily: fonts.body }}>
-              {addingTask ? '...' : 'Add'}
-            </button>
-          ) : (
-            <button onClick={() => navigate('/brain-dump')}
-              style={{ background: tokens.accentDim, color: tokens.accent, border: 'none', borderRadius: '6px', padding: '6px 14px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', flexShrink: 0, fontFamily: fonts.body, whiteSpace: 'nowrap' }}>
-              Full Dump →
-            </button>
-          )}
-        </div>
-      </div>
 
       {/* AI Daily Briefing — structured card */}
       <div className="fade-up stagger-2" style={{ marginBottom: '14px' }}>

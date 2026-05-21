@@ -950,6 +950,7 @@ export default function CalendarScreen() {
           )}
           <Button onClick={() => setPlanOpen(true)} variant="accent" size="sm">✦ Plan Schedule</Button>
           <Button onClick={() => setImportOpen(true)} variant="ghost" size="sm" title="Import work schedule from photo">📷</Button>
+          <Button onClick={() => { fetched.current.delete(weekStart(ws).toISOString()); fetchWeek(weekStart(ws)); }} variant="ghost" size="sm" title="Force re-sync Google Calendar">↻</Button>
           <Button onClick={goToday} variant="ghost" size="sm">Today</Button>
           <button onClick={prevPeriod}
             style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, color: tokens.textSecondary, borderRadius: '7px', padding: '5px 11px', cursor: 'pointer', fontSize: '13px', fontFamily: fonts.body, lineHeight: 1 }}>‹</button>

@@ -87,7 +87,7 @@ export default function ProjectDetailScreen() {
   const { projectId } = useParams();
   const navigate      = useNavigate();
   const { user, profile, updateProfile } = useAuth();
-  const { projects, tasks, goals, brainDumps, weeklyReviews, userProfile, savingsAnalysis, savingsHistory } = useData();
+  const { projects, tasks, goals, brainDumps, weeklyReviews, userProfile, savingsAnalysis, savingsHistory, habits, habitLogs, dailyReviews } = useData();
   const { setPageContext } = usePageContext();
 
   const project      = projects.find(p => p.id === projectId);
@@ -146,6 +146,9 @@ export default function ProjectDetailScreen() {
       calendarDensity,
       savingsAnalysis,
       savingsHistory,
+      habits:       habits || [],
+      habitLogs:    habitLogs || [],
+      dailyReviews: dailyReviews || [],
     });
   }, [goals, tasks, projects, brainDumps, weeklyReviews, userProfile, profile]);
 

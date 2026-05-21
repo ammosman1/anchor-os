@@ -15,6 +15,9 @@ export function buildHolisticContext({
   notes = [],
   savingsAnalysis = null,
   savingsHistory = [],
+  habits = [],
+  habitLogs = [],
+  dailyReviews = [],
 }) {
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -371,6 +374,77 @@ export function buildHolisticContext({
         const trendStr = trends.map(t => `${t.name} ${t.delta > 0 ? '+' : ''}$${Math.round(t.delta)} vs last month`).join(', ');
         lines.push(`  Month-over-month trends: ${trendStr}`);
       }
+    }
+  }
+
+  // Habits — active habits with streaks and today's status
+  const activeHabits = habits.filter(h => h.active !== false);
+  if (activeHabits.length > 0) {
+    const todayD = new Date();
+    const todayStr = `${todayD.getFullYear()}-${String(todayD.getMonth()+1).padStart(2,'0')}-${String(todayD.getDate()).padStart(2,'0')}`;
+
+    lines.push(`\nHABITS (${activeHabits.length} active):`);
+    const notDoneToday = [];
+
+    activeHabits.forEach(h => {
+      const hLogs = habitLogs.filter(l => l.habitId === h.id).sort((a, b) => b.date.localeCompare(a.date));
+      const doneToday = hLogs.find(l => l.date === todayStr)?.done === true;
+
+      // Streak: consecutive done days backwards from most-recent done log
+      const doneLogs = hLogs.filter(l => l.done).sort((a, b) => b.date.localeCompare(a.date));
+      let streak = 0;
+      if (doneLogs.length > 0) {
+        streak = 1;
+        for (let i = 0; i < doneLogs.length - 1; i++) {
+          const curr = new Date(doneLogs[i].date + 'T12:00:00');
+          const prev = new Date(doneLogs[i+1].date + 'T12:00:00');
+          if (Math.round((curr - prev) / 86400000) === 1) streak++;
+          else break;
+        }
+      }
+
+      // 7-day completion rate
+      let doneCount = 0;
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(todayD); d.setDate(d.getDate() - i);
+        const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        if (hLogs.find(l => l.date === ds)?.done) doneCount++;
+      }
+      const rate7 = Math.round(doneCount / 7 * 100);
+
+      const status = doneToday ? '✓' : '○';
+      const streakStr = streak > 1 ? ` | ${streak}d streak` : '';
+      lines.push(`  ${status} "${h.title}"${streakStr} | 7d:${rate7}%`);
+      if (!doneToday) notDoneToday.push(h.title);
+    });
+
+    if (notDoneToday.length > 0) {
+      lines.push(`  Not yet done today: ${notDoneToday.map(n => `"${n}"`).join(', ')}`);
+    }
+  }
+
+  // Recent daily reviews — surface what Andrew has been planning and reflecting on
+  if (dailyReviews.length > 0) {
+    const recentMorning = dailyReviews.filter(r => r.type === 'morning').slice(0, 3);
+    const recentEod     = dailyReviews.filter(r => r.type === 'eod').slice(0, 2);
+
+    if (recentMorning.length > 0) {
+      lines.push(`\nRECENT MORNING INTENTIONS (use to understand daily priorities and mindset):`);
+      recentMorning.forEach(r => {
+        const dateLabel = r.displayDate || r.date || '?';
+        const p = (r.priorities || '').slice(0, 180);
+        const mw = (r.mustWin || '').slice(0, 80);
+        const ms = (r.mindset || '').slice(0, 80);
+        lines.push(`  [${dateLabel}]${p ? ` priorities: "${p}"` : ''}${mw ? ` | must-win: "${mw}"` : ''}${ms ? ` | mindset: "${ms}"` : ''}`);
+      });
+    }
+    if (recentEod.length > 0) {
+      lines.push(`\nRECENT EOD REFLECTIONS:`);
+      recentEod.forEach(r => {
+        const dateLabel = r.displayDate || r.date || '?';
+        const txt = (r.reflection || r.summary || r.aiSummary || '').slice(0, 180);
+        if (txt) lines.push(`  [${dateLabel}] ${txt}`);
+      });
     }
   }
 
