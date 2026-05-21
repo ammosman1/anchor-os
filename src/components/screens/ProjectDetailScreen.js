@@ -5,7 +5,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addTask, updateTask, updateProject, saveProfile, getAICache, saveAICache } from '../../lib/db';
-import { generateProjectAnalysis } from '../../lib/ai';
+import { generateProjectAnalysis, callAI } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
 import { calculateMomentum, getMomentumBlurb } from '../../lib/momentum';
 import { RECURRENCE_OPTIONS, getProjectNextAction, isTaskBlocked } from '../../lib/tasks';
@@ -87,7 +87,7 @@ export default function ProjectDetailScreen() {
   const { projectId } = useParams();
   const navigate      = useNavigate();
   const { user, profile, updateProfile } = useAuth();
-  const { projects, tasks, goals, brainDumps, weeklyReviews, userProfile, savingsAnalysis, savingsHistory, habits, habitLogs, dailyReviews } = useData();
+  const { projects, tasks, goals, brainDumps, weeklyReviews, userProfile, savingsAnalysis, savingsHistory, habits, habitLogs, dailyReviews, actedOnRecommendations } = useData();
   const { setPageContext } = usePageContext();
 
   const project      = projects.find(p => p.id === projectId);
@@ -127,8 +127,15 @@ export default function ProjectDetailScreen() {
   const [editOpen,   setEditOpen]   = useState(false);
   const [editForm,   setEditForm]   = useState({});
   const [editSaving, setEditSaving] = useState(false);
-  // Completion note
+  // Task completion note
   const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
+  // Project completion flow
+  const [completeOpen,        setCompleteOpen]        = useState(false);
+  const [completeRetro,       setCompleteRetro]       = useState('');
+  const [completeRetroLoading,setCompleteRetroLoading]= useState(false);
+  const [completeLessons,     setCompleteLessons]     = useState('');
+  const [completeArchive,     setCompleteArchive]     = useState(true);
+  const [completeSaving,      setCompleteSaving]      = useState(false);
 
   const buildContext = useCallback(() => {
     let calendarDensity = null;
@@ -147,10 +154,11 @@ export default function ProjectDetailScreen() {
       savingsAnalysis,
       savingsHistory,
       habits:       habits || [],
-      habitLogs:    habitLogs || [],
-      dailyReviews: dailyReviews || [],
+      habitLogs:               habitLogs || [],
+      dailyReviews:            dailyReviews || [],
+      actedOnRecommendations:  actedOnRecommendations || [],
     });
-  }, [goals, tasks, projects, brainDumps, weeklyReviews, userProfile, profile]);
+  }, [goals, tasks, projects, brainDumps, weeklyReviews, userProfile, profile, actedOnRecommendations]);
 
   const { score: mScore, factors: mFactors } = useMemo(() => {
     if (!project) return { score: 50, factors: [] };
@@ -345,6 +353,57 @@ export default function ProjectDetailScreen() {
     }
   };
 
+  const openCompleteFlow = async () => {
+    setCompleteRetro('');
+    setCompleteLessons('');
+    setCompleteArchive(true);
+    setCompleteOpen(true);
+    setCompleteRetroLoading(true);
+    try {
+      const createdMs = project.createdAt?.toDate?.().getTime() ?? (project.createdAt ? new Date(project.createdAt).getTime() : null);
+      const weeksSpent = createdMs ? Math.max(1, Math.round((Date.now() - createdMs) / (7 * 24 * 60 * 60 * 1000))) : null;
+      const notes = doneTasks.filter(t => t.completionNote).map(t => t.completionNote).slice(0, 6).join('; ');
+      const prompt = [
+        `Project "${project.title}" (${project.category}) just completed.`,
+        weeksSpent ? `Duration: ~${weeksSpent} week${weeksSpent !== 1 ? 's' : ''}.` : '',
+        `Tasks: ${doneTasks.length} done${activeTasks.length > 0 ? `, ${activeTasks.length} remaining open` : ''}.`,
+        notes ? `Key notes from tasks: ${notes}` : '',
+        linkedGoal ? `Linked goal: "${linkedGoal.title}".` : '',
+        `Momentum at close: ${mScore}%.`,
+        '',
+        'Write a 2-sentence project retrospective. Sentence 1: what was accomplished. Sentence 2: one specific insight from the work. Be direct, no preamble.',
+      ].filter(Boolean).join(' ');
+      const retro = await callAI({ messages: [{ role: 'user', content: prompt }], maxTokens: 150 });
+      setCompleteRetro(retro || '');
+    } catch {
+      setCompleteRetro('');
+    } finally {
+      setCompleteRetroLoading(false);
+    }
+  };
+
+  const handleCompleteConfirm = async () => {
+    setCompleteSaving(true);
+    try {
+      await updateProject(user.uid, projectId, {
+        status:         'complete',
+        completedAt:    new Date().toISOString(),
+        retrospective:  completeRetro,
+        lessonsLearned: completeLessons.trim() || null,
+      });
+      if (completeArchive && activeTasks.length > 0) {
+        await Promise.all(activeTasks.map(t =>
+          updateTask(user.uid, t.id, { done: true, status: 'dropped', completedAt: new Date().toISOString() })
+        ));
+      }
+      setCompleteOpen(false);
+    } catch (err) {
+      console.error('Complete project error:', err);
+    } finally {
+      setCompleteSaving(false);
+    }
+  };
+
   const handleSaveCompletionNote = async () => {
     if (completionNote.text.trim()) {
       await updateTask(user.uid, completionNote.task.id, { completionNote: completionNote.text.trim() });
@@ -429,7 +488,12 @@ export default function ProjectDetailScreen() {
           <h1 style={{ fontFamily: fonts.display, fontSize: '26px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>
             {project.title}
           </h1>
-          <Button variant="ghost" size="sm" onClick={openEdit} style={{ marginTop: '4px', flexShrink: 0 }}>Edit</Button>
+          <div style={{ display: 'flex', gap: '6px', flexShrink: 0, marginTop: '4px' }}>
+            {project.status !== 'complete' && (
+              <Button variant="ghost" size="sm" onClick={openCompleteFlow} style={{ color: tokens.green, borderColor: `${tokens.green}40` }}>✓ Complete</Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={openEdit}>Edit</Button>
+          </div>
         </div>
         {project.notes && (
           <div style={{ fontSize: '14px', color: tokens.textSecondary, lineHeight: 1.55 }}>
@@ -779,6 +843,78 @@ export default function ProjectDetailScreen() {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
             <Button variant="ghost" onClick={() => setCompletionNote({ open: false, task: null, text: '' })}>Skip</Button>
             <Button onClick={handleSaveCompletionNote}>Save Note</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Project Completion Flow ── */}
+      <Modal open={completeOpen} onClose={() => setCompleteOpen(false)} title="Complete Project">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+          {/* AI Retrospective */}
+          <div style={{ background: tokens.accentGlow, border: `1px solid ${tokens.accentDim}`, borderRadius: '10px', padding: '14px 16px' }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.1em', marginBottom: '8px' }}>AI RETROSPECTIVE</div>
+            {completeRetroLoading ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: tokens.textMuted, fontSize: '13px' }}>
+                <Spinner size={13} /> Generating retrospective…
+              </div>
+            ) : (
+              <div style={{ fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.6 }}>
+                {completeRetro || 'No retrospective generated.'}
+              </div>
+            )}
+          </div>
+
+          {/* Stats summary */}
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ flex: 1, padding: '10px', background: tokens.bgCardHover, borderRadius: '8px', textAlign: 'center' }}>
+              <div style={{ fontSize: '20px', fontWeight: 700, color: tokens.green, fontFamily: fonts.display }}>{doneTasks.length}</div>
+              <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '2px' }}>tasks done</div>
+            </div>
+            {activeTasks.length > 0 && (
+              <div style={{ flex: 1, padding: '10px', background: tokens.bgCardHover, borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '20px', fontWeight: 700, color: tokens.textSecondary, fontFamily: fonts.display }}>{activeTasks.length}</div>
+                <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '2px' }}>still open</div>
+              </div>
+            )}
+          </div>
+
+          {/* Lessons learned */}
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>
+              What would you do differently? <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
+            </label>
+            <textarea
+              value={completeLessons}
+              onChange={e => setCompleteLessons(e.target.value)}
+              placeholder="Learnings, things to avoid next time, process improvements..."
+              rows={3}
+              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '10px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5 }}
+              onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+              onBlur={e => e.target.style.borderColor = tokens.border}
+            />
+          </div>
+
+          {/* Archive open tasks toggle */}
+          {activeTasks.length > 0 && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={completeArchive}
+                onChange={e => setCompleteArchive(e.target.checked)}
+                style={{ width: 16, height: 16, accentColor: tokens.accent, cursor: 'pointer', flexShrink: 0 }}
+              />
+              <span style={{ fontSize: '13px', color: tokens.textSecondary }}>
+                Drop {activeTasks.length} open task{activeTasks.length !== 1 ? 's' : ''} — remove from active views
+              </span>
+            </label>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button variant="ghost" onClick={() => setCompleteOpen(false)}>Cancel</Button>
+            <Button onClick={handleCompleteConfirm} loading={completeSaving} style={{ background: tokens.green, color: '#0C0E12' }}>
+              Mark Complete
+            </Button>
           </div>
         </div>
       </Modal>

@@ -223,7 +223,7 @@ export default function FloatingAdvisor({ open, onClose }) {
   const { projects, tasks, goals, brainDumps, weeklyReviews,
           calendarIntegration, userProfile,
           manualCashFlow, debtAccounts, assetAccounts,
-          notes, savingsAnalysis, savingsHistory,
+          notes, savingsAnalysis, savingsHistory, actedOnRecommendations,
           habits, habitLogs, dailyReviews }                            = useData();
   const { pageContext }                                                = usePageContext();
 
@@ -320,7 +320,7 @@ export default function FloatingAdvisor({ open, onClose }) {
       goals, tasks, projects, brainDumps, weeklyReviews,
       userProfile, plaidData: manualCashFlow, manualCashFlow,
       debtAccounts, assetAccounts, notes,
-      savingsAnalysis, savingsHistory,
+      savingsAnalysis, savingsHistory, actedOnRecommendations,
       habits, habitLogs, dailyReviews,
     });
 

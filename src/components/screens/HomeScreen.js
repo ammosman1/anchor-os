@@ -60,7 +60,7 @@ const QUOTES = [
 
 export default function HomeScreen() {
   const { user, profile, updateProfile } = useAuth();
-  const { tasks, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile, plaidItems, dailyReviews, manualCashFlow, debtAccounts, assetAccounts, notes, lastWeeklyReset, savingsAnalysis, savingsHistory, habits, habitLogs } = useData();
+  const { tasks, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, userProfile, plaidItems, dailyReviews, manualCashFlow, debtAccounts, assetAccounts, notes, lastWeeklyReset, savingsAnalysis, savingsHistory, actedOnRecommendations, habits, habitLogs } = useData();
   const navigate = useNavigate();
 
   const [energy,      setEnergy]      = useState(profile?.energyToday || 7);

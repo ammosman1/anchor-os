@@ -9,6 +9,7 @@ import {
   subscribeManualCashFlow, subscribeAssetAccounts,
   subscribeHabits, subscribeHabitLogs, subscribeNotes, subscribeDocuments,
   subscribeSavingsAnalysis, subscribeSavingsAnalysisHistory, subscribeLastWeeklyReset,
+  subscribeActedOnRecommendations,
 } from '../lib/db';
 import { setUserPersona } from '../lib/ai';
 import { calculateMomentum } from '../lib/momentum';
@@ -34,9 +35,10 @@ export function DataProvider({ children }) {
   const [habitLogs,           setHabitLogs]           = useState([]);
   const [notes,               setNotes]               = useState([]);
   const [documents,           setDocuments]           = useState([]);
-  const [savingsAnalysis,     setSavingsAnalysis]     = useState(null);
-  const [savingsHistory,      setSavingsHistory]      = useState([]);
-  const [lastWeeklyReset,     setLastWeeklyReset]     = useState(null);
+  const [savingsAnalysis,         setSavingsAnalysis]         = useState(null);
+  const [savingsHistory,          setSavingsHistory]          = useState([]);
+  const [lastWeeklyReset,         setLastWeeklyReset]         = useState(null);
+  const [actedOnRecommendations,  setActedOnRecommendations]  = useState([]);
   const [loaded,              setLoaded]              = useState(false);
 
   useEffect(() => {
@@ -47,6 +49,7 @@ export function DataProvider({ children }) {
       setDailyReviews([]); setManualCashFlow(null); setAssetAccounts([]);
       setHabits([]); setHabitLogs([]); setNotes([]); setDocuments([]);
       setSavingsAnalysis(null); setSavingsHistory([]); setLastWeeklyReset(null);
+      setActedOnRecommendations([]);
       setLoaded(false);
       return;
     }
@@ -68,9 +71,10 @@ export function DataProvider({ children }) {
       subscribeHabitLogs(user.uid,           setHabitLogs),
       subscribeNotes(user.uid,               setNotes),
       subscribeDocuments(user.uid,           setDocuments),
-      subscribeSavingsAnalysis(user.uid,        setSavingsAnalysis),
-      subscribeSavingsAnalysisHistory(user.uid, setSavingsHistory),
-      subscribeLastWeeklyReset(user.uid,        setLastWeeklyReset),
+      subscribeSavingsAnalysis(user.uid,          setSavingsAnalysis),
+      subscribeSavingsAnalysisHistory(user.uid,   setSavingsHistory),
+      subscribeLastWeeklyReset(user.uid,          setLastWeeklyReset),
+      subscribeActedOnRecommendations(user.uid,   setActedOnRecommendations),
       subscribeProfile(user.uid, (prof) => {
         setUserProfile(prof);
         if (prof?.persona) setUserPersona(prof.persona);
@@ -132,7 +136,7 @@ export function DataProvider({ children }) {
   return (
     <DataContext.Provider value={{
       projects, tasks, debtAccounts, assetAccounts, ideas, brainDumps, weeklyReviews, goals, calendarIntegration, plaidItems, userProfile, dailyReviews, manualCashFlow,
-      habits, habitLogs, notes, documents, savingsAnalysis, savingsHistory, lastWeeklyReset,
+      habits, habitLogs, notes, documents, savingsAnalysis, savingsHistory, lastWeeklyReset, actedOnRecommendations,
       activeProjects, stalledProjects, todayTasks, totalDebt, totalAssets, activeGoals,
       loaded,
     }}>

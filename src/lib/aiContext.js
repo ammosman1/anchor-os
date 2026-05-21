@@ -15,6 +15,7 @@ export function buildHolisticContext({
   notes = [],
   savingsAnalysis = null,
   savingsHistory = [],
+  actedOnRecommendations = [],
   habits = [],
   habitLogs = [],
   dailyReviews = [],
@@ -347,11 +348,23 @@ export function buildHolisticContext({
       lines.push(`  Subscriptions to review: ${reviewSubs.map(s => `${s.name} $${s.estimatedMonthly}/mo (${s.action})`).join(', ')}`);
     }
 
-    // Top recommendations
-    if ((savingsAnalysis.recommendations || []).length > 0) {
-      lines.push(`  Top savings recommendations:`);
-      savingsAnalysis.recommendations.slice(0, 4).forEach(r => {
+    // Top recommendations (active only — not yet acted on)
+    const actedOnIds = new Set((actedOnRecommendations || []).map(r => r.id));
+    const makeRecId = t => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60);
+    const activeRecs = (savingsAnalysis.recommendations || []).filter(r => !actedOnIds.has(makeRecId(r.title)));
+    if (activeRecs.length > 0) {
+      lines.push(`  Pending savings recommendations:`);
+      activeRecs.slice(0, 4).forEach(r => {
         lines.push(`    • ${r.title} — save $${r.monthlySavings}/mo (${r.difficulty})`);
+      });
+    }
+
+    // Locked-in savings already acted on
+    if ((actedOnRecommendations || []).length > 0) {
+      const lockedTotal = actedOnRecommendations.reduce((s, r) => s + (r.monthlySavings || 0), 0);
+      lines.push(`  Locked-in savings (already acted on): $${lockedTotal.toLocaleString()}/mo across ${actedOnRecommendations.length} changes`);
+      actedOnRecommendations.slice(0, 3).forEach(r => {
+        lines.push(`    ✓ ${r.title} — $${r.monthlySavings}/mo`);
       });
     }
 

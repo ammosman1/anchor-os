@@ -505,6 +505,29 @@ export const subscribeSavingsAnalysisHistory = (uid, cb) => {
   );
 };
 
+// ─── Acted-On Savings Recommendations ────────────────────────────────────────
+// Keyed by sanitized recommendation title so the same rec can't be double-logged.
+export const markRecommendationActedOn = (uid, rec) => {
+  const id = rec.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60);
+  return setDoc(doc(db, 'users', uid, 'actedOnRecommendations', id), {
+    id,
+    title:          rec.title,
+    monthlySavings: rec.monthlySavings || 0,
+    description:    rec.description   || '',
+    difficulty:     rec.difficulty    || '',
+    actedOnAt:      serverTimestamp(),
+    actedOnAtMs:    Date.now(),
+  });
+};
+
+export const subscribeActedOnRecommendations = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
+    query(collection(db, 'users', uid, 'actedOnRecommendations'), orderBy('actedOnAtMs', 'desc')),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  );
+};
+
 // ─── Weekly Resets ────────────────────────────────────────────────────────────
 export const saveWeeklyReset = (uid, weekKey, data) =>
   setDoc(doc(db, 'users', uid, 'weeklyResets', weekKey), {

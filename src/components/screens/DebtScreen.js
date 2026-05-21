@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { getDebtAdvice } from '../../lib/ai';
 import { auth } from '../../lib/firebase';
-import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask, addAssetAccount, updateAssetAccount, deleteAssetAccount, addDebtBalanceSnapshot, saveSavingsAnalysis, saveSavingsAnalysisMonth } from '../../lib/db';
+import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask, addAssetAccount, updateAssetAccount, deleteAssetAccount, addDebtBalanceSnapshot, saveSavingsAnalysis, saveSavingsAnalysisMonth, markRecommendationActedOn } from '../../lib/db';
 import { openPlaidLink, calcCashFlow, formatTxAmount, formatTxDate } from '../../lib/plaid';
 import { Card, Button, Input, Select, SectionLabel, MomentumBar, Modal, AICard, EmptyState } from '../ui';
 
@@ -223,7 +223,7 @@ function fmtImportDate(ts) {
 export default function DebtScreen() {
   const navigate = useNavigate();
   const { user }                                                    = useAuth();
-  const { debtAccounts, totalDebt, assetAccounts, totalAssets, plaidItems, manualCashFlow, goals, savingsAnalysis, savingsHistory, documents } = useData();
+  const { debtAccounts, totalDebt, assetAccounts, totalAssets, plaidItems, manualCashFlow, goals, savingsAnalysis, savingsHistory, documents, actedOnRecommendations } = useData();
 
   // ── Existing account modal ────────────────────────────────────────────────
   const [showModal,     setShowModal]     = useState(false);
@@ -1039,22 +1039,36 @@ export default function DebtScreen() {
             </div>
 
             {/* Stats row */}
-            <div style={{ display: 'grid', gridTemplateColumns: savingsAnalysis.debtFreeAcceleration > 0 ? '1fr 1fr' : '1fr', gap: '10px', marginBottom: '16px' }}>
-              <div style={{ padding: '14px', background: tokens.accentDim, borderRadius: '10px', textAlign: 'center' }}>
-                <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Monthly Potential</div>
-                <div style={{ fontFamily: fonts.display, fontSize: '24px', fontWeight: 700, color: tokens.accent }}>
-                  +${(savingsAnalysis.totalMonthlySavings || 0).toLocaleString()}/mo
-                </div>
-              </div>
-              {savingsAnalysis.debtFreeAcceleration > 0 && (
-                <div style={{ padding: '14px', background: 'rgba(109,191,158,0.08)', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(109,191,158,0.15)' }}>
-                  <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Debt-Free Sooner</div>
-                  <div style={{ fontFamily: fonts.display, fontSize: '24px', fontWeight: 700, color: tokens.green }}>
-                    {savingsAnalysis.debtFreeAcceleration}mo
+            {(() => {
+              const lockedIn = (actedOnRecommendations || []).reduce((s, r) => s + (r.monthlySavings || 0), 0);
+              const cols = [true, savingsAnalysis.debtFreeAcceleration > 0, lockedIn > 0].filter(Boolean).length;
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: '10px', marginBottom: '16px' }}>
+                  <div style={{ padding: '14px', background: tokens.accentDim, borderRadius: '10px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Monthly Potential</div>
+                    <div style={{ fontFamily: fonts.display, fontSize: '24px', fontWeight: 700, color: tokens.accent }}>
+                      +${(savingsAnalysis.totalMonthlySavings || 0).toLocaleString()}/mo
+                    </div>
                   </div>
+                  {savingsAnalysis.debtFreeAcceleration > 0 && (
+                    <div style={{ padding: '14px', background: 'rgba(109,191,158,0.08)', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(109,191,158,0.15)' }}>
+                      <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Debt-Free Sooner</div>
+                      <div style={{ fontFamily: fonts.display, fontSize: '24px', fontWeight: 700, color: tokens.green }}>
+                        {savingsAnalysis.debtFreeAcceleration}mo
+                      </div>
+                    </div>
+                  )}
+                  {lockedIn > 0 && (
+                    <div style={{ padding: '14px', background: 'rgba(109,191,158,0.12)', borderRadius: '10px', textAlign: 'center', border: '1px solid rgba(109,191,158,0.25)' }}>
+                      <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Locked In</div>
+                      <div style={{ fontFamily: fonts.display, fontSize: '24px', fontWeight: 700, color: tokens.green }}>
+                        ${lockedIn.toLocaleString()}/mo
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })()}
 
             {/* Spending Categories — expandable with month-over-month delta */}
             {(savingsAnalysis.spendingCategories || []).length > 0 && (() => {
@@ -1152,40 +1166,80 @@ export default function DebtScreen() {
               </div>
             )}
 
-            {/* Recommendations */}
-            {(savingsAnalysis.recommendations || []).length > 0 && (
-              <div>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>Top Actions</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {(savingsAnalysis.recommendations || []).map((rec, i) => (
-                    <div key={i} style={{ padding: '12px 14px', background: tokens.bgCardHover, borderRadius: '10px', border: `1px solid ${tokens.border}` }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-                            <span style={{ fontWeight: 600, fontSize: '13px', color: tokens.textPrimary }}>{rec.title}</span>
-                            <span style={{
-                              fontSize: '10px', padding: '1px 7px', borderRadius: '4px', fontWeight: 700,
-                              background: rec.difficulty === 'easy' ? 'rgba(109,191,158,0.12)' : rec.difficulty === 'medium' ? 'rgba(200,169,110,0.12)' : 'rgba(212,122,107,0.12)',
-                              color: rec.difficulty === 'easy' ? tokens.green : rec.difficulty === 'medium' ? tokens.amber : tokens.red,
-                            }}>{rec.difficulty}</span>
+            {/* Recommendations — active (not yet acted on) */}
+            {(() => {
+              const actedOnIds = new Set((actedOnRecommendations || []).map(r => r.id));
+              const makeId = title => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60);
+              const activeRecs  = (savingsAnalysis.recommendations || []).filter(r => !actedOnIds.has(makeId(r.title)));
+              const lockedRecs  = actedOnRecommendations || [];
+
+              return (
+                <>
+                  {activeRecs.length > 0 && (
+                    <div style={{ marginBottom: lockedRecs.length > 0 ? '16px' : 0 }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>Top Actions</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {activeRecs.map((rec, i) => (
+                          <div key={i} style={{ padding: '12px 14px', background: tokens.bgCardHover, borderRadius: '10px', border: `1px solid ${tokens.border}` }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                                  <span style={{ fontWeight: 600, fontSize: '13px', color: tokens.textPrimary }}>{rec.title}</span>
+                                  <span style={{
+                                    fontSize: '10px', padding: '1px 7px', borderRadius: '4px', fontWeight: 700,
+                                    background: rec.difficulty === 'easy' ? 'rgba(109,191,158,0.12)' : rec.difficulty === 'medium' ? 'rgba(200,169,110,0.12)' : 'rgba(212,122,107,0.12)',
+                                    color: rec.difficulty === 'easy' ? tokens.green : rec.difficulty === 'medium' ? tokens.amber : tokens.red,
+                                  }}>{rec.difficulty}</span>
+                                </div>
+                                <div style={{ fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.4 }}>{rec.description}</div>
+                              </div>
+                              <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                                <div style={{ fontFamily: fonts.display, fontSize: '15px', fontWeight: 700, color: tokens.green, whiteSpace: 'nowrap' }}>+${rec.monthlySavings}/mo</div>
+                                <button
+                                  onClick={() => markRecommendationActedOn(user.uid, rec)}
+                                  style={{ marginTop: '6px', fontSize: '10px', color: tokens.green, background: 'rgba(109,191,158,0.1)', border: `1px solid rgba(109,191,158,0.25)`, borderRadius: '5px', cursor: 'pointer', fontFamily: fonts.body, padding: '3px 8px', fontWeight: 600, display: 'block', whiteSpace: 'nowrap' }}
+                                >
+                                  ✓ I did this
+                                </button>
+                                <button
+                                  onClick={() => handleCreateSavingsTask(rec)}
+                                  style={{ marginTop: '4px', fontSize: '10px', color: tokens.accent, background: 'none', border: 'none', cursor: 'pointer', fontFamily: fonts.body, padding: 0 }}
+                                >
+                                  + Create task
+                                </button>
+                              </div>
+                            </div>
                           </div>
-                          <div style={{ fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.4 }}>{rec.description}</div>
-                        </div>
-                        <div style={{ flexShrink: 0, textAlign: 'right' }}>
-                          <div style={{ fontFamily: fonts.display, fontSize: '15px', fontWeight: 700, color: tokens.green, whiteSpace: 'nowrap' }}>+${rec.monthlySavings}/mo</div>
-                          <button
-                            onClick={() => handleCreateSavingsTask(rec)}
-                            style={{ marginTop: '4px', fontSize: '10px', color: tokens.accent, background: 'none', border: 'none', cursor: 'pointer', fontFamily: fonts.body, padding: 0 }}
-                          >
-                            + Create task
-                          </button>
-                        </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
+                  )}
+
+                  {/* Locked-in savings */}
+                  {lockedRecs.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: tokens.green, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>✓ Locked In</span>
+                        <span style={{ fontSize: '10px', color: tokens.textMuted, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>— changes you've already made</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {lockedRecs.map((rec, i) => (
+                          <div key={i} style={{ padding: '10px 14px', background: 'rgba(109,191,158,0.06)', borderRadius: '10px', border: `1px solid rgba(109,191,158,0.2)`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary }}>{rec.title}</div>
+                              {rec.description && <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px', lineHeight: 1.3 }}>{rec.description}</div>}
+                            </div>
+                            <div style={{ fontFamily: fonts.display, fontSize: '13px', fontWeight: 700, color: tokens.green, whiteSpace: 'nowrap' }}>
+                              +${(rec.monthlySavings || 0).toLocaleString()}/mo
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </Card>
         </div>
       ) : (documents || []).filter(d => d.category === 'bank_statement').length > 0 ? (
