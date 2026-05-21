@@ -274,6 +274,61 @@ export function Modal({ open, onClose, title, children, width = 480 }) {
 }
 
 // ─── AICard ───────────────────────────────────────────────────────────────────
+
+function renderAIText(text) {
+  if (!text) return null;
+  const lines = text.split('\n').filter(l => l.trim());
+  const elements = [];
+  let bulletGroup = [];
+
+  const flushBullets = () => {
+    if (!bulletGroup.length) return;
+    elements.push(
+      <div key={`b-${elements.length}`} style={{ display: 'flex', flexDirection: 'column', gap: '5px', margin: '4px 0' }}>
+        {bulletGroup.map((content, bi) => (
+          <div key={bi} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+            <span style={{ color: tokens.accent, flexShrink: 0, fontSize: '8px', marginTop: '5px', lineHeight: 1 }}>◆</span>
+            <span style={{ fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.6 }}
+              dangerouslySetInnerHTML={{ __html: content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}
+            />
+          </div>
+        ))}
+      </div>
+    );
+    bulletGroup = [];
+  };
+
+  lines.forEach((line, i) => {
+    const t = line.trim();
+    const isBullet = /^[-•*]\s/.test(t);
+    const isNumbered = /^\d+\.\s/.test(t);
+    const isHeader = t.endsWith(':') && t.length < 70 && !/[.!?]/.test(t.slice(0, -1));
+
+    if (isBullet) {
+      bulletGroup.push(t.slice(2));
+    } else if (isNumbered) {
+      bulletGroup.push(t.replace(/^\d+\.\s/, ''));
+    } else {
+      flushBullets();
+      if (isHeader) {
+        elements.push(
+          <div key={i} style={{ fontSize: '10px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.08em', textTransform: 'uppercase', marginTop: elements.length ? '10px' : 0, marginBottom: '2px' }}>
+            {t.slice(0, -1)}
+          </div>
+        );
+      } else if (t) {
+        elements.push(
+          <p key={i} style={{ fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.65, margin: '0 0 5px' }}
+            dangerouslySetInnerHTML={{ __html: t.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}
+          />
+        );
+      }
+    }
+  });
+  flushBullets();
+  return <div>{elements}</div>;
+}
+
 export function AICard({ text, loading, onRefresh, label = 'ANCHOR', feedbackButtons }) {
   return (
     <div style={{
@@ -295,7 +350,7 @@ export function AICard({ text, loading, onRefresh, label = 'ANCHOR', feedbackBut
               <span style={{ fontSize: '13px', color: tokens.textMuted }}>Thinking...</span>
             </div>
           ) : (
-            <p style={{ fontSize: '14px', color: tokens.textPrimary, lineHeight: 1.65, margin: 0 }}>{text}</p>
+            renderAIText(text)
           )}
         </div>
       </div>

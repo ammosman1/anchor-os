@@ -497,7 +497,7 @@ export default function AppLayout({ children }) {
         paddingTop: 'calc(52px + env(safe-area-inset-top, 0px) + 24px)',
         paddingLeft: location.pathname.startsWith('/calendar') ? '16px' : 'max(16px, env(safe-area-inset-left, 16px))',
         paddingRight: location.pathname.startsWith('/calendar') ? '16px' : 'max(16px, env(safe-area-inset-right, 16px))',
-        paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)',
+        paddingBottom: 'calc(min(env(safe-area-inset-bottom, 0px), 44px) + 80px)',
         minHeight: '100vh',
         maxWidth: location.pathname.startsWith('/calendar') ? 'none' : '960px',
         margin: location.pathname.startsWith('/calendar') ? '0' : '0 auto',
