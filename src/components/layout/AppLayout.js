@@ -43,6 +43,12 @@ const NAV_GROUPS = [
       { path: '/documents', icon: '▣', label: 'Documents'  },
     ],
   },
+  {
+    label: 'Preview',
+    items: [
+      { path: '/home-v2', icon: '◉', label: 'Home V2 ✦'  },
+    ],
+  },
 ];
 
 const PAGE_TITLES = {
