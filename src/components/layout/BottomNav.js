@@ -40,13 +40,23 @@ export default function BottomNav({ advisorOpen, onAdvisorToggle }) {
   return (
     <>
     <style>{ADVISOR_GLOW_CSS}</style>
+    {/* Fill the safe-area strip below the nav with the nav background color */}
+    <div style={{
+      position:       'fixed',
+      bottom:         0,
+      left:           0,
+      right:          0,
+      height:         'min(env(safe-area-inset-bottom, 0px), 44px)',
+      background:     tokens.bgNav,
+      zIndex:         191,
+      pointerEvents:  'none',
+    }} />
     <nav style={{
       position:   'fixed',
-      bottom:     0,
+      bottom:     'min(env(safe-area-inset-bottom, 0px), 44px)',
       left:       0,
       right:      0,
-      height:     `calc(${BOTTOM_NAV_HEIGHT}px + min(env(safe-area-inset-bottom, 0px), 44px))`,
-      paddingBottom: 'min(env(safe-area-inset-bottom, 0px), 44px)',
+      height:     `${BOTTOM_NAV_HEIGHT}px`,
       background: tokens.bgNav,
       borderTop:  `1px solid ${tokens.border}`,
       boxShadow:  '0 -2px 16px rgba(0,0,0,0.10)',

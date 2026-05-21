@@ -117,6 +117,10 @@ export function setTheme(id) {
 const _id = (() => { try { return localStorage.getItem('anchorTheme') || 'warmCream'; } catch { return 'warmCream'; } })();
 const _t = THEME_DEFS[_id] || THEME_DEFS.warmCream;
 
+// iOS uses <html> background for the home-indicator safe-area strip.
+// Set it to bgNav so it matches the bottom nav bar color.
+document.documentElement.style.backgroundColor = _t.bgNav;
+
 export const tokens = {
   // Backgrounds
   bg:          _t.bg,
