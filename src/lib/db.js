@@ -150,7 +150,7 @@ export const updateBrainDump = (uid, dumpId, data) =>
 export const subscribeBrainDumps = (uid, cb) => {
   if (!uid) return () => {};
   return onSnapshot(
-    query(collection(db, 'users', uid, 'brainDumps'), orderBy('createdAt', 'desc'), limit(30)),
+    query(collection(db, 'users', uid, 'brainDumps'), orderBy('createdAt', 'desc'), limit(100)),
     snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   );
 };

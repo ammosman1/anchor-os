@@ -238,14 +238,15 @@ export function buildHolisticContext({
     });
   }
 
-  // Recent brain dumps (last 14 days)
+  // Recent brain dumps (last 90 days)
+  const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
   const recentDumps = brainDumps.filter(d => {
     if (d.archived) return false;
     try {
       const ms = d.createdAt?.toMillis?.() || new Date(d.createdAt).getTime();
-      return ms > twoWeeksAgo;
+      return ms > ninetyDaysAgo;
     } catch { return false; }
-  }).slice(0, 6);
+  }).slice(0, 20);
 
   if (recentDumps.length > 0) {
     lines.push(`\nRECENT BRAIN DUMPS (last 14 days — ${recentDumps.length} entries):`);
