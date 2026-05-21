@@ -1,9 +1,10 @@
 // src/components/screens/HabitsScreen.js
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { addHabit, updateHabit, deleteHabit, setHabitLog } from '../../lib/db';
+import { addHabit, updateHabit, deleteHabit, setHabitLog, getAICache, saveAICache } from '../../lib/db';
+import { generateHabitInsights } from '../../lib/ai';
 import { Button, Modal, Input } from '../ui';
 
 const FREQUENCIES = [
@@ -41,35 +42,69 @@ function getStreak(habitId, habitLogs) {
   return streak;
 }
 
-function getLast7(habitId, habitLogs) {
+function getBestStreak(habitId, habitLogs) {
+  const sorted = habitLogs
+    .filter(l => l.habitId === habitId && l.done)
+    .map(l => l.date)
+    .sort();
+  if (sorted.length === 0) return 0;
+  let best = 1, current = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    const diff = (new Date(sorted[i]) - new Date(sorted[i - 1])) / 86400000;
+    if (diff === 1) { current++; if (current > best) best = current; }
+    else { current = 1; }
+  }
+  return best;
+}
+
+function getLast30(habitId, habitLogs) {
   const result = [];
   const d = new Date();
-  for (let i = 6; i >= 0; i--) {
+  for (let i = 29; i >= 0; i--) {
     const day = new Date(d);
     day.setDate(day.getDate() - i);
     const ds = day.toISOString().split('T')[0];
     const log = habitLogs.find(l => l.habitId === habitId && l.date === ds);
-    result.push({ date: ds, done: !!(log?.done), dayLabel: ['Su','Mo','Tu','We','Th','Fr','Sa'][day.getDay()] });
+    result.push({ date: ds, done: !!(log?.done) });
   }
   return result;
+}
+
+function getCompletionRate(habitId, habitLogs, days = 30) {
+  const d = new Date();
+  let done = 0;
+  for (let i = 0; i < days; i++) {
+    const day = new Date(d);
+    day.setDate(day.getDate() - i);
+    const ds = day.toISOString().split('T')[0];
+    const log = habitLogs.find(l => l.habitId === habitId && l.date === ds);
+    if (log?.done) done++;
+  }
+  return Math.round((done / days) * 100);
+}
+
+function getTotalCompletions(habitId, habitLogs) {
+  return habitLogs.filter(l => l.habitId === habitId && l.done).length;
 }
 
 const BLANK_FORM = { title: '', frequency: 'daily', goalId: '' };
 
 export default function HabitsScreen() {
-  const { user }                  = useAuth();
+  const { user }                     = useAuth();
   const { habits, habitLogs, goals } = useData();
-  const [modalOpen,  setModalOpen]  = useState(false);
-  const [editHabit,  setEditHabit]  = useState(null);
-  const [form,       setForm]       = useState(BLANK_FORM);
-  const [saving,     setSaving]     = useState(false);
-  const [toggling,   setToggling]   = useState(new Set());
-  const [deleteConf, setDeleteConf] = useState(null);
+  const [modalOpen,    setModalOpen]    = useState(false);
+  const [editHabit,    setEditHabit]    = useState(null);
+  const [form,         setForm]         = useState(BLANK_FORM);
+  const [saving,       setSaving]       = useState(false);
+  const [toggling,     setToggling]     = useState(new Set());
+  const [deleteConf,   setDeleteConf]   = useState(null);
+  const [aiInsights,   setAiInsights]   = useState('');
+  const [insightsLoading, setInsightsLoading] = useState(false);
 
-  const today      = todayStr();
+  const today       = todayStr();
   const activeGoals = (goals || []).filter(g => g.status === 'active');
 
-  const openAdd = () => { setEditHabit(null); setForm(BLANK_FORM); setModalOpen(true); };
+  const openAdd  = () => { setEditHabit(null); setForm(BLANK_FORM); setModalOpen(true); };
   const openEdit = (h) => {
     setEditHabit(h);
     setForm({ title: h.title, frequency: h.frequency || 'daily', goalId: h.goalId || '' });
@@ -114,10 +149,42 @@ export default function HabitsScreen() {
     [habits]
   );
 
-  const completedToday = activeHabits.filter(h => {
-    const log = habitLogs.find(l => l.habitId === h.id && l.date === today);
-    return log?.done;
-  }).length;
+  const completedToday   = activeHabits.filter(h => !!(habitLogs.find(l => l.habitId === h.id && l.date === today)?.done)).length;
+  const scheduledToday   = activeHabits.filter(h => isActiveDay(h, today)).length;
+
+  const bestCurrentStreak = useMemo(() =>
+    activeHabits.reduce((max, h) => Math.max(max, getStreak(h.id, habitLogs)), 0),
+    [activeHabits, habitLogs]
+  );
+
+  const overallRate30 = useMemo(() => {
+    if (activeHabits.length === 0) return 0;
+    const rates = activeHabits.map(h => getCompletionRate(h.id, habitLogs, 30));
+    return Math.round(rates.reduce((s, r) => s + r, 0) / rates.length);
+  }, [activeHabits, habitLogs]);
+
+  const loadInsights = useCallback(async (force = false) => {
+    if (activeHabits.length === 0) return;
+    const cacheKey = `habit-insights-${today}`;
+    if (!force) {
+      const cached = await getAICache(user.uid, cacheKey, 24);
+      if (cached) { setAiInsights(cached); return; }
+    }
+    setInsightsLoading(true);
+    try {
+      const text = await generateHabitInsights(activeHabits, habitLogs);
+      if (text) {
+        setAiInsights(text);
+        await saveAICache(user.uid, cacheKey, text);
+      }
+    } finally {
+      setInsightsLoading(false);
+    }
+  }, [user.uid, today, activeHabits, habitLogs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (activeHabits.length > 0) loadInsights();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div>
@@ -129,12 +196,59 @@ export default function HabitsScreen() {
           </h1>
           {activeHabits.length > 0 && (
             <div style={{ fontSize: '13px', color: tokens.textMuted, marginTop: '4px' }}>
-              {completedToday} / {activeHabits.filter(h => isActiveDay(h, today)).length} done today
+              {completedToday} / {scheduledToday} done today
             </div>
           )}
         </div>
         <Button onClick={openAdd}>+ Add Habit</Button>
       </div>
+
+      {/* Summary stats row */}
+      {activeHabits.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' }}>
+          {[
+            { label: 'Active Habits', val: activeHabits.length,            color: tokens.textPrimary },
+            { label: 'Done Today',    val: `${completedToday}/${scheduledToday}`, color: completedToday === scheduledToday && scheduledToday > 0 ? tokens.green : tokens.accent },
+            { label: 'Best Streak',   val: `${bestCurrentStreak}d`,         color: bestCurrentStreak >= 7 ? tokens.accent : tokens.textSecondary },
+            { label: '30-Day Rate',   val: `${overallRate30}%`,             color: overallRate30 >= 70 ? tokens.green : overallRate30 >= 40 ? tokens.accent : tokens.red },
+          ].map(item => (
+            <div key={item.label} style={{
+              background: tokens.bgCard, border: `1px solid ${tokens.border}`,
+              borderRadius: '12px', padding: '14px', textAlign: 'center',
+            }}>
+              <div style={{ fontFamily: fonts.display, fontSize: '22px', fontWeight: 700, color: item.color, lineHeight: 1 }}>{item.val}</div>
+              <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '5px' }}>{item.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* AI Insights card */}
+      {activeHabits.length > 0 && (
+        <div style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '12px', padding: '14px 16px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.08em', textTransform: 'uppercase' }}>✦ AI Insights</div>
+            <button
+              onClick={() => loadInsights(true)}
+              disabled={insightsLoading}
+              style={{ background: 'none', border: 'none', cursor: insightsLoading ? 'default' : 'pointer', fontSize: '11px', color: tokens.textMuted, fontFamily: fonts.body, padding: 0, opacity: insightsLoading ? 0.5 : 1 }}
+            >
+              {insightsLoading ? 'Analyzing...' : '↺ Refresh'}
+            </button>
+          </div>
+          {insightsLoading && !aiInsights ? (
+            <div style={{ fontSize: '12px', color: tokens.textMuted }}>Analyzing your habit patterns...</div>
+          ) : aiInsights ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {aiInsights.split('\n').filter(l => l.trim()).map((line, i) => (
+                <div key={i} style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6 }}>{line}</div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: '12px', color: tokens.textMuted }}>Track a few habits to see personalized insights.</div>
+          )}
+        </div>
+      )}
 
       {/* Empty state */}
       {activeHabits.length === 0 && (
@@ -152,12 +266,15 @@ export default function HabitsScreen() {
       {activeHabits.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {activeHabits.map(habit => {
-            const log      = habitLogs.find(l => l.habitId === habit.id && l.date === today);
-            const isDone   = !!(log?.done);
-            const isLoading = toggling.has(habit.id);
-            const streak   = getStreak(habit.id, habitLogs);
-            const last7    = getLast7(habit.id, habitLogs);
-            const linkedGoal = activeGoals.find(g => g.id === habit.goalId);
+            const log         = habitLogs.find(l => l.habitId === habit.id && l.date === today);
+            const isDone      = !!(log?.done);
+            const isLoading   = toggling.has(habit.id);
+            const streak      = getStreak(habit.id, habitLogs);
+            const bestStreak  = getBestStreak(habit.id, habitLogs);
+            const last30      = getLast30(habit.id, habitLogs);
+            const rate30      = getCompletionRate(habit.id, habitLogs, 30);
+            const totalDone   = getTotalCompletions(habit.id, habitLogs);
+            const linkedGoal  = activeGoals.find(g => g.id === habit.goalId);
             const activeToday = isActiveDay(habit, today);
 
             return (
@@ -166,8 +283,8 @@ export default function HabitsScreen() {
                 borderRadius: '12px', padding: '14px 16px',
                 transition: 'border-color 0.2s',
               }}>
+                {/* Top row */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {/* Checkbox */}
                   <button
                     onClick={() => activeToday && handleToggle(habit)}
                     disabled={!activeToday || isLoading}
@@ -185,7 +302,6 @@ export default function HabitsScreen() {
                     {isLoading ? '·' : isDone ? '✓' : ''}
                   </button>
 
-                  {/* Title + meta */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: '14px', fontWeight: 600, color: isDone ? tokens.textMuted : tokens.textPrimary, textDecoration: isDone ? 'line-through' : 'none', lineHeight: 1.3 }}>
                       {habit.title}
@@ -203,7 +319,6 @@ export default function HabitsScreen() {
                     </div>
                   </div>
 
-                  {/* Streak */}
                   {streak > 0 && (
                     <div style={{ textAlign: 'center', flexShrink: 0 }}>
                       <div style={{ fontFamily: fonts.display, fontSize: '18px', fontWeight: 700, color: streak >= 7 ? tokens.accent : tokens.textSecondary, lineHeight: 1 }}>
@@ -213,7 +328,6 @@ export default function HabitsScreen() {
                     </div>
                   )}
 
-                  {/* Actions */}
                   <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                     <button onClick={() => openEdit(habit)}
                       style={{ background: 'none', border: `1px solid ${tokens.border}`, color: tokens.textMuted, borderRadius: '6px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px', fontFamily: fonts.body }}
@@ -228,19 +342,42 @@ export default function HabitsScreen() {
                   </div>
                 </div>
 
-                {/* Last 7 days mini dots */}
-                <div style={{ display: 'flex', gap: '5px', marginTop: '10px', alignItems: 'center' }}>
-                  {last7.map((day, i) => (
-                    <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
-                      <div style={{
-                        width: 10, height: 10, borderRadius: '50%',
-                        background: day.done ? tokens.green : tokens.border,
-                        opacity: day.date === today ? 1 : 0.7,
-                        border: day.date === today ? `2px solid ${tokens.accent}` : 'none',
-                      }} />
-                      <span style={{ fontSize: '8px', color: tokens.textMuted, lineHeight: 1 }}>{day.dayLabel}</span>
-                    </div>
-                  ))}
+                {/* 30-day heatmap */}
+                <div style={{ marginTop: '12px' }}>
+                  <div style={{ display: 'flex', gap: '2px', overflowX: 'auto' }}>
+                    {last30.map((day, i) => (
+                      <div
+                        key={i}
+                        title={`${day.date}: ${day.done ? 'Done' : 'Missed'}`}
+                        style={{
+                          width: 9, height: 9, flexShrink: 0, borderRadius: '2px',
+                          background: day.done ? tokens.green : tokens.border,
+                          opacity: day.done ? 0.9 : 0.45,
+                          outline: day.date === today ? `1.5px solid ${tokens.accent}` : 'none',
+                          outlineOffset: '1px',
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '9px', color: tokens.textMuted }}>
+                    <span>30 days ago</span><span>Today</span>
+                  </div>
+                </div>
+
+                {/* Per-habit stats */}
+                <div style={{ display: 'flex', gap: '20px', marginTop: '10px', paddingTop: '10px', borderTop: `1px solid ${tokens.border}` }}>
+                  <div>
+                    <div style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 700, color: rate30 >= 70 ? tokens.green : rate30 >= 40 ? tokens.accent : tokens.red, lineHeight: 1 }}>{rate30}%</div>
+                    <div style={{ fontSize: '9px', color: tokens.textMuted, marginTop: '2px' }}>30d rate</div>
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 700, color: tokens.textSecondary, lineHeight: 1 }}>{bestStreak}</div>
+                    <div style={{ fontSize: '9px', color: tokens.textMuted, marginTop: '2px' }}>best streak</div>
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 700, color: tokens.textSecondary, lineHeight: 1 }}>{totalDone}</div>
+                    <div style={{ fontSize: '9px', color: tokens.textMuted, marginTop: '2px' }}>total done</div>
+                  </div>
                 </div>
               </div>
             );

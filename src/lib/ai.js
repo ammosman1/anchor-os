@@ -152,6 +152,42 @@ ${entryText}`;
   });
 }
 
+export async function generateHabitInsights(habits, habitLogs) {
+  const today = new Date();
+  const summaries = habits.filter(h => h.active !== false).map(h => {
+    const doneDates = new Set(habitLogs.filter(l => l.habitId === h.id && l.done).map(l => l.date));
+    let completions30 = 0;
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      if (doneDates.has(d.toISOString().split('T')[0])) completions30++;
+    }
+    const streak = (() => {
+      const d2 = new Date(today);
+      const t = d2.toISOString().split('T')[0];
+      if (!doneDates.has(t)) d2.setDate(d2.getDate() - 1);
+      let s = 0;
+      for (let i = 0; i < 365; i++) {
+        const ds = d2.toISOString().split('T')[0];
+        if (!doneDates.has(ds)) break;
+        s++;
+        d2.setDate(d2.getDate() - 1);
+      }
+      return s;
+    })();
+    return `${h.title}: ${completions30}/30 days (${Math.round(completions30 / 30 * 100)}%), current streak ${streak}`;
+  });
+  if (summaries.length === 0) return null;
+  const content = `Analyze these habit tracking stats for someone building better daily routines. Give 2-3 specific, actionable insights. Be encouraging but honest about any patterns worth noting.
+
+${summaries.join('\n')}`;
+  return callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 250,
+    systemExtra: 'Return 2-3 insights as plain text, each starting with •. Be specific and data-driven. No headers, no markdown beyond the bullet points.',
+  });
+}
+
 export async function processBrainDump(rawText) {
   const content = `Process this brain dump and return ONLY valid JSON, no markdown, no preamble:
 {

@@ -9,7 +9,7 @@ import { Card, SectionLabel, MomentumBar, Button } from '../ui';
 
 function LifeScreen() {
   const { user }                                                                    = useAuth();
-  const { projects, tasks, totalDebt, debtAccounts, weeklyReviews, dailyReviews, calendarIntegration } = useData();
+  const { projects, tasks, totalDebt, debtAccounts, weeklyReviews, dailyReviews, calendarIntegration, habits, habitLogs } = useData();
   const [todayEvents,   setTodayEvents]   = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
 
@@ -147,6 +147,59 @@ function LifeScreen() {
     return data;
   })();
 
+  // Habits summary for Life OS
+  const todayStrLife    = new Date().toISOString().split('T')[0];
+  const activeHabitsLife = (habits || []).filter(h => h.active !== false);
+
+  const habitsDoneToday = activeHabitsLife.filter(h =>
+    !!(habitLogs || []).find(l => l.habitId === h.id && l.date === todayStrLife && l.done)
+  ).length;
+
+  const habitsScheduledToday = activeHabitsLife.filter(h => {
+    if (h.frequency === 'weekdays') {
+      const day = new Date().getDay();
+      return day >= 1 && day <= 5;
+    }
+    return true;
+  }).length;
+
+  const topHabitStreaks = activeHabitsLife.map(h => {
+    const doneDates = new Set((habitLogs || []).filter(l => l.habitId === h.id && l.done).map(l => l.date));
+    let d = new Date();
+    const t = d.toISOString().split('T')[0];
+    if (!doneDates.has(t)) d.setDate(d.getDate() - 1);
+    let streak = 0;
+    for (let i = 0; i < 365; i++) {
+      const ds = d.toISOString().split('T')[0];
+      if (!doneDates.has(ds)) break;
+      streak++;
+      d.setDate(d.getDate() - 1);
+    }
+    return { title: h.title, streak };
+  }).sort((a, b) => b.streak - a.streak).slice(0, 3);
+
+  const habits14DayData = (() => {
+    const data = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const ds = d.toISOString().split('T')[0];
+      const scheduled = activeHabitsLife.filter(h => {
+        if (h.frequency === 'weekdays') { const day = new Date(ds + 'T12:00:00').getDay(); return day >= 1 && day <= 5; }
+        return true;
+      }).length;
+      const done = activeHabitsLife.filter(h =>
+        !!(habitLogs || []).find(l => l.habitId === h.id && l.date === ds && l.done)
+      ).length;
+      data.push(scheduled > 0 ? Math.round((done / scheduled) * 100) : 0);
+    }
+    return data;
+  })();
+
+  const habitsAvgRate14 = habits14DayData.length > 0
+    ? Math.round(habits14DayData.reduce((s, v) => s + v, 0) / habits14DayData.length)
+    : 0;
+
   // Life area scores — calculated from real data
   const lifeAreas = [
     {
@@ -247,6 +300,51 @@ function LifeScreen() {
           </div>
         </Card>
       </div>
+
+      {/* Habits Summary */}
+      {activeHabitsLife.length > 0 && (
+        <div className="fade-up stagger-4" style={{ marginBottom: '14px' }}>
+          <Card>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <SectionLabel style={{ marginBottom: 0 }}>Habits — Today</SectionLabel>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: habitsDoneToday === habitsScheduledToday && habitsScheduledToday > 0 ? tokens.green : tokens.accent }}>
+                {habitsDoneToday}/{habitsScheduledToday} done
+              </span>
+            </div>
+
+            {topHabitStreaks.filter(h => h.streak > 0).length > 0 && (
+              <div style={{ marginBottom: '14px' }}>
+                <div style={{ fontSize: '10px', color: tokens.textMuted, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Top Streaks</div>
+                {topHabitStreaks.filter(h => h.streak > 0).map((h, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: i < topHabitStreaks.length - 1 ? '6px' : 0 }}>
+                    <span style={{ fontSize: '12px', color: tokens.textSecondary }}>{h.title}</span>
+                    <span style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 700, color: h.streak >= 7 ? tokens.accent : tokens.textSecondary }}>{h.streak}d</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ fontSize: '10px', color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>14-Day Completion</div>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: habitsAvgRate14 >= 70 ? tokens.green : habitsAvgRate14 >= 40 ? tokens.accent : tokens.red }}>{habitsAvgRate14}% avg</span>
+              </div>
+              <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '36px' }}>
+                {habits14DayData.map((v, i) => (
+                  <div key={i} style={{
+                    flex: 1, height: `${Math.max(4, v)}%`, borderRadius: '2px 2px 0 0',
+                    background: v >= 70 ? tokens.green : v >= 40 ? tokens.accent : v > 0 ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)',
+                    transition: 'height 0.5s ease',
+                  }} title={`${v}%`} />
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '10px', color: tokens.textMuted }}>
+                <span>14 days ago</span><span>Today</span>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Recent Wins + Struggles */}
       <div className="fade-up stagger-4" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
