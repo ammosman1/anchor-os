@@ -396,8 +396,9 @@ export default function HomeScreen() {
     savingsAnalysis,
     savingsHistory,
     habits:         habits || [],
-    habitLogs:      habitLogs || [],
-    dailyReviews:   dailyReviews || [],
+    habitLogs:               habitLogs || [],
+    dailyReviews:            dailyReviews || [],
+    actedOnRecommendations:  actedOnRecommendations || [],
   });
 
   const fetchAI = async () => {

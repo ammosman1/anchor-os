@@ -1,63 +1,230 @@
 // src/components/screens/NotesScreen.js
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addNote, updateNote, deleteNote } from '../../lib/db';
-import { Button, Modal, Input } from '../ui';
+import { Button } from '../ui';
 import { fmtRelativeDate } from '../../lib/dates';
 
 const BLANK_FORM = { title: '', body: '', goalId: '', projectId: '', pinned: false };
 
+// ─── NoteDetail — full-page editor ───────────────────────────────────────────
+
+function NoteDetail({ note, goals, projects, user, onBack, onDeleted }) {
+  const isNew = !note;
+  const [form, setForm] = useState(
+    note
+      ? { title: note.title || '', body: note.body || '', goalId: note.goalId || '', projectId: note.projectId || '', pinned: !!note.pinned }
+      : BLANK_FORM
+  );
+  const [saving, setSaving]       = useState(false);
+  const [saved,  setSaved]        = useState(false);
+  const [delConf, setDelConf]     = useState(false);
+  const [showMeta, setShowMeta]   = useState(false);
+  const saveTimer = useRef(null);
+  const noteIdRef = useRef(note?.id || null);
+  const titleRef  = useRef(null);
+  const bodyRef   = useRef(null);
+
+  useEffect(() => {
+    if (isNew) titleRef.current?.focus();
+    else        bodyRef.current?.focus();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const persist = useCallback(async (data) => {
+    setSaving(true);
+    try {
+      if (noteIdRef.current) {
+        await updateNote(user.uid, noteIdRef.current, data);
+      } else if (data.title.trim()) {
+        const ref = await addNote(user.uid, data);
+        noteIdRef.current = ref.id;
+      }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch {}
+    setSaving(false);
+  }, [user.uid]);
+
+  const scheduleAutoSave = useCallback((nextForm) => {
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => persist(nextForm), 900);
+  }, [persist]);
+
+  const update = (field, value) => {
+    const next = { ...form, [field]: value };
+    setForm(next);
+    scheduleAutoSave(next);
+  };
+
+  // flush on unmount
+  useEffect(() => () => clearTimeout(saveTimer.current), []);
+
+  const handleBack = async () => {
+    clearTimeout(saveTimer.current);
+    if (form.title.trim()) await persist(form);
+    onBack();
+  };
+
+  const handleDelete = async () => {
+    if (noteIdRef.current) {
+      await deleteNote(user.uid, noteIdRef.current);
+      onDeleted();
+    } else {
+      onBack();
+    }
+  };
+
+  const activeGoals    = goals.filter(g => g.status === 'active');
+  const activeProjects = projects.filter(p => p.status === 'active');
+  const linkedGoal    = activeGoals.find(g => g.id === form.goalId);
+  const linkedProject = activeProjects.find(p => p.id === form.projectId);
+
+  const wordCount = form.body.trim() ? form.body.trim().split(/\s+/).length : 0;
+
+  return (
+    <div style={{ maxWidth: 760, margin: '0 auto', display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 120px)' }}>
+
+      {/* Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <button
+          onClick={handleBack}
+          style={{ background: 'none', border: 'none', color: tokens.textMuted, cursor: 'pointer', fontSize: '13px', fontFamily: fonts.body, display: 'flex', alignItems: 'center', gap: '5px', padding: 0 }}
+        >
+          ← Notes
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {saving && <span style={{ fontSize: '11px', color: tokens.textMuted }}>Saving…</span>}
+          {saved  && <span style={{ fontSize: '11px', color: tokens.green }}>✓ Saved</span>}
+          <button
+            onClick={() => update('pinned', !form.pinned)}
+            style={{ background: form.pinned ? tokens.accentDim : 'transparent', border: `1px solid ${form.pinned ? tokens.accent : tokens.border}`, borderRadius: '6px', padding: '4px 10px', fontSize: '11px', color: form.pinned ? tokens.accent : tokens.textMuted, cursor: 'pointer', fontFamily: fonts.body, fontWeight: 600 }}
+          >
+            {form.pinned ? '📌 Pinned' : 'Pin'}
+          </button>
+          <button
+            onClick={() => setShowMeta(v => !v)}
+            style={{ background: showMeta ? tokens.bgCardHover : 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '4px 10px', fontSize: '11px', color: tokens.textMuted, cursor: 'pointer', fontFamily: fonts.body }}
+          >
+            {showMeta ? 'Hide ▲' : 'Links ▼'}
+          </button>
+          {!isNew && (
+            <button
+              onClick={() => setDelConf(true)}
+              style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '4px 10px', fontSize: '11px', color: tokens.red, cursor: 'pointer', fontFamily: fonts.body, opacity: 0.7 }}
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Metadata strip */}
+      {showMeta && (
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', padding: '12px 14px', background: tokens.bgCard, borderRadius: '10px', border: `1px solid ${tokens.border}`, flexWrap: 'wrap' }}>
+          {activeGoals.length > 0 && (
+            <div style={{ flex: '1 1 180px' }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: tokens.textMuted, marginBottom: '5px' }}>Goal</div>
+              <select value={form.goalId} onChange={e => update('goalId', e.target.value)}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '7px', padding: '7px 9px', color: tokens.textPrimary, fontSize: '12px', fontFamily: fonts.body, outline: 'none' }}>
+                <option value="">No goal</option>
+                {activeGoals.map(g => <option key={g.id} value={g.id}>{g.title}</option>)}
+              </select>
+            </div>
+          )}
+          {activeProjects.length > 0 && (
+            <div style={{ flex: '1 1 180px' }}>
+              <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: tokens.textMuted, marginBottom: '5px' }}>Project</div>
+              <select value={form.projectId} onChange={e => update('projectId', e.target.value)}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '7px', padding: '7px 9px', color: tokens.textPrimary, fontSize: '12px', fontFamily: fonts.body, outline: 'none' }}>
+                <option value="">No project</option>
+                {activeProjects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Context tags */}
+      {(linkedGoal || linkedProject) && !showMeta && (
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+          {linkedGoal    && <span style={{ fontSize: '11px', color: tokens.accent, background: tokens.accentDim, padding: '2px 8px', borderRadius: '5px' }}>◆ {linkedGoal.title}</span>}
+          {linkedProject && <span style={{ fontSize: '11px', color: tokens.blue, background: tokens.blueDim || 'rgba(91,143,212,0.12)', padding: '2px 8px', borderRadius: '5px' }}>◈ {linkedProject.title}</span>}
+        </div>
+      )}
+
+      {/* Title */}
+      <input
+        ref={titleRef}
+        value={form.title}
+        onChange={e => update('title', e.target.value)}
+        placeholder="Untitled note"
+        style={{
+          width: '100%', background: 'transparent', border: 'none', outline: 'none',
+          fontFamily: fonts.display, fontSize: '28px', fontWeight: 700,
+          color: tokens.textPrimary, letterSpacing: '-0.02em', lineHeight: 1.25,
+          marginBottom: '16px', boxSizing: 'border-box', padding: 0,
+        }}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); bodyRef.current?.focus(); } }}
+      />
+
+      {/* Body */}
+      <textarea
+        ref={bodyRef}
+        value={form.body}
+        onChange={e => update('body', e.target.value)}
+        placeholder="Start writing…"
+        style={{
+          flex: 1, width: '100%', background: 'transparent', border: 'none', outline: 'none',
+          fontFamily: fonts.body, fontSize: '15px', color: tokens.textSecondary,
+          lineHeight: 1.75, resize: 'none', boxSizing: 'border-box', padding: 0,
+          minHeight: '400px',
+        }}
+      />
+
+      {/* Footer */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '16px', borderTop: `1px solid ${tokens.border}`, marginTop: '16px' }}>
+        <span style={{ fontSize: '11px', color: tokens.textMuted }}>
+          {wordCount > 0 ? `${wordCount} word${wordCount !== 1 ? 's' : ''}` : ''}
+        </span>
+        <span style={{ fontSize: '11px', color: tokens.textMuted }}>
+          {form.pinned && '📌 pinned · '}auto-saves as you type
+        </span>
+      </div>
+
+      {/* Delete confirm */}
+      {delConf && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '12px', padding: '24px', maxWidth: '360px', width: '100%' }}>
+            <div style={{ fontSize: '15px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '8px' }}>Delete this note?</div>
+            <div style={{ fontSize: '13px', color: tokens.textMuted, marginBottom: '20px' }}>"{form.title || 'Untitled'}" will be permanently deleted.</div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <Button variant="ghost" onClick={() => setDelConf(false)}>Cancel</Button>
+              <button onClick={handleDelete} style={{ background: tokens.red, border: 'none', borderRadius: '8px', padding: '9px 18px', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: fonts.body }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Notes list ───────────────────────────────────────────────────────────────
+
 export default function NotesScreen() {
   const { user }              = useAuth();
   const { notes, goals, projects } = useData();
-  const [modalOpen,  setModalOpen]  = useState(false);
-  const [editNote,   setEditNote]   = useState(null);
-  const [form,       setForm]       = useState(BLANK_FORM);
-  const [saving,     setSaving]     = useState(false);
-  const [deleteConf, setDeleteConf] = useState(null);
+  const [view,       setView]       = useState('list'); // 'list' | 'detail'
+  const [activeNote, setActiveNote] = useState(null);   // null = new note
   const [search,     setSearch]     = useState('');
   const [filterGoal, setFilterGoal] = useState('');
 
   const activeGoals    = (goals || []).filter(g => g.status === 'active');
   const activeProjects = (projects || []).filter(p => p.status === 'active');
 
-  const openAdd = () => { setEditNote(null); setForm(BLANK_FORM); setModalOpen(true); };
-  const openEdit = (n) => {
-    setEditNote(n);
-    setForm({ title: n.title || '', body: n.body || '', goalId: n.goalId || '', projectId: n.projectId || '', pinned: !!n.pinned });
-    setModalOpen(true);
-  };
-
-  const handleSave = async () => {
-    if (!form.title.trim() || saving) return;
-    setSaving(true);
-    try {
-      const data = {
-        title:     form.title.trim(),
-        body:      form.body.trim(),
-        goalId:    form.goalId    || null,
-        projectId: form.projectId || null,
-        pinned:    form.pinned,
-      };
-      if (editNote) {
-        await updateNote(user.uid, editNote.id, data);
-      } else {
-        await addNote(user.uid, data);
-      }
-      setModalOpen(false);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!deleteConf) return;
-    await deleteNote(user.uid, deleteConf.id);
-    setDeleteConf(null);
-    setModalOpen(false);
-  };
+  const openNote = (note) => { setActiveNote(note); setView('detail'); };
+  const openNew  = ()     => { setActiveNote(null); setView('detail'); };
 
   const filteredNotes = useMemo(() => {
     return (notes || []).filter(n => {
@@ -73,12 +240,25 @@ export default function NotesScreen() {
   const pinnedNotes = filteredNotes.filter(n => n.pinned);
   const otherNotes  = filteredNotes.filter(n => !n.pinned);
 
+  if (view === 'detail') {
+    return (
+      <NoteDetail
+        note={activeNote}
+        goals={goals || []}
+        projects={projects || []}
+        user={user}
+        onBack={() => setView('list')}
+        onDeleted={() => setView('list')}
+      />
+    );
+  }
+
   const NoteCard = ({ note }) => {
     const linkedGoal    = activeGoals.find(g => g.id === note.goalId);
     const linkedProject = activeProjects.find(p => p.id === note.projectId);
     return (
       <div
-        onClick={() => openEdit(note)}
+        onClick={() => openNote(note)}
         style={{
           background: tokens.bgCard, border: `1px solid ${note.pinned ? tokens.accent : tokens.border}`,
           borderRadius: '10px', padding: '14px 16px', cursor: 'pointer',
@@ -100,7 +280,7 @@ export default function NotesScreen() {
           </div>
         )}
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {linkedGoal && <span style={{ fontSize: '10px', color: tokens.accent }}>◆ {linkedGoal.title}</span>}
+          {linkedGoal    && <span style={{ fontSize: '10px', color: tokens.accent }}>◆ {linkedGoal.title}</span>}
           {linkedProject && <span style={{ fontSize: '10px', color: tokens.blue }}>◈ {linkedProject.title}</span>}
           <span style={{ fontSize: '10px', color: tokens.textMuted, marginLeft: 'auto' }}>{fmtRelativeDate(note.updatedAt)}</span>
         </div>
@@ -116,7 +296,7 @@ export default function NotesScreen() {
           <h1 style={{ fontFamily: fonts.display, fontSize: '26px', fontWeight: 700, color: tokens.textPrimary, margin: 0, letterSpacing: '-0.02em' }}>Notes</h1>
           {notes.length > 0 && <div style={{ fontSize: '13px', color: tokens.textMuted, marginTop: '4px' }}>{notes.length} note{notes.length !== 1 ? 's' : ''}</div>}
         </div>
-        <Button onClick={openAdd}>+ New Note</Button>
+        <Button onClick={openNew}>+ New Note</Button>
       </div>
 
       {/* Search + filter */}
@@ -147,11 +327,11 @@ export default function NotesScreen() {
           <div style={{ fontSize: '13px', marginBottom: '20px', lineHeight: 1.6 }}>
             Capture thoughts, context, and reference material. Pinned notes feed into your AI advisor's context.
           </div>
-          <Button onClick={openAdd}>+ Write First Note</Button>
+          <Button onClick={openNew}>+ Write First Note</Button>
         </div>
       )}
 
-      {/* Pinned section */}
+      {/* Pinned */}
       {pinnedNotes.length > 0 && (
         <div style={{ marginBottom: '20px' }}>
           <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: tokens.accent, marginBottom: '8px' }}>Pinned</div>
@@ -177,92 +357,6 @@ export default function NotesScreen() {
       {notes.length > 0 && filteredNotes.length === 0 && (
         <div style={{ textAlign: 'center', padding: '40px 20px', color: tokens.textMuted, fontSize: '13px' }}>No notes match your search.</div>
       )}
-
-      {/* Edit / Add Modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editNote ? 'Edit Note' : 'New Note'}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <Input
-            label="Title"
-            value={form.title}
-            onChange={v => setForm(p => ({ ...p, title: v }))}
-            placeholder="Note title"
-          />
-          <div>
-            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Content</label>
-            <textarea
-              value={form.body}
-              onChange={e => setForm(p => ({ ...p, body: e.target.value }))}
-              placeholder="Write anything — context, ideas, reference material, links…"
-              rows={8}
-              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '10px 12px', color: tokens.textPrimary, fontSize: '13px', lineHeight: 1.65, resize: 'vertical', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }}
-              onFocus={e => e.target.style.borderColor = tokens.borderFocus}
-              onBlur={e => e.target.style.borderColor = tokens.border}
-            />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            {activeGoals.length > 0 && (
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Goal (optional)</label>
-                <select value={form.goalId} onChange={e => setForm(p => ({ ...p, goalId: e.target.value }))}
-                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                  <option value="">No goal</option>
-                  {activeGoals.map(g => <option key={g.id} value={g.id}>{g.title}</option>)}
-                </select>
-              </div>
-            )}
-            {activeProjects.length > 0 && (
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Project (optional)</label>
-                <select value={form.projectId} onChange={e => setForm(p => ({ ...p, projectId: e.target.value }))}
-                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                  <option value="">No project</option>
-                  {activeProjects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
-                </select>
-              </div>
-            )}
-          </div>
-          {/* Pin toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: tokens.bgGlass, borderRadius: '8px', cursor: 'pointer' }}
-            onClick={() => setForm(p => ({ ...p, pinned: !p.pinned }))}>
-            <div style={{
-              width: 18, height: 18, borderRadius: '4px', border: `2px solid ${form.pinned ? tokens.accent : tokens.border}`,
-              background: form.pinned ? tokens.accentDim : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '11px', color: tokens.accent, transition: 'all 0.12s', flexShrink: 0,
-            }}>
-              {form.pinned ? '✓' : ''}
-            </div>
-            <span style={{ fontSize: '13px', color: tokens.textSecondary }}>Pin this note — surfaces in AI advisor context</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              {editNote && (
-                <Button onClick={() => setDeleteConf(editNote)} variant="ghost" style={{ color: tokens.red, borderColor: tokens.red }}>Delete</Button>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <Button onClick={() => setModalOpen(false)} variant="ghost">Cancel</Button>
-              <Button onClick={handleSave} loading={saving} disabled={!form.title.trim()}>
-                {editNote ? 'Save' : 'Create Note'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Delete confirmation */}
-      <Modal open={!!deleteConf} onClose={() => setDeleteConf(null)} title="Delete Note">
-        {deleteConf && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <p style={{ margin: 0, fontSize: '14px', color: tokens.textSecondary, lineHeight: 1.6 }}>
-              Delete <strong style={{ color: tokens.textPrimary }}>{deleteConf.title}</strong>? This cannot be undone.
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <Button onClick={() => setDeleteConf(null)} variant="ghost">Cancel</Button>
-              <Button onClick={handleDelete} variant="danger">Delete Note</Button>
-            </div>
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }

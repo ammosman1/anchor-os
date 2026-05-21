@@ -95,9 +95,14 @@ function LifeScreen() {
     dailyReviews.filter(r => r.type === 'eod' && r.accomplished).slice(0, 5).forEach(r => {
       wins.push({ text: r.accomplished, date: r.displayDate || r.date, type: 'EOD' });
     });
-    weeklyReviews.filter(r => r.wins).slice(0, 3).forEach(r => {
+    weeklyReviews.filter(r => r.wins && typeof r.wins === 'string').slice(0, 3).forEach(r => {
       r.wins.split('\n').filter(Boolean).slice(0, 2).forEach(w => {
         wins.push({ text: w, date: r.displayDate || r.weekKey, type: 'Weekly' });
+      });
+    });
+    weeklyReviews.filter(r => Array.isArray(r.wins)).slice(0, 3).forEach(r => {
+      r.wins.slice(0, 2).forEach(w => {
+        if (w && typeof w === 'string') wins.push({ text: w, date: r.displayDate || r.weekKey, type: 'Weekly' });
       });
     });
     return wins.slice(0, 6);
@@ -106,9 +111,14 @@ function LifeScreen() {
   // Recent struggles from bottlenecks and stalled projects
   const recentStruggles = (() => {
     const struggles = [];
-    weeklyReviews.filter(r => r.bottlenecks).slice(0, 3).forEach(r => {
+    weeklyReviews.filter(r => r.bottlenecks && typeof r.bottlenecks === 'string').slice(0, 3).forEach(r => {
       r.bottlenecks.split('\n').filter(Boolean).slice(0, 2).forEach(b => {
         struggles.push({ text: b, date: r.displayDate || r.weekKey, type: 'Bottleneck' });
+      });
+    });
+    weeklyReviews.filter(r => Array.isArray(r.bottlenecks)).slice(0, 3).forEach(r => {
+      r.bottlenecks.slice(0, 2).forEach(b => {
+        if (b && typeof b === 'string') struggles.push({ text: b, date: r.displayDate || r.weekKey, type: 'Bottleneck' });
       });
     });
     stalledProjects.slice(0, 3).forEach(p => {

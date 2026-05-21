@@ -317,10 +317,16 @@ export default function FloatingAdvisor({ open, onClose }) {
 
   // ── build AI context (chat) ────────────────────────────────────────────────
   const buildContext = () => {
+    let calendarDensity = null;
+    try {
+      const stored = sessionStorage.getItem('calendarDensity');
+      if (stored) calendarDensity = JSON.parse(stored);
+    } catch {}
     const base = buildHolisticContext({
       goals, tasks, projects, brainDumps, brainDumpDigests, weeklyReviews,
       userProfile, plaidData: manualCashFlow, manualCashFlow,
       debtAccounts, assetAccounts, notes,
+      calendarDensity,
       savingsAnalysis, savingsHistory, actedOnRecommendations,
       habits, habitLogs, dailyReviews,
     });

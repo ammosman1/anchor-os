@@ -95,7 +95,7 @@ export default function GoalDetailScreen() {
   const { goalId }   = useParams();
   const navigate     = useNavigate();
   const { user }     = useAuth();
-  const { goals, tasks, weeklyReviews, projects, plaidItems, brainDumps, userProfile, manualCashFlow, debtAccounts, assetAccounts, totalDebt, totalAssets, savingsAnalysis, savingsHistory, habits, habitLogs, dailyReviews, actedOnRecommendations } = useData();
+  const { goals, tasks, weeklyReviews, projects, plaidItems, brainDumps, brainDumpDigests, notes, userProfile, manualCashFlow, debtAccounts, assetAccounts, totalDebt, totalAssets, savingsAnalysis, savingsHistory, habits, habitLogs, dailyReviews, actedOnRecommendations } = useData();
   const { setPageContext } = usePageContext();
 
   const goal            = goals.find(g => g.id === goalId);
@@ -286,13 +286,15 @@ export default function GoalDetailScreen() {
         goals,
         tasks,
         projects,
-        brainDumps:    brainDumps || [],
-        weeklyReviews: weeklyReviews || [],
+        brainDumps:              brainDumps || [],
+        brainDumpDigests:        brainDumpDigests || [],
+        weeklyReviews:           weeklyReviews || [],
         userProfile,
         plaidData,
         manualCashFlow,
-        debtAccounts:  debtAccounts || [],
-        assetAccounts: assetAccounts || [],
+        debtAccounts:            debtAccounts || [],
+        assetAccounts:           assetAccounts || [],
+        notes:                   notes || [],
         savingsAnalysis,
         savingsHistory,
         habits:                  habits || [],

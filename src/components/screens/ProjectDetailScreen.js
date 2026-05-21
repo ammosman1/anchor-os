@@ -87,7 +87,7 @@ export default function ProjectDetailScreen() {
   const { projectId } = useParams();
   const navigate      = useNavigate();
   const { user, profile, updateProfile } = useAuth();
-  const { projects, tasks, goals, brainDumps, weeklyReviews, userProfile, savingsAnalysis, savingsHistory, habits, habitLogs, dailyReviews, actedOnRecommendations } = useData();
+  const { projects, tasks, goals, brainDumps, brainDumpDigests, notes, weeklyReviews, userProfile, manualCashFlow, debtAccounts, assetAccounts, savingsAnalysis, savingsHistory, habits, habitLogs, dailyReviews, actedOnRecommendations } = useData();
   const { setPageContext } = usePageContext();
 
   const project      = projects.find(p => p.id === projectId);
@@ -149,18 +149,23 @@ export default function ProjectDetailScreen() {
       goals,
       tasks,
       projects,
-      brainDumps: brainDumps || [],
-      weeklyReviews: weeklyReviews || [],
-      userProfile: userProfile || profile,
+      brainDumps:              brainDumps || [],
+      brainDumpDigests:        brainDumpDigests || [],
+      weeklyReviews:           weeklyReviews || [],
+      userProfile:             userProfile || profile,
       calendarDensity,
+      manualCashFlow,
+      debtAccounts:            debtAccounts || [],
+      assetAccounts:           assetAccounts || [],
+      notes:                   notes || [],
       savingsAnalysis,
       savingsHistory,
-      habits:       habits || [],
+      habits:                  habits || [],
       habitLogs:               habitLogs || [],
       dailyReviews:            dailyReviews || [],
       actedOnRecommendations:  actedOnRecommendations || [],
     });
-  }, [goals, tasks, projects, brainDumps, weeklyReviews, userProfile, profile, actedOnRecommendations]);
+  }, [goals, tasks, projects, brainDumps, brainDumpDigests, weeklyReviews, userProfile, profile, manualCashFlow, debtAccounts, assetAccounts, notes, actedOnRecommendations]);
 
   const { score: mScore, factors: mFactors } = useMemo(() => {
     if (!project) return { score: 50, factors: [] };
