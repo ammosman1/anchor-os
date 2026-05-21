@@ -1,7 +1,7 @@
 // src/lib/aiContext.js
 // Assembles full user context for all AI calls so nothing runs blind
 
-import { calculateUrgency, isTaskBlocked } from './tasks';
+import { calculateUrgency, isTaskBlocked, isDeferred } from './tasks';
 import { calculateMomentum } from './momentum';
 import { getProjectNextAction } from './tasks';
 
@@ -40,8 +40,9 @@ export function buildHolisticContext({
   });
   const completedLast14 = recentlyCompleted.length;
   const completedPerWeek = Math.round(completedLast14 / 2);
-  const openTotal = tasks.filter(t => !t.done).length;
-  lines.push(`\nEXECUTION VELOCITY: ${completedLast14} tasks completed in last 14 days (~${completedPerWeek}/week) | ${openTotal} open tasks total`);
+  const openTotal    = tasks.filter(t => !t.done && !isDeferred(t)).length;
+  const deferredTotal = tasks.filter(t => !t.done && isDeferred(t)).length;
+  lines.push(`\nEXECUTION VELOCITY: ${completedLast14} tasks completed in last 14 days (~${completedPerWeek}/week) | ${openTotal} open tasks total${deferredTotal > 0 ? ` | ${deferredTotal} deferred (not yet actionable)` : ''}`);
 
   // Completion notes — what Andrew actually found/learned when finishing tasks
   const withNotes = recentlyCompleted.filter(t => t.completionNote).slice(0, 8);
@@ -144,9 +145,9 @@ export function buildHolisticContext({
     });
   }
 
-  // High-priority open tasks — sorted by urgency, with tags
+  // High-priority open tasks — sorted by urgency, deferred tasks excluded
   const openHigh = tasks
-    .filter(t => !t.done && (t.priority === 'critical' || t.priority === 'high'))
+    .filter(t => !t.done && !isDeferred(t) && (t.priority === 'critical' || t.priority === 'high'))
     .map(t => ({ ...t, _urgency: calculateUrgency(t) }))
     .sort((a, b) => b._urgency - a._urgency)
     .slice(0, 14);
@@ -162,8 +163,18 @@ export function buildHolisticContext({
     });
   }
 
-  // Context breakdown — work vs personal task load
-  const openTasks = tasks.filter(t => !t.done);
+  // Deferred tasks — intentionally scheduled for a future start date, not actionable now
+  const deferredTasks = tasks.filter(t => !t.done && isDeferred(t));
+  if (deferredTasks.length > 0) {
+    lines.push(`\nDEFERRED TASKS (${deferredTasks.length} — cannot be started yet, do NOT schedule or push these):`);
+    deferredTasks.slice(0, 8).forEach(t => {
+      const due = t.dueDate ? ` | due:${t.dueDate}` : '';
+      lines.push(`  • "${t.title}" | available from:${t.startDate}${due}`);
+    });
+  }
+
+  // Context breakdown — work vs personal task load (active tasks only)
+  const openTasks = tasks.filter(t => !t.done && !isDeferred(t));
   const workTasks     = openTasks.filter(t => t.context === 'work');
   const personalTasks = openTasks.filter(t => t.context === 'personal');
   const homeTasks     = openTasks.filter(t => t.context === 'home');

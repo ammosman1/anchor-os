@@ -10,7 +10,7 @@ import {
 import { buildScheduleForDays } from '../../lib/ai';
 import { updateTask } from '../../lib/db';
 import { Button, Spinner, priorityColors } from '../ui';
-import { calculateUrgency } from '../../lib/tasks';
+import { calculateUrgency, isDeferred } from '../../lib/tasks';
 import { isOutdoorTask } from '../../lib/weather';
 const STEPS = ['scope', 'triage', 'building', 'review', 'commit', 'done'];
 
@@ -62,6 +62,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
   const candidateTasks = useMemo(() => tasks
     .filter(t => {
       if (t.done) return false;
+      if (isDeferred(t)) return false;
       if (!t.scheduledDate) return true;
       if (t.scheduledDate <= yesterdayStr) return true;
       return false;

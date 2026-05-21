@@ -9,7 +9,7 @@ import {
 } from '../../lib/calendar';
 import { Button, Modal, Input, Spinner, priorityColors } from '../ui';
 import { updateTask } from '../../lib/db';
-import { RECURRENCE_OPTIONS, isTaskBlocked } from '../../lib/tasks';
+import { RECURRENCE_OPTIONS, isTaskBlocked, isDeferred } from '../../lib/tasks';
 import PlanScheduleFlow from './PlanScheduleFlow';
 import WorkScheduleImportModal from './WorkScheduleImportModal';
 import { fetchWeeklyWeather, weatherCodeToEmoji, DEFAULT_ZIP } from '../../lib/weather';
@@ -200,6 +200,7 @@ export default function CalendarScreen() {
   const unscheduledTasks = useMemo(() => tasks
     .filter(t => {
       if (t.done) return false;
+      if (isDeferred(t)) return false;
       if (t.scheduledStart) return false; // has a time → shows on grid
       return true;
     })
@@ -211,7 +212,7 @@ export default function CalendarScreen() {
 
   // ── All tasks for sidebar "All" view ─────────────────────────────────────
   const allSidebarTasks = useMemo(() => tasks
-    .filter(t => !t.done)
+    .filter(t => !t.done && !isDeferred(t))
     .sort((a, b) => {
       // scheduled first (by scheduledDate then scheduledStart), then by priority
       const aDate = a.scheduledDate || a.scheduledStart?.split('T')[0] || 'z';

@@ -90,6 +90,12 @@ export function nextRecurrenceDate(baseDateStr, recurrence) {
 }
 
 // Returns true if the task has at least one uncompleted blocker.
+// True when a task has a future startDate and shouldn't be scheduled or surfaced yet.
+export function isDeferred(task) {
+  if (!task.startDate) return false;
+  return task.startDate > new Date().toISOString().split('T')[0];
+}
+
 export function isTaskBlocked(task, allTasks) {
   if (!task.blockedBy?.length) return false;
   return task.blockedBy.some(id => {

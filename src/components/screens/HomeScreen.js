@@ -9,7 +9,7 @@ import { buildHolisticContext } from '../../lib/aiContext';
 import { updateTask, addTask, saveProfile, getPulseCache, savePulseCache } from '../../lib/db';
 import { getValidAccessToken, getEvents } from '../../lib/calendar';
 import { calculateMomentum } from '../../lib/momentum';
-import { calculateUrgency, isTaskBlocked } from '../../lib/tasks';
+import { calculateUrgency, isTaskBlocked, isDeferred } from '../../lib/tasks';
 import { fetchMonthlyCashFlow } from '../../lib/plaid';
 import { fetchWeeklyWeather, isOutdoorTask, weatherCodeToEmoji, DEFAULT_ZIP } from '../../lib/weather';
 import {
@@ -114,7 +114,7 @@ export default function HomeScreen() {
 
   // Today's scheduled tasks — catches both date-only and timed schedules
   const scheduledToday = tasks.filter(t => {
-    if (t.done) return false;
+    if (t.done || isDeferred(t)) return false;
     if (t.scheduledDate === todayStr) return true;
     if (t.scheduledStart) {
       const d = new Date(t.scheduledStart);
@@ -124,9 +124,9 @@ export default function HomeScreen() {
     return false;
   }).sort((a, b) => (a.scheduledStart || '').localeCompare(b.scheduledStart || ''));
 
-  // Priority tasks sorted by urgency score — blocked tasks excluded from AI recommendations
+  // Priority tasks sorted by urgency score — blocked and deferred tasks excluded
   const todayTasks = [...tasks]
-    .filter(t => !t.done && !isTaskBlocked(t, tasks) && (t.priority === 'critical' || t.priority === 'high' || t.source === 'brain-dump' || !t.projectId))
+    .filter(t => !t.done && !isTaskBlocked(t, tasks) && !isDeferred(t) && (t.priority === 'critical' || t.priority === 'high' || t.source === 'brain-dump' || !t.projectId))
     .sort((a, b) => calculateUrgency(b) - calculateUrgency(a));
 
   const top3    = todayTasks.slice(0, 3);
@@ -143,7 +143,7 @@ export default function HomeScreen() {
     const now = new Date();
     const in7  = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     return tasks.filter(t => {
-      if (t.done || !t.dueDate) return false;
+      if (t.done || !t.dueDate || isDeferred(t)) return false;
       const due = new Date(t.dueDate + 'T23:59:59');
       return due >= now && due <= in7 && !t.scheduledStart && !t.scheduledDate;
     }).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));

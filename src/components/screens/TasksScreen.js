@@ -4,7 +4,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addTask, updateTask, deleteTask, addNote } from '../../lib/db';
-import { RECURRENCE_OPTIONS, scheduleNextRecurrence, calculateUrgency, isTaskBlocked } from '../../lib/tasks';
+import { RECURRENCE_OPTIONS, scheduleNextRecurrence, calculateUrgency, isTaskBlocked, isDeferred } from '../../lib/tasks';
 import { getValidAccessToken, deleteEvent } from '../../lib/calendar';
 import { Card, Button, Input, Select, SectionLabel, Tag, Modal, EmptyState, priorityColors } from '../ui';
 
@@ -55,7 +55,7 @@ const CATEGORY_TO_CONTEXT = {
 
 const STATUS_FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'blocked', 'done'];
 
-const emptyForm = { title: '', priority: 'high', projectId: '', goalId: '', context: 'personal', notes: '', estimatedMinutes: '', tags: '', recurrence: 'none', focusType: 'deep', dueDate: '', blockedBy: [] };
+const emptyForm = { title: '', priority: 'high', projectId: '', goalId: '', context: 'personal', notes: '', estimatedMinutes: '', tags: '', recurrence: 'none', focusType: 'deep', dueDate: '', startDate: '', blockedBy: [] };
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -221,6 +221,7 @@ export default function TasksScreen() {
       recurrence:       task.recurrence       || 'none',
       focusType:        task.focusType        || 'deep',
       dueDate:          task.dueDate          || '',
+      startDate:        task.startDate        || '',
       blockedBy:        task.blockedBy        || [],
     });
     setEditing(task.id);
@@ -248,7 +249,8 @@ export default function TasksScreen() {
       tags:             parseTags(form.tags),
       recurrence:       form.recurrence || 'none',
       focusType:        form.focusType || 'deep',
-      dueDate:          form.dueDate   || null,
+      dueDate:          form.dueDate    || null,
+      startDate:        form.startDate  || null,
       blockedBy:        form.blockedBy || [],
     };
 
@@ -453,6 +455,7 @@ export default function TasksScreen() {
                       </span>
                     )}
                     {task.dueDate && <span style={{ fontSize: '10px', color: tokens.textMuted }}>· due {task.dueDate}</span>}
+                    {isDeferred(task) && <span style={{ fontSize: '10px', fontWeight: 600, color: tokens.blue, background: tokens.blueDim, padding: '1px 6px', borderRadius: '4px' }}>⏸ starts {task.startDate}</span>}
                     {(task.pushCount || 0) >= 1 && <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.red, background: tokens.redDim, padding: '1px 6px', borderRadius: '4px' }}>↻{task.pushCount}</span>}
                     {task.status === 'scheduled' && <span style={{ fontSize: '10px', color: tokens.blue, fontWeight: 600 }}>· Scheduled</span>}
                     {task.recurrence && task.recurrence !== 'none' && <span style={{ fontSize: '10px', color: tokens.green, fontWeight: 600 }}>· ↻ {task.recurrence}</span>}
@@ -661,17 +664,24 @@ export default function TasksScreen() {
             </div>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <Input label="Est. Minutes" value={form.estimatedMinutes} onChange={v => setForm(f => ({ ...f, estimatedMinutes: v }))} placeholder="30, 60..." type="number" />
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Start Date <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(available from)</span></label>
+              <input type="date" value={form.startDate} max={form.dueDate || undefined}
+                onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box', colorScheme: 'dark' }} />
+            </div>
             <div>
               <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
-              <input type="date" value={form.dueDate} onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))}
+              <input type="date" value={form.dueDate} min={form.startDate || undefined}
+                onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))}
                 style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box', colorScheme: 'dark' }} />
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <Input label="Est. Minutes" value={form.estimatedMinutes} onChange={v => setForm(f => ({ ...f, estimatedMinutes: v }))} placeholder="30, 60..." type="number" />
             <Select label="Focus Type" value={form.focusType} onChange={v => setForm(f => ({ ...f, focusType: v }))} options={FOCUS_TYPES} />
-            <Select label="Repeat" value={form.recurrence} onChange={v => setForm(f => ({ ...f, recurrence: v }))} options={RECURRENCE_OPTIONS} />
           </div>
+          <Select label="Repeat" value={form.recurrence} onChange={v => setForm(f => ({ ...f, recurrence: v }))} options={RECURRENCE_OPTIONS} />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
             <Button onClick={() => { setShowModal(false); setBlockerSearch(''); }} variant="ghost">Cancel</Button>
             <Button onClick={handleSave} loading={saving} disabled={!form.title.trim()}>{editing ? 'Save' : 'Add Task'}</Button>
