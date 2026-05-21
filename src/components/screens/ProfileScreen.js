@@ -49,6 +49,9 @@ export default function ProfileScreen() {
   });
   const [notifLoading,   setNotifLoading]   = useState(false);
 
+  const [testEmailState, setTestEmailState] = useState('idle'); // idle | sending | sent | error
+  const [testEmailMsg,   setTestEmailMsg]   = useState('');
+
   const [calGridStart,   setCalGridStart]   = useState(6);
   const [calGridEnd,     setCalGridEnd]     = useState(22);
   const [savingCalGrid,  setSavingCalGrid]  = useState(false);
@@ -170,6 +173,29 @@ export default function ProfileScreen() {
       setResetSent(true);
     } catch (err) {
       console.error('Password reset error:', err);
+    }
+  };
+
+  const handleTestEmail = async () => {
+    setTestEmailState('sending');
+    setTestEmailMsg('');
+    try {
+      const token = await user.getIdToken();
+      const res   = await fetch('/api/email/test', {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTestEmailState('sent');
+        setTestEmailMsg(`Sent to ${data.sentTo}`);
+      } else {
+        setTestEmailState('error');
+        setTestEmailMsg(data.error || 'Unknown error');
+      }
+    } catch (err) {
+      setTestEmailState('error');
+      setTestEmailMsg(err.message || 'Request failed');
     }
   };
 
@@ -375,6 +401,38 @@ export default function ProfileScreen() {
                 ? <Button onClick={handleEnableNotifications} loading={notifLoading} size="sm">Enable Notifications</Button>
                 : null
             }
+          </div>
+        </Card>
+      </div>
+
+      {/* ── Email Briefings ── */}
+      <div className="fade-up stagger-6" style={{ marginBottom: '12px' }}>
+        <Card>
+          <SectionLabel>Email Briefings</SectionLabel>
+          <p style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '-4px', marginBottom: '14px' }}>
+            Morning briefings (6:30am CST) and weekly digests (Sunday evening) are sent to your account email.
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ fontSize: '13px', color: tokens.textSecondary }}>
+              Sending to: <span style={{ color: tokens.textPrimary, fontWeight: 500 }}>{user?.email}</span>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              {testEmailState === 'sent' && (
+                <span style={{ fontSize: '12px', color: tokens.green }}>✓ {testEmailMsg}</span>
+              )}
+              {testEmailState === 'error' && (
+                <span style={{ fontSize: '12px', color: tokens.red }}>{testEmailMsg}</span>
+              )}
+              <Button
+                onClick={handleTestEmail}
+                loading={testEmailState === 'sending'}
+                size="sm"
+                variant="ghost"
+                disabled={testEmailState === 'sending'}
+              >
+                Send test email
+              </Button>
+            </div>
           </div>
         </Card>
       </div>

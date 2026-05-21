@@ -35,6 +35,9 @@ export function AuthProvider({ children }) {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
+        if (firebaseUser.email) {
+          saveProfile(firebaseUser.uid, { email: firebaseUser.email }).catch(() => {});
+        }
         const prof = await getProfile(firebaseUser.uid);
         setProfile(prof);
       } else {
