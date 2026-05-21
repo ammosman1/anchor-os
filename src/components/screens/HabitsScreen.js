@@ -57,12 +57,15 @@ function getBestStreak(habitId, habitLogs) {
   return best;
 }
 
-function getLast30(habitId, habitLogs) {
+// Returns only days from startDate (or up to 30 days back if no startDate)
+function getHeatmapDays(habitId, habitLogs, startDate) {
   const result = [];
-  const d = new Date();
+  const today = new Date();
+  const start = startDate ? new Date(startDate + 'T12:00:00') : null;
   for (let i = 29; i >= 0; i--) {
-    const day = new Date(d);
+    const day = new Date(today);
     day.setDate(day.getDate() - i);
+    if (start && day < start) continue;
     const ds = day.toISOString().split('T')[0];
     const log = habitLogs.find(l => l.habitId === habitId && l.date === ds);
     result.push({ date: ds, done: !!(log?.done) });
@@ -70,24 +73,34 @@ function getLast30(habitId, habitLogs) {
   return result;
 }
 
-function getCompletionRate(habitId, habitLogs, days = 30) {
-  const d = new Date();
-  let done = 0;
-  for (let i = 0; i < days; i++) {
-    const day = new Date(d);
+// Completion rate counts only from startDate forward (or 30 days if no startDate)
+function getCompletionRate(habitId, habitLogs, startDate) {
+  const today = new Date();
+  const start = startDate ? new Date(startDate + 'T12:00:00') : null;
+  let done = 0, total = 0;
+  for (let i = 0; i < 30; i++) {
+    const day = new Date(today);
     day.setDate(day.getDate() - i);
+    if (start && day < start) break;
+    total++;
     const ds = day.toISOString().split('T')[0];
     const log = habitLogs.find(l => l.habitId === habitId && l.date === ds);
     if (log?.done) done++;
   }
-  return Math.round((done / days) * 100);
+  return total > 0 ? Math.round((done / total) * 100) : 0;
 }
 
 function getTotalCompletions(habitId, habitLogs) {
   return habitLogs.filter(l => l.habitId === habitId && l.done).length;
 }
 
-const BLANK_FORM = { title: '', frequency: 'daily', goalId: '' };
+function formatShortDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+const BLANK_FORM = { title: '', frequency: 'daily', goalId: '', startDate: todayStr() };
 
 export default function HabitsScreen() {
   const { user }                     = useAuth();
@@ -107,7 +120,12 @@ export default function HabitsScreen() {
   const openAdd  = () => { setEditHabit(null); setForm(BLANK_FORM); setModalOpen(true); };
   const openEdit = (h) => {
     setEditHabit(h);
-    setForm({ title: h.title, frequency: h.frequency || 'daily', goalId: h.goalId || '' });
+    setForm({
+      title: h.title,
+      frequency: h.frequency || 'daily',
+      goalId: h.goalId || '',
+      startDate: h.startDate || todayStr(),
+    });
     setModalOpen(true);
   };
 
@@ -115,7 +133,12 @@ export default function HabitsScreen() {
     if (!form.title.trim() || saving) return;
     setSaving(true);
     try {
-      const data = { title: form.title.trim(), frequency: form.frequency, goalId: form.goalId || null };
+      const data = {
+        title: form.title.trim(),
+        frequency: form.frequency,
+        goalId: form.goalId || null,
+        startDate: form.startDate || todayStr(),
+      };
       if (editHabit) {
         await updateHabit(user.uid, editHabit.id, data);
       } else {
@@ -157,9 +180,9 @@ export default function HabitsScreen() {
     [activeHabits, habitLogs]
   );
 
-  const overallRate30 = useMemo(() => {
+  const overallRate = useMemo(() => {
     if (activeHabits.length === 0) return 0;
-    const rates = activeHabits.map(h => getCompletionRate(h.id, habitLogs, 30));
+    const rates = activeHabits.map(h => getCompletionRate(h.id, habitLogs, h.startDate));
     return Math.round(rates.reduce((s, r) => s + r, 0) / rates.length);
   }, [activeHabits, habitLogs]);
 
@@ -207,10 +230,10 @@ export default function HabitsScreen() {
       {activeHabits.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' }}>
           {[
-            { label: 'Active Habits', val: activeHabits.length,            color: tokens.textPrimary },
+            { label: 'Active Habits', val: activeHabits.length,                  color: tokens.textPrimary },
             { label: 'Done Today',    val: `${completedToday}/${scheduledToday}`, color: completedToday === scheduledToday && scheduledToday > 0 ? tokens.green : tokens.accent },
-            { label: 'Best Streak',   val: `${bestCurrentStreak}d`,         color: bestCurrentStreak >= 7 ? tokens.accent : tokens.textSecondary },
-            { label: '30-Day Rate',   val: `${overallRate30}%`,             color: overallRate30 >= 70 ? tokens.green : overallRate30 >= 40 ? tokens.accent : tokens.red },
+            { label: 'Best Streak',   val: `${bestCurrentStreak}d`,              color: bestCurrentStreak >= 7 ? tokens.accent : tokens.textSecondary },
+            { label: 'Avg Rate',      val: `${overallRate}%`,                    color: overallRate >= 70 ? tokens.green : overallRate >= 40 ? tokens.accent : tokens.red },
           ].map(item => (
             <div key={item.label} style={{
               background: tokens.bgCard, border: `1px solid ${tokens.border}`,
@@ -271,11 +294,13 @@ export default function HabitsScreen() {
             const isLoading   = toggling.has(habit.id);
             const streak      = getStreak(habit.id, habitLogs);
             const bestStreak  = getBestStreak(habit.id, habitLogs);
-            const last30      = getLast30(habit.id, habitLogs);
-            const rate30      = getCompletionRate(habit.id, habitLogs, 30);
+            const heatmap     = getHeatmapDays(habit.id, habitLogs, habit.startDate);
+            const rate        = getCompletionRate(habit.id, habitLogs, habit.startDate);
             const totalDone   = getTotalCompletions(habit.id, habitLogs);
             const linkedGoal  = activeGoals.find(g => g.id === habit.goalId);
             const activeToday = isActiveDay(habit, today);
+            const startLabel  = habit.startDate ? formatShortDate(habit.startDate) : '30 days ago';
+            const isNew       = habit.startDate && heatmap.length < 30;
 
             return (
               <div key={habit.id} style={{
@@ -310,6 +335,9 @@ export default function HabitsScreen() {
                       <span style={{ fontSize: '10px', color: tokens.textMuted }}>
                         {FREQUENCIES.find(f => f.value === habit.frequency)?.label || 'Every day'}
                       </span>
+                      {isNew && (
+                        <span style={{ fontSize: '10px', color: tokens.blue }}>Started {startLabel}</span>
+                      )}
                       {linkedGoal && (
                         <span style={{ fontSize: '10px', color: tokens.accent }}>◆ {linkedGoal.title}</span>
                       )}
@@ -342,10 +370,10 @@ export default function HabitsScreen() {
                   </div>
                 </div>
 
-                {/* 30-day heatmap */}
+                {/* Heatmap — only days from startDate */}
                 <div style={{ marginTop: '12px' }}>
                   <div style={{ display: 'flex', gap: '2px', overflowX: 'auto' }}>
-                    {last30.map((day, i) => (
+                    {heatmap.map((day, i) => (
                       <div
                         key={i}
                         title={`${day.date}: ${day.done ? 'Done' : 'Missed'}`}
@@ -360,15 +388,15 @@ export default function HabitsScreen() {
                     ))}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '9px', color: tokens.textMuted }}>
-                    <span>30 days ago</span><span>Today</span>
+                    <span>{startLabel}</span><span>Today</span>
                   </div>
                 </div>
 
                 {/* Per-habit stats */}
                 <div style={{ display: 'flex', gap: '20px', marginTop: '10px', paddingTop: '10px', borderTop: `1px solid ${tokens.border}` }}>
                   <div>
-                    <div style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 700, color: rate30 >= 70 ? tokens.green : rate30 >= 40 ? tokens.accent : tokens.red, lineHeight: 1 }}>{rate30}%</div>
-                    <div style={{ fontSize: '9px', color: tokens.textMuted, marginTop: '2px' }}>30d rate</div>
+                    <div style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 700, color: rate >= 70 ? tokens.green : rate >= 40 ? tokens.accent : tokens.red, lineHeight: 1 }}>{rate}%</div>
+                    <div style={{ fontSize: '9px', color: tokens.textMuted, marginTop: '2px' }}>rate</div>
                   </div>
                   <div>
                     <div style={{ fontFamily: fonts.display, fontSize: '14px', fontWeight: 700, color: tokens.textSecondary, lineHeight: 1 }}>{bestStreak}</div>
@@ -409,6 +437,16 @@ export default function HabitsScreen() {
                 >{f.label}</button>
               ))}
             </div>
+          </div>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Start Date</label>
+            <input
+              type="date"
+              value={form.startDate}
+              max={todayStr()}
+              onChange={e => setForm(p => ({ ...p, startDate: e.target.value }))}
+              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box', colorScheme: 'dark' }}
+            />
           </div>
           {activeGoals.length > 0 && (
             <div>

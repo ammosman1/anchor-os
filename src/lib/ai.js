@@ -156,12 +156,16 @@ export async function generateHabitInsights(habits, habitLogs) {
   const today = new Date();
   const summaries = habits.filter(h => h.active !== false).map(h => {
     const doneDates = new Set(habitLogs.filter(l => l.habitId === h.id && l.done).map(l => l.date));
-    let completions30 = 0;
-    for (let i = 0; i < 30; i++) {
+    const start = h.startDate ? new Date(h.startDate + 'T12:00:00') : null;
+    const daysSinceStart = start ? Math.max(1, Math.floor((today - start) / 86400000) + 1) : 30;
+    const windowDays = Math.min(30, daysSinceStart);
+    let completions = 0;
+    for (let i = 0; i < windowDays; i++) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      if (doneDates.has(d.toISOString().split('T')[0])) completions30++;
+      if (doneDates.has(d.toISOString().split('T')[0])) completions++;
     }
+    const rate = Math.round((completions / windowDays) * 100);
     const streak = (() => {
       const d2 = new Date(today);
       const t = d2.toISOString().split('T')[0];
@@ -175,7 +179,8 @@ export async function generateHabitInsights(habits, habitLogs) {
       }
       return s;
     })();
-    return `${h.title}: ${completions30}/30 days (${Math.round(completions30 / 30 * 100)}%), current streak ${streak}`;
+    const ageNote = daysSinceStart < 14 ? ` (only ${daysSinceStart} days old — new habit)` : '';
+    return `${h.title}: ${completions}/${windowDays} days (${rate}%), current streak ${streak}${ageNote}`;
   });
   if (summaries.length === 0) return null;
   const content = `Analyze these habit tracking stats for someone building better daily routines. Give 2-3 specific, actionable insights. Be encouraging but honest about any patterns worth noting.
