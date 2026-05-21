@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/agent/weekly",
-      "schedule": "0 12 * * 1"
+      "schedule": "0 0 * * 1"
     }
   ]
 }

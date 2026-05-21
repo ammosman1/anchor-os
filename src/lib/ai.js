@@ -718,6 +718,69 @@ Rules: 2-4 milestones, 5-15 specific tasks, task titles start with action verbs,
   }
 }
 
+export async function getTodaysPulse({ holisticContext, tasks, goals, habits, dailyReviews }) {
+  const today   = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+  const openTasks     = (tasks || []).filter(t => !t.done);
+  const criticalTasks = openTasks.filter(t => t.priority === 'critical').slice(0, 4);
+  const in5           = new Date(today.getTime() + 5 * 24 * 60 * 60 * 1000);
+  const deadlineRisk  = openTasks.filter(t => {
+    if (!t.dueDate) return false;
+    const due = new Date(t.dueDate + 'T23:59:59');
+    return due >= today && due <= in5 && !t.scheduledStart && !t.scheduledDate;
+  }).slice(0, 3);
+
+  const activeGoals = (goals || []).filter(g => g.status === 'active');
+  const atRiskGoals = activeGoals.filter(g => g.likelihoodScore != null && g.likelihoodScore < 50);
+
+  const morningDone  = (dailyReviews || []).some(r => r.type === 'morning' && r.date === today.toDateString());
+  const activeHabits = (habits || []).filter(h => h.active !== false);
+
+  const content = `Generate Today's Pulse for ${today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.
+
+Today's Pulse surfaces what needs ATTENTION — not what to work on (that's the Daily Briefing).
+Focus on: risks, things being neglected, streaks at risk, imminent deadlines, drifting goals.
+If everything looks genuinely healthy, surface one positive momentum observation.
+
+DATA:
+- Critical open tasks: ${criticalTasks.map(t => t.title).join(', ') || 'none'}
+- Unscheduled tasks due within 5 days: ${deadlineRisk.map(t => `${t.title} (due ${t.dueDate})`).join(', ') || 'none'}
+- Goals at risk (<50%): ${atRiskGoals.map(g => `${g.title} (${g.likelihoodScore}%)`).join(', ') || 'none'}
+- Morning review done today: ${morningDone ? 'yes' : 'no'}
+- Active habits tracked: ${activeHabits.length}
+
+Return ONLY valid JSON:
+{
+  "headline": "One sharp sentence under 12 words — what today's intelligence picture looks like",
+  "items": [
+    {
+      "type": "risk|task|goal|habit|finance|opportunity",
+      "icon": "⚑|⏱|◎|○|$|✦",
+      "text": "Specific named observation (1-2 sentences). Must name actual tasks/goals/habits from the data.",
+      "actionLabel": "Short label e.g. 'Schedule →' or null",
+      "link": "/goals|/calendar|/tasks|/debt|/review or null"
+    }
+  ]
+}
+
+Rules: 2-3 items max. Ordered by urgency. Every item names something specific. No generic advice.`;
+
+  const raw = await callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 500,
+    systemExtra: (holisticContext ? `FULL USER CONTEXT:\n${holisticContext}\n\n` : '') + 'Return ONLY valid JSON. No markdown. No explanation.',
+  });
+
+  try {
+    const clean = (raw || '{}').replace(/```json|```/g, '').trim();
+    const match = clean.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function scoreGoals({ goals, tasks, brainDumps, plaidData = null, manualCashFlow = null, reviewHistory = [] }) {
   try {
     const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;

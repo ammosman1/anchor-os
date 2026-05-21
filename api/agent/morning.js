@@ -1,8 +1,10 @@
 // api/agent/morning.js
 // Cron: 6:30am CST (11:30 UTC) daily
 // Generates a morning briefing with full context: goals, Plaid, reviews, deadline risks.
+// Sends a push notification (short teaser) + HTML email (full briefing via Resend).
 
 import { getAdminDb, getAdminMessaging } from '../_firebase-admin.js';
+import { sendEmail, buildMorningEmail } from '../_email.js';
 
 const SYSTEM = `You are Anchor — Andrew Mosman's personal AI operating system.
 Be brief, direct, strategic. No fluff. Think chief of staff, not life coach.`;
@@ -158,6 +160,29 @@ Write a sharp 2-sentence morning briefing. What is the single most important thi
       const firstLine = briefing.split('\n').filter(Boolean)[0]?.slice(0, 150) || briefing.slice(0, 150);
 
       await sendPush(user.fcmToken, '☀ Morning Anchor', firstLine, '/');
+
+      // ── Morning email ─────────────────────────────────────────────────────
+      const userEmail = user.email;
+      if (userEmail) {
+        const appUrl = process.env.APP_URL || `https://${process.env.VERCEL_URL}`;
+        const html   = buildMorningEmail({
+          date:           today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }),
+          briefing,
+          scheduledToday,
+          highPriority,
+          atRisk,
+          deadlineRisk:   deadlineRisk.map(d => d),
+          reworkTasks,
+          plaidSummary,
+          appUrl,
+        });
+        await sendEmail({
+          to:      userEmail,
+          subject: `☀ Morning Briefing — ${today.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`,
+          html,
+          text:    briefing,
+        });
+      }
 
       if (reworkTasks.length > 0) {
         const reworkMsg = reworkTasks.length === 1

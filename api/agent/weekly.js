@@ -1,8 +1,10 @@
 // api/agent/weekly.js
-// Cron: Monday 6:00am CST (12:00 UTC Monday) — weekly momentum review
+// Cron: Sunday 7pm CDT / 6pm CST (00:00 UTC Monday) — weekly momentum review
 // Generates a weekly synthesis with Plaid data, goal trajectory, and execution breakdown.
+// Sends a push notification (first line) + HTML email (full synthesis via Resend).
 
 import { getAdminDb, getAdminMessaging } from '../_firebase-admin.js';
+import { sendEmail, buildWeeklyEmail } from '../_email.js';
 
 const SYSTEM = `You are Anchor — Andrew Mosman's personal AI operating system.
 Be brief, direct, strategic. No fluff. Think chief of staff, not life coach.`;
@@ -163,14 +165,41 @@ ${lastReview ? `LAST WEEKLY REVIEW:
 
 ${plaidSummary ? `FINANCIALS: ${plaidSummary}` : ''}
 
-Write a sharp weekly synthesis push notification: the #1 win, the #1 risk, and what needs focus next week. Max 2 sentences, under 160 chars total.`;
+Write a weekly synthesis. Format:
+Line 1: One sentence — the week's headline (win + risk), under 160 chars.
+Then 2-4 lines covering: execution quality, goal trajectory, top risk heading into next week, and what to focus on.
+Be specific — name actual tasks, goals, and metrics. No fluff. Max 200 words total.`;
 
-      const summary = (await callAI(prompt)).split('\n').filter(Boolean)[0]?.slice(0, 160) || 'Your week is done. Tap to review and plan the next one.';
-      await sendPush(user.fcmToken, '◆ Weekly Synthesis', summary);
+      const fullSummary = await callAI(prompt, 500) || 'Week complete. Tap to review and plan the next one.';
+      const summaryLines = fullSummary.split('\n').filter(Boolean);
+      const pushLine     = summaryLines[0]?.slice(0, 160) || fullSummary.slice(0, 160);
+
+      await sendPush(user.fcmToken, '◆ Weekly Digest', pushLine);
+
+      // ── Weekly email ─────────────────────────────────────────────────────
+      const userEmail = user.email;
+      if (userEmail) {
+        const appUrl = process.env.APP_URL || `https://${process.env.VERCEL_URL}`;
+        const html   = buildWeeklyEmail({
+          weekEnd,
+          synthesis:      fullSummary,
+          completedCount: completedThisWeek.length,
+          deepDone, shallowDone, adminDone,
+          onTrack, atRisk, improving, declining,
+          plaidSummary,
+          appUrl,
+        });
+        await sendEmail({
+          to:      userEmail,
+          subject: `◆ Weekly Digest — ${weekEnd}`,
+          html,
+          text:    fullSummary,
+        });
+      }
 
       // Save to AI cache
       await db.collection('users').doc(uid).collection('aiCache').doc('weekly-review').set({
-        text:             summary,
+        text:             fullSummary,
         completedCount:   completedThisWeek.length,
         deepDone, shallowDone, adminDone,
         atRiskCount:      atRisk.length,
@@ -179,7 +208,7 @@ Write a sharp weekly synthesis push notification: the #1 win, the #1 risk, and w
         cachedAtMs:       Date.now(),
       });
 
-      results.push({ uid, completedCount: completedThisWeek.length, atRisk: atRisk.length, sent: !!user.fcmToken });
+      results.push({ uid, completedCount: completedThisWeek.length, atRisk: atRisk.length, sent: !!user.fcmToken, emailed: !!userEmail });
     }
 
     return res.status(200).json({ ok: true, results });

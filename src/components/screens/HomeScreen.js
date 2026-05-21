@@ -4,9 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { getAIFocusRecommendation, getWeeklyFocusStatement } from '../../lib/ai';
+import { getAIFocusRecommendation, getWeeklyFocusStatement, getTodaysPulse } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
-import { updateTask, addTask, saveProfile } from '../../lib/db';
+import { updateTask, addTask, saveProfile, getPulseCache, savePulseCache } from '../../lib/db';
 import { getValidAccessToken, getEvents } from '../../lib/calendar';
 import { calculateMomentum } from '../../lib/momentum';
 import { calculateUrgency, isTaskBlocked } from '../../lib/tasks';
@@ -73,6 +73,9 @@ export default function HomeScreen() {
   const [weekFocus,     setWeekFocus]     = useState(null);
   const [weekFocusLoading, setWeekFocusLoading] = useState(false);
   const [quote]                         = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
+
+  const [pulseData,    setPulseData]    = useState(null);
+  const [pulseLoading, setPulseLoading] = useState(false);
 
   const [feedback, setFeedback] = useState({ open: false, key: '', text: '', saving: false });
   const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
@@ -428,6 +431,31 @@ export default function HomeScreen() {
     setWeekFocusLoading(false);
   };
 
+  const fetchPulse = async (force = false) => {
+    if (pulseLoading) return;
+    if (!force) {
+      try {
+        const cached = await getPulseCache(user.uid);
+        if (cached) { setPulseData(cached); return; }
+      } catch {}
+    }
+    setPulseLoading(true);
+    try {
+      const result = await getTodaysPulse({
+        holisticContext: getHolisticContext(),
+        tasks,
+        goals:        goals || [],
+        habits:       habits || [],
+        dailyReviews: dailyReviews || [],
+      });
+      if (result) {
+        setPulseData(result);
+        savePulseCache(user.uid, result).catch(() => {});
+      }
+    } catch {}
+    finally { setPulseLoading(false); }
+  };
+
   const handleFeedbackSubmit = async () => {
     if (!feedback.text.trim()) return;
     setFeedback(f => ({ ...f, saving: true }));
@@ -450,7 +478,8 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchAI();
     fetchWeekFocus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: avoids spamming the AI API on every render; fetchAI/fetchWeekFocus lack useCallback
+    fetchPulse();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: avoids spamming the AI API on every render; fetch helpers lack useCallback
   }, []);
 
   useEffect(() => {
@@ -659,6 +688,69 @@ export default function HomeScreen() {
       )}
 
 
+
+      {/* Today's Pulse — proactive intelligence, pre-generated or on-demand */}
+      {(pulseData || pulseLoading) && (
+        <div className="fade-up stagger-2" style={{ marginBottom: '14px' }}>
+          <div style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: tokens.radiusLg, padding: '16px 18px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: pulseData ? '12px' : 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.textMuted, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Today's Pulse</span>
+                {pulseData && <span style={{ fontSize: '10px', color: tokens.textMuted }}>· {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+              </div>
+              <button
+                onClick={() => { setPulseData(null); fetchPulse(true); }}
+                disabled={pulseLoading}
+                style={{ background: 'none', border: 'none', fontSize: '13px', color: pulseLoading ? tokens.textMuted : tokens.accent, cursor: pulseLoading ? 'default' : 'pointer', opacity: pulseLoading ? 0.5 : 1, fontFamily: fonts.body }}
+              >
+                {pulseLoading ? '...' : '↻'}
+              </button>
+            </div>
+
+            {pulseLoading && !pulseData && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '4px' }}>
+                <Spinner size={13} />
+                <span style={{ fontSize: '12px', color: tokens.textMuted }}>Reading your day...</span>
+              </div>
+            )}
+
+            {pulseData && (
+              <>
+                {pulseData.headline && (
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '10px', lineHeight: 1.5 }}>
+                    {pulseData.headline}
+                  </div>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  {(pulseData.items || []).map((item, i) => {
+                    const typeColor =
+                      item.type === 'risk'        ? tokens.red   :
+                      item.type === 'task'        ? tokens.amber :
+                      item.type === 'goal'        ? tokens.amber :
+                      item.type === 'opportunity' ? tokens.green :
+                      item.type === 'finance'     ? tokens.green :
+                      tokens.textMuted;
+                    return (
+                      <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '8px 10px', background: tokens.bgCardHover, borderRadius: '8px' }}>
+                        <span style={{ fontSize: '13px', flexShrink: 0, marginTop: '1px', color: typeColor }}>{item.icon}</span>
+                        <span style={{ flex: 1, fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.55 }}>{item.text}</span>
+                        {item.actionLabel && item.link && (
+                          <button
+                            onClick={() => navigate(item.link)}
+                            style={{ background: 'none', border: 'none', fontSize: '11px', color: tokens.accent, cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0, whiteSpace: 'nowrap', fontWeight: 600, padding: 0 }}
+                          >
+                            {item.actionLabel}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* AI Daily Briefing — structured card */}
       <div className="fade-up stagger-2" style={{ marginBottom: '14px' }}>

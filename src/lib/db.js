@@ -52,6 +52,30 @@ export const clearAICache = async (uid, key) => {
   try { await deleteDoc(doc(db, 'users', uid, 'aiCache', key)); } catch (err) { if (isDev) console.warn('clearAICache error:', err); }
 };
 
+// Today's Pulse cache — keyed by date so it auto-expires at midnight
+function pulseKey() {
+  const d = new Date();
+  return `pulse-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+export const getPulseCache = async (uid) => {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid, 'aiCache', pulseKey()));
+    if (!snap.exists()) return null;
+    const raw = snap.data()?.pulseData;
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+export const savePulseCache = (uid, pulseData) =>
+  setDoc(doc(db, 'users', uid, 'aiCache', pulseKey()), {
+    pulseData:   JSON.stringify(pulseData),
+    cachedAt:    serverTimestamp(),
+    cachedAtMs:  Date.now(),
+  });
+
 // ─── Projects ─────────────────────────────────────────────────────────────────
 export const addProject = (uid, data) =>
   addDoc(collection(db, 'users', uid, 'projects'), {
