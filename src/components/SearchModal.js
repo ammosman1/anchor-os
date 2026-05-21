@@ -90,7 +90,16 @@ export default function SearchModal({ open, onClose }) {
   const navigate                     = useNavigate();
   const [query,       setQuery]       = useState('');
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [winWidth,    setWinWidth]    = useState(window.innerWidth);
   const inputRef                     = useRef(null);
+
+  useEffect(() => {
+    const handler = () => setWinWidth(window.innerWidth);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+
+  const isMobile = winWidth < 600;
 
   useEffect(() => {
     if (open) {
@@ -150,11 +159,14 @@ export default function SearchModal({ open, onClose }) {
 
       {/* Panel */}
       <div className="fade-up" style={{
-        position: 'fixed', top: '12vh', left: '50%', transform: 'translateX(-50%)',
-        width: 'min(640px, calc(100vw - 32px))',
+        position: 'fixed',
+        top: isMobile ? '4px' : '12vh',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: isMobile ? 'calc(100vw - 16px)' : 'min(640px, calc(100vw - 32px))',
         background: tokens.bgCard,
         border: `1px solid ${tokens.border}`,
-        borderRadius: '16px',
+        borderRadius: '12px',
         boxShadow: '0 24px 64px rgba(0,0,0,0.24)',
         zIndex: 501,
         overflow: 'hidden',
@@ -184,11 +196,11 @@ export default function SearchModal({ open, onClose }) {
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.textMuted, fontSize: '13px', padding: '3px 6px', borderRadius: '4px', lineHeight: 1, fontFamily: fonts.body }}
             >✕</button>
           )}
-          <kbd style={{ fontSize: '10px', color: tokens.textMuted, border: `1px solid ${tokens.border}`, borderRadius: '4px', padding: '2px 6px', fontFamily: fonts.body, flexShrink: 0, background: tokens.bgInput }}>Esc</kbd>
+          {!isMobile && <kbd style={{ fontSize: '10px', color: tokens.textMuted, border: `1px solid ${tokens.border}`, borderRadius: '4px', padding: '2px 6px', fontFamily: fonts.body, flexShrink: 0, background: tokens.bgInput }}>Esc</kbd>}
         </div>
 
         {/* Results */}
-        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+        <div style={{ maxHeight: 'calc(100dvh - 160px)', overflowY: 'auto' }}>
           {query.trim().length < 2 ? (
             <div style={{ padding: '28px 20px', textAlign: 'center' }}>
               <div style={{ fontSize: '13px', color: tokens.textMuted, marginBottom: '16px' }}>
@@ -272,8 +284,8 @@ export default function SearchModal({ open, onClose }) {
           )}
         </div>
 
-        {/* Footer keyboard hints */}
-        {flatItems.length > 0 && (
+        {/* Footer keyboard hints — desktop only */}
+        {!isMobile && flatItems.length > 0 && (
           <div style={{ padding: '8px 20px', borderTop: `1px solid ${tokens.border}`, display: 'flex', gap: '16px', fontSize: '10px', color: tokens.textMuted }}>
             <span>↑↓ navigate</span>
             <span>↵ open</span>
