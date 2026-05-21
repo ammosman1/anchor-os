@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { getDebtAdvice } from '../../lib/ai';
 import { auth } from '../../lib/firebase';
-import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask, addAssetAccount, updateAssetAccount, deleteAssetAccount, addDebtBalanceSnapshot, saveSavingsAnalysis, saveSavingsAnalysisMonth, markRecommendationActedOn, markSubscriptionActedOn, getAICache, saveAICache } from '../../lib/db';
+import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask, addAssetAccount, updateAssetAccount, deleteAssetAccount, addDebtBalanceSnapshot, saveSavingsAnalysis, saveSavingsAnalysisMonth, markRecommendationActedOn, markSubscriptionActedOn, markSubscriptionKept, getAICache, saveAICache } from '../../lib/db';
 import { openPlaidLink, calcCashFlow, formatTxAmount, formatTxDate } from '../../lib/plaid';
 import { Card, Button, Input, Select, SectionLabel, MomentumBar, Modal, AICard, EmptyState } from '../ui';
 
@@ -233,6 +233,7 @@ export default function DebtScreen() {
   const [aiText,        setAiText]        = useState('');
   const [aiLoading,     setAiLoading]     = useState(false);
   const [aiCachedAt,    setAiCachedAt]    = useState(null);
+  const [keepItModal,   setKeepItModal]   = useState({ open: false, sub: null, reason: '', saving: false });
   const [showAllTx,     setShowAllTx]     = useState(false);
 
   // ── Plaid ─────────────────────────────────────────────────────────────────
@@ -1168,11 +1169,12 @@ export default function DebtScreen() {
             {/* Subscriptions */}
             {(() => {
               const makeSubId  = name => ('sub-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-')).slice(0, 60);
-              const actedOnSubIds = new Set((actedOnRecommendations || []).filter(r => r.type === 'subscription').map(r => r.id));
+              const actedOnSubIds = new Set((actedOnRecommendations || []).filter(r => r.type === 'subscription' || r.type === 'subscription_kept').map(r => r.id));
               const allSubs    = (savingsAnalysis.subscriptions || []).filter(s => s.action !== 'keep');
               const activeSubs = allSubs.filter(s => !actedOnSubIds.has(makeSubId(s.name)));
               const lockedSubs = (actedOnRecommendations || []).filter(r => r.type === 'subscription');
-              if (activeSubs.length === 0 && lockedSubs.length === 0) return null;
+              const keptSubs   = (actedOnRecommendations || []).filter(r => r.type === 'subscription_kept');
+              if (activeSubs.length === 0 && lockedSubs.length === 0 && keptSubs.length === 0) return null;
               return (
                 <div style={{ marginBottom: '16px' }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>Subscriptions to Review</div>
@@ -1187,10 +1189,16 @@ export default function DebtScreen() {
                             color: sub.action === 'cancel' ? tokens.red : tokens.amber,
                           }}>{sub.action}</span>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                           <span style={{ fontSize: '12px', fontWeight: 600, color: tokens.textSecondary, fontFamily: fonts.display }}>
                             ${(sub.estimatedMonthly || 0).toFixed(2)}/mo
                           </span>
+                          <button
+                            onClick={() => setKeepItModal({ open: true, sub, reason: '', saving: false })}
+                            style={{ fontSize: '10px', color: tokens.textMuted, background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '5px', cursor: 'pointer', fontFamily: fonts.body, padding: '3px 8px', fontWeight: 500, whiteSpace: 'nowrap' }}
+                          >
+                            Keep It
+                          </button>
                           <button
                             onClick={() => markSubscriptionActedOn(user.uid, sub)}
                             style={{ fontSize: '10px', color: tokens.green, background: 'rgba(109,191,158,0.1)', border: `1px solid rgba(109,191,158,0.25)`, borderRadius: '5px', cursor: 'pointer', fontFamily: fonts.body, padding: '3px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}
@@ -1213,6 +1221,22 @@ export default function DebtScreen() {
                               <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', fontWeight: 700, background: 'rgba(109,191,158,0.1)', color: tokens.green }}>{s.description}</span>
                             </div>
                             <span style={{ fontSize: '12px', fontWeight: 700, color: tokens.green, fontFamily: fonts.display, whiteSpace: 'nowrap' }}>+${(s.monthlySavings || 0).toFixed(2)}/mo</span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    {keptSubs.length > 0 && (
+                      <>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginTop: '6px', marginBottom: '2px' }}>
+                          Keeping
+                        </div>
+                        {keptSubs.map((s, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 14px', background: tokens.bgCardHover, borderRadius: '8px', border: `1px solid ${tokens.border}`, opacity: 0.65 }}>
+                            <div>
+                              <span style={{ fontSize: '12px', color: tokens.textPrimary, fontWeight: 500 }}>{s.title}</span>
+                              {s.description && <span style={{ fontSize: '11px', color: tokens.textMuted, marginLeft: '8px', fontStyle: 'italic' }}>{s.description}</span>}
+                            </div>
+                            <span style={{ fontSize: '11px', color: tokens.textMuted, fontFamily: fonts.display, whiteSpace: 'nowrap' }}>${(s.estimatedMonthly || 0).toFixed(2)}/mo</span>
                           </div>
                         ))}
                       </>
@@ -1586,6 +1610,48 @@ export default function DebtScreen() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      {/* ── Keep It Modal ── */}
+      <Modal open={keepItModal.open} onClose={() => setKeepItModal(m => ({ ...m, open: false }))} title="Keep This Subscription?">
+        {keepItModal.sub && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ padding: '14px 16px', background: tokens.bgGlass, borderRadius: '10px', border: `1px solid ${tokens.border}`, textAlign: 'center' }}>
+              <div style={{ fontSize: '16px', fontWeight: 700, color: tokens.textPrimary, marginBottom: '4px' }}>{keepItModal.sub.name}</div>
+              <div style={{ fontFamily: fonts.display, fontSize: '28px', fontWeight: 700, color: tokens.amber }}>${((keepItModal.sub.estimatedMonthly || 0) * 12).toFixed(0)}/year</div>
+              <div style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '2px' }}>${(keepItModal.sub.estimatedMonthly || 0).toFixed(2)}/month</div>
+            </div>
+            <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6, textAlign: 'center' }}>
+              Is this subscription delivering <strong>${((keepItModal.sub.estimatedMonthly || 0) * 12).toFixed(0)} of value</strong> to you each year?
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Why are you keeping it? <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+              <textarea
+                value={keepItModal.reason}
+                onChange={e => setKeepItModal(m => ({ ...m, reason: e.target.value }))}
+                placeholder="e.g. Use it weekly, essential for work, family uses it..."
+                autoFocus
+                rows={2}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, resize: 'vertical', boxSizing: 'border-box' }}
+                onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+                onBlur={e => e.target.style.borderColor = tokens.border}
+              />
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <Button variant="ghost" onClick={() => setKeepItModal(m => ({ ...m, open: false }))}>Cancel</Button>
+              <Button
+                loading={keepItModal.saving}
+                onClick={async () => {
+                  setKeepItModal(m => ({ ...m, saving: true }));
+                  await markSubscriptionKept(user.uid, keepItModal.sub, keepItModal.reason.trim());
+                  setKeepItModal({ open: false, sub: null, reason: '', saving: false });
+                }}
+              >
+                Yes, Keep It
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* ── Asset Account Modal ── */}

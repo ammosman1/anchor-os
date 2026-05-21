@@ -573,6 +573,20 @@ export const markSubscriptionActedOn = (uid, sub) => {
   });
 };
 
+export const markSubscriptionKept = (uid, sub, reason) => {
+  const id = ('sub-' + sub.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')).slice(0, 60);
+  return setDoc(doc(db, 'users', uid, 'actedOnRecommendations', id), {
+    id,
+    title:          sub.name,
+    monthlySavings: 0,
+    description:    reason || '',
+    type:           'subscription_kept',
+    estimatedMonthly: sub.estimatedMonthly || 0,
+    actedOnAt:      serverTimestamp(),
+    actedOnAtMs:    Date.now(),
+  });
+};
+
 export const subscribeActedOnRecommendations = (uid, cb) => {
   if (!uid) return () => {};
   return onSnapshot(

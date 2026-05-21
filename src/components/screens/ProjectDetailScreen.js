@@ -116,6 +116,8 @@ export default function ProjectDetailScreen() {
   const [actionTaskForm, setActionTaskForm] = useState(emptyTaskForm);
   const [actionSaving,   setActionSaving]   = useState(false);
   const [addedActions,   setAddedActions]   = useState(new Set());
+  const [skippedActions, setSkippedActions] = useState(new Set());
+  const [wontDoModal,    setWontDoModal]    = useState({ open: false, action: '', reason: '' });
   const [bulkCreating,   setBulkCreating]   = useState(false);
 
   // Add task modal
@@ -168,14 +170,19 @@ export default function ProjectDetailScreen() {
 
   const dedupedActions = useMemo(() => {
     if (!analysis?.thisWeekActions) return [];
+    const dismissed = new Set([
+      ...(project?.dismissedActions || []).map(d => d.action),
+      ...skippedActions,
+    ]);
     return analysis.thisWeekActions.filter(action => {
+      if (dismissed.has(action)) return false;
       const actionLower = action.toLowerCase();
       return !activeTasks.some(t => {
         const tLower = t.title.toLowerCase();
         return tLower.includes(actionLower) || actionLower.includes(tLower);
       });
     });
-  }, [analysis, activeTasks]); // eslint-disable-line react-hooks/exhaustive-deps -- analysis and activeTasks are the only reactive inputs; string comparison helpers are stable
+  }, [analysis, activeTasks, project?.dismissedActions, skippedActions]);
 
   const loadAnalysis = useCallback(async (force = false) => {
     if (!project || analysisLoading) return;
@@ -284,6 +291,16 @@ export default function ProjectDetailScreen() {
     } finally {
       setBulkCreating(false);
     }
+  };
+
+  const handleWontDo = async () => {
+    const { action, reason } = wontDoModal;
+    if (!action) return;
+    const existing = project.dismissedActions || [];
+    const newDismissed = [...existing, { action, reason: reason.trim(), date: new Date().toISOString().slice(0, 10) }];
+    setSkippedActions(prev => new Set([...prev, action]));
+    setWontDoModal({ open: false, action: '', reason: '' });
+    await updateProject(user.uid, projectId, { dismissedActions: newDismissed });
   };
 
   const handleAddTask = async () => {
@@ -669,11 +686,18 @@ export default function ProjectDetailScreen() {
                           {action}
                         </span>
                         {!added && (
-                          <button
-                            onClick={() => openActionModal(action)}
-                            style={{ background: tokens.accentDim, border: `1px solid rgba(200,169,110,0.2)`, borderRadius: '5px', padding: '3px 10px', fontSize: '11px', fontWeight: 600, color: tokens.accent, cursor: 'pointer', flexShrink: 0, fontFamily: fonts.body }}>
-                            + Task
-                          </button>
+                          <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                            <button
+                              onClick={() => openActionModal(action)}
+                              style={{ background: tokens.accentDim, border: `1px solid rgba(200,169,110,0.2)`, borderRadius: '5px', padding: '3px 10px', fontSize: '11px', fontWeight: 600, color: tokens.accent, cursor: 'pointer', fontFamily: fonts.body }}>
+                              + Task
+                            </button>
+                            <button
+                              onClick={() => setWontDoModal({ open: true, action, reason: '' })}
+                              style={{ background: 'transparent', border: `1px solid ${tokens.border}`, borderRadius: '5px', padding: '3px 8px', fontSize: '11px', fontWeight: 500, color: tokens.textMuted, cursor: 'pointer', fontFamily: fonts.body }}>
+                              Won't Do
+                            </button>
+                          </div>
                         )}
                       </div>
                     );
@@ -819,6 +843,36 @@ export default function ProjectDetailScreen() {
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
             <Button variant="ghost" onClick={() => setEditOpen(false)}>Cancel</Button>
             <Button onClick={handleEditSave} loading={editSaving} disabled={!editForm.title?.trim()}>Save Changes</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Won't Do Modal ── */}
+      <Modal open={wontDoModal.open} onClose={() => setWontDoModal({ open: false, action: '', reason: '' })} title="Won't Do">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.5, padding: '10px 12px', background: tokens.bgGlass, borderRadius: '7px', border: `1px solid ${tokens.border}` }}>
+            "{wontDoModal.action}"
+          </div>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Why not? <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+            <textarea
+              value={wontDoModal.reason}
+              onChange={e => setWontDoModal(m => ({ ...m, reason: e.target.value }))}
+              placeholder="e.g. Not relevant right now, already handled another way..."
+              autoFocus
+              rows={2}
+              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, resize: 'vertical', boxSizing: 'border-box' }}
+              onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+              onBlur={e => e.target.style.borderColor = tokens.border}
+              onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleWontDo(); }}
+            />
+          </div>
+          <div style={{ fontSize: '11px', color: tokens.textMuted, lineHeight: 1.5 }}>
+            This action will be removed from your list and the AI won't resurface it.
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button variant="ghost" onClick={() => setWontDoModal({ open: false, action: '', reason: '' })}>Cancel</Button>
+            <Button onClick={handleWontDo}>Dismiss Action</Button>
           </div>
         </div>
       </Modal>

@@ -5,7 +5,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import {
-  getValidAccessToken, getEvents, createEvent, getFreeSlots,
+  getValidAccessToken, getEvents, createEvent, deleteEvent, getFreeSlots,
 } from '../../lib/calendar';
 import { buildScheduleForDays } from '../../lib/ai';
 import { updateTask } from '../../lib/db';
@@ -198,6 +198,22 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
         token = await getValidAccessToken(user.uid, calendarIntegration);
       }
 
+      // Delete previously Anchor-created events for these dates to prevent duplicates
+      if (token) {
+        try {
+          const scheduleDates = [...new Set(schedule.map(b => b.date).filter(Boolean))];
+          await Promise.all(scheduleDates.map(async date => {
+            const timeMin = `${date}T00:00:00`;
+            const timeMax = `${date}T23:59:59`;
+            const { events } = await getEvents(token, timeMin, timeMax);
+            const anchorEvents = (events || []).filter(e => e.extendedProperties?.private?.anchorScheduled === 'true');
+            await Promise.all(anchorEvents.map(e => deleteEvent(token, e.id).catch(() => {})));
+          }));
+        } catch (err) {
+          console.warn('Failed to clean up prior Anchor events:', err);
+        }
+      }
+
       for (const block of schedule) {
         if (!block.taskId) continue;
         const updates = {
@@ -216,6 +232,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
               start: { dateTime: block.start, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
               end:   { dateTime: block.end,   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
               colorId: '5',
+              extendedProperties: { private: { anchorScheduled: 'true' } },
             });
             updates.calendarEventId = created.id;
             updates._anchor = true;

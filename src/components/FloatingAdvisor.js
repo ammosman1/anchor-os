@@ -16,7 +16,7 @@ import {
 import {
   getValidAccessToken, getEvents, getFreeSlots, createEvent, formatEventTime,
 } from '../lib/calendar';
-import { Spinner } from './ui';
+import { Spinner, Modal, Button } from './ui';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
@@ -261,6 +261,7 @@ export default function FloatingAdvisor({ open, onClose }) {
   const [scheduleDates,     setScheduleDates]     = useState({ today: '', tomorrow: '' });
   const [editingBlockIdx,   setEditingBlockIdx]   = useState(null);
   const [editForm,          setEditForm]          = useState({ title: '', durationMinutes: 30 });
+  const [saveToNoteModal,   setSaveToNoteModal]   = useState({ open: false, content: '', taskId: '', saving: false });
   const recognitionRef = useRef(null);
 
   // ── load chat session ─────────────────────────────────────────────────────
@@ -392,6 +393,24 @@ Always confirm in plain language what you created. Multiple CREATE_TASK markers 
       }
     }
     return results;
+  };
+
+  // ── save AI response to task note ─────────────────────────────────────────
+  const handleSaveToNote = async () => {
+    const { taskId, content } = saveToNoteModal;
+    if (!taskId || !content.trim()) return;
+    setSaveToNoteModal(m => ({ ...m, saving: true }));
+    try {
+      const task = tasks.find(t => t.id === taskId);
+      const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const appendedNote = task?.notes
+        ? `${task.notes}\n\n✦ Advisor [${date}]: ${content.trim()}`
+        : `✦ Advisor [${date}]: ${content.trim()}`;
+      await updateTask(user.uid, taskId, { notes: appendedNote });
+      setSaveToNoteModal({ open: false, content: '', taskId: '', saving: false });
+    } catch {
+      setSaveToNoteModal(m => ({ ...m, saving: false }));
+    }
   };
 
   // ── send chat message ──────────────────────────────────────────────────────
@@ -584,7 +603,7 @@ BRAIN DUMP:\n${dumpText}` }],
       const token = await getValidAccessToken(user.uid, calendarIntegration);
       const tz    = Intl.DateTimeFormat().resolvedOptions().timeZone;
       await Promise.all(active.map(async (block) => {
-        const ev = await createEvent(token, { summary: block.taskTitle, description: `Anchor schedule · ${block.focusType} focus`, start: { dateTime: block.start, timeZone: tz }, end: { dateTime: block.end, timeZone: tz } });
+        const ev = await createEvent(token, { summary: block.taskTitle, description: `Anchor schedule · ${block.focusType} focus`, start: { dateTime: block.start, timeZone: tz }, end: { dateTime: block.end, timeZone: tz }, extendedProperties: { private: { anchorScheduled: 'true' } } });
         if (block.taskId) await updateTask(user.uid, block.taskId, { status: 'scheduled', scheduledStart: block.start, scheduledEnd: block.end, scheduledDate: block.start.split('T')[0], calendarEventId: ev?.id || null });
         else await addTask(user.uid, { title: block.taskTitle, priority: block.priority || 'medium', source: 'brain-dump', status: 'scheduled', scheduledStart: block.start, scheduledEnd: block.end, scheduledDate: block.start.split('T')[0], calendarEventId: ev?.id || null });
       }));
@@ -742,6 +761,18 @@ BRAIN DUMP:\n${dumpText}` }],
                           {m.role === 'ai' && m.actionResults?.length > 0 && (
                             <div style={{ marginLeft: '32px', marginTop: '5px', padding: '8px 12px', background: tokens.greenDim, border: `1px solid rgba(109,191,158,0.2)`, borderRadius: '7px' }}>
                               {m.actionResults.map((r, j) => <div key={j} style={{ fontSize: '11px', color: tokens.green, marginBottom: j < m.actionResults.length - 1 ? '3px' : 0 }}>{r}</div>)}
+                            </div>
+                          )}
+                          {m.role === 'ai' && i === messages.length - 1 && !chatLoading && (
+                            <div style={{ marginLeft: '32px', marginTop: '5px' }}>
+                              <button
+                                onClick={() => setSaveToNoteModal({ open: true, content: m.content, taskId: '', saving: false })}
+                                style={{ fontSize: '10px', color: tokens.textMuted, background: 'none', border: `1px solid ${tokens.border}`, borderRadius: '5px', padding: '2px 8px', cursor: 'pointer', fontFamily: fonts.body }}
+                                onMouseEnter={e => { e.target.style.borderColor = tokens.accent; e.target.style.color = tokens.accent; }}
+                                onMouseLeave={e => { e.target.style.borderColor = tokens.border; e.target.style.color = tokens.textMuted; }}
+                              >
+                                Save to task note ↓
+                              </button>
                             </div>
                           )}
                         </div>
@@ -1015,6 +1046,45 @@ BRAIN DUMP:\n${dumpText}` }],
           </div>
         </>
       )}
+
+      {/* ── Save to Task Note Modal ── */}
+      <Modal open={saveToNoteModal.open} onClose={() => setSaveToNoteModal(m => ({ ...m, open: false }))} title="Save to Task Note">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Pick a Task</label>
+            <select
+              value={saveToNoteModal.taskId}
+              onChange={e => setSaveToNoteModal(m => ({ ...m, taskId: e.target.value }))}
+              autoFocus
+              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: saveToNoteModal.taskId ? tokens.textPrimary : tokens.textMuted, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}
+              onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+              onBlur={e => e.target.style.borderColor = tokens.border}
+            >
+              <option value="">Choose a task…</option>
+              {tasks.filter(t => !t.done).map(t => (
+                <option key={t.id} value={t.id}>{t.title}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>What to save <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(edit as needed)</span></label>
+            <textarea
+              value={saveToNoteModal.content}
+              onChange={e => setSaveToNoteModal(m => ({ ...m, content: e.target.value }))}
+              rows={5}
+              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '12px', outline: 'none', fontFamily: fonts.body, resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.55 }}
+              onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+              onBlur={e => e.target.style.borderColor = tokens.border}
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <Button variant="ghost" onClick={() => setSaveToNoteModal(m => ({ ...m, open: false }))}>Cancel</Button>
+            <Button onClick={handleSaveToNote} loading={saveToNoteModal.saving} disabled={!saveToNoteModal.taskId || !saveToNoteModal.content.trim()}>
+              Save to Note
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }
