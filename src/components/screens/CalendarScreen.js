@@ -120,7 +120,10 @@ export default function CalendarScreen() {
     Array.from({ length: gridEnd - gridStart }, (_, i) => gridStart + i),
     [gridStart, gridEnd]
   );
-  const [ws, setWs]                    = useState(() => weekStart(new Date()));
+  const [ws, setWs]                    = useState(() => {
+    const saved = localStorage.getItem('anchor_calendar_view') || 'week';
+    return saved === 'week' ? weekStart(new Date()) : new Date();
+  });
   const [events, setEvents]            = useState([]);
   const [loading, setLoading]          = useState(false);
   const [fetchError, setFetchError]    = useState('');
