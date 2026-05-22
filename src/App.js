@@ -28,7 +28,6 @@ import NotesScreen     from './components/screens/NotesScreen';
 import DocumentsScreen from './components/screens/DocumentsScreen';
 import WeeklyResetWizard from './components/screens/WeeklyResetWizard';
 import HomeScreenV2      from './components/screens/HomeScreenV2';
-import HomeScreenV3      from './components/screens/HomeScreenV3';
 
 // Inject global styles once
 if (!document.getElementById('anchor-global-styles')) {
@@ -83,7 +82,6 @@ function AppRoutes() {
             <Route path="/weekly-reset" element={<WeeklyResetWizard />} />
             <Route path="/profile"      element={<ProfileScreen />}     />
             <Route path="/home-v2"      element={<HomeScreenV2 />}      />
-            <Route path="/home-v3"      element={<HomeScreenV3 />}      />
             <Route path="*"             element={<Navigate to="/" />}   />
           </Routes>
         </AppLayout>
