@@ -48,6 +48,7 @@ const NAV_GROUPS = [
     label: 'Preview',
     items: [
       { path: '/home-v2', icon: '◉', label: 'Home V2 ✦'  },
+      { path: '/home-v3', icon: '◈', label: 'Home V3 ⬡'  },
     ],
   },
 ];
