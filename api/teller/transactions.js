@@ -19,10 +19,18 @@ export default async function handler(req, res) {
   try {
     // 1. Get all accounts for this enrollment
     const acctRes = await fetch('https://api.teller.io/accounts', { headers });
-    if (!acctRes.ok) return res.status(400).json({ error: 'Failed to fetch accounts' });
+    if (!acctRes.ok) {
+      const errBody = await acctRes.json().catch(() => ({}));
+      console.error('Teller accounts error:', acctRes.status, errBody);
+      return res.status(400).json({ error: errBody.error?.message || 'Failed to fetch accounts', teller_status: acctRes.status });
+    }
     const accounts = await acctRes.json();
+    if (!Array.isArray(accounts) || accounts.length === 0) {
+      return res.status(200).json({ transactions: [], totalTransactions: 0 });
+    }
 
     // 2. Fetch transactions for each account concurrently
+    // Include both posted and pending — pending is common on freshly connected accounts
     const txArrays = await Promise.all(
       accounts.map(async (acct) => {
         try {
@@ -30,10 +38,18 @@ export default async function handler(req, res) {
             `https://api.teller.io/accounts/${acct.id}/transactions?count=500`,
             { headers }
           );
-          if (!txRes.ok) return [];
+          if (!txRes.ok) {
+            console.error(`Teller tx error for account ${acct.id}:`, txRes.status);
+            return [];
+          }
           const txList = await txRes.json();
-          return txList.filter(t => t.date >= cutoffStr && t.status === 'posted');
-        } catch {
+          // Include posted + pending; filter by date
+          return txList.filter(t =>
+            t.date >= cutoffStr &&
+            (t.status === 'posted' || t.status === 'pending')
+          );
+        } catch (e) {
+          console.error(`Teller tx fetch failed for account ${acct.id}:`, e.message);
           return [];
         }
       })

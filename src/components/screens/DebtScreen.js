@@ -236,10 +236,11 @@ export default function DebtScreen() {
   const [keepItModal,   setKeepItModal]   = useState({ open: false, sub: null, reason: '', saving: false });
   const [showAllTx,     setShowAllTx]     = useState(false);
 
-  // ── Plaid ─────────────────────────────────────────────────────────────────
+  // ── Teller ────────────────────────────────────────────────────────────────
   const [plaidAccounts, setPlaidAccounts] = useState([]);
   const [transactions,  setTransactions]  = useState([]);
   const [loadingPlaid,  setLoadingPlaid]  = useState(false);
+  const [txLoadError,   setTxLoadError]   = useState(null);
   const [connecting,    setConnecting]    = useState(false);
 
   // ── File import ───────────────────────────────────────────────────────────
@@ -284,10 +285,11 @@ export default function DebtScreen() {
 
   // ── Plaid load ────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!plaidItems.length) { setPlaidAccounts([]); setTransactions([]); return; }
+    if (!plaidItems.length) { setPlaidAccounts([]); setTransactions([]); setTxLoadError(null); return; }
     let cancelled = false;
     const load = async () => {
       setLoadingPlaid(true);
+      setTxLoadError(null);
       try {
         const allAccounts = [], allTx = [];
         await Promise.all(plaidItems.map(async item => {
@@ -295,7 +297,12 @@ export default function DebtScreen() {
             fetch('/api/teller/accounts',     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accessToken: item.accessToken }) }),
             fetch('/api/teller/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accessToken: item.accessToken, days: 30 }) }),
           ]);
-          const aData = await aRes.json(); const tData = await tRes.json();
+          const aData = await aRes.json();
+          const tData = await tRes.json();
+          if (!tRes.ok) {
+            console.error('Teller API error:', tData);
+            if (!cancelled) setTxLoadError(tData.error || 'Could not load transactions');
+          }
           if (aData.accounts)     allAccounts.push(...aData.accounts.map(a => ({ ...a, institutionName: item.institutionName })));
           if (tData.transactions) allTx.push(...tData.transactions);
         }));
@@ -303,7 +310,10 @@ export default function DebtScreen() {
           setPlaidAccounts(allAccounts);
           setTransactions(allTx.sort((a, b) => new Date(b.date) - new Date(a.date)));
         }
-      } catch (err) { if (isDev) console.error('Plaid load error:', err); }
+      } catch (err) {
+        console.error('Teller load error:', err);
+        if (!cancelled) setTxLoadError('Failed to connect to Teller');
+      }
       finally { if (!cancelled) setLoadingPlaid(false); }
     };
     load();
@@ -995,11 +1005,21 @@ export default function DebtScreen() {
         </div>
       )}
 
-      {/* ── Recent Transactions (Plaid only) ── */}
-      {transactions.length > 0 && (
+      {/* ── Recent Transactions ── */}
+      {(transactions.length > 0 || txLoadError || (plaidItems.length > 0 && !loadingPlaid)) && (
         <div className="fade-up stagger-3" style={{ marginBottom: '16px' }}>
           <Card>
             <SectionLabel>Recent Transactions</SectionLabel>
+            {txLoadError && (
+              <div style={{ fontSize: '12px', color: tokens.red, marginBottom: '12px', padding: '8px 12px', background: tokens.redDim, borderRadius: '6px' }}>
+                ⚠ {txLoadError} — check that your Teller application ID is set in Vercel environment variables.
+              </div>
+            )}
+            {!txLoadError && plaidItems.length > 0 && !loadingPlaid && transactions.length === 0 && (
+              <div style={{ fontSize: '12px', color: tokens.textMuted, padding: '12px 0' }}>
+                No transactions found in the last 30 days. Your bank connection may be in sandbox mode — verify <code>REACT_APP_TELLER_APP_ID</code> is set in Vercel.
+              </div>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {transactions.slice(0, showAllTx ? undefined : 12).map(tx => (
                 <div key={tx.transaction_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: `1px solid ${tokens.border}` }}>
