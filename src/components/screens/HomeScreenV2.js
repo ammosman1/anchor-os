@@ -17,6 +17,7 @@ import { fetchWeeklyWeather, isOutdoorTask, weatherCodeToEmoji, DEFAULT_ZIP } fr
 import { calculateMomentum } from '../../lib/momentum';
 import { Card, Tag, Button, priorityColors, Modal, Input, Spinner } from '../ui';
 import PlanScheduleFlow from './PlanScheduleFlow';
+import TaskModal from '../TaskModal';
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -62,7 +63,6 @@ export default function HomeScreenV2() {
 
   const [planOpen,      setPlanOpen]      = useState(false);
   const [editingTask,   setEditingTask]   = useState(null);
-  const [editForm,      setEditForm]      = useState({});
   const [editSaving,    setEditSaving]    = useState(false);
   const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
   const [actionCenterOpen, setActionCenterOpen] = useState(true);
@@ -334,20 +334,15 @@ export default function HomeScreenV2() {
     setCompletionNote({ open: false, task: null, text: '' });
   };
 
-  const openEdit = (task) => {
-    setEditingTask(task);
-    setEditForm({ title: task.title||'', priority: task.priority||'medium', dueDate: task.dueDate||'', estimatedMinutes: task.estimatedMinutes||'', notes: task.notes||'', project: task.project||'Inbox' });
-  };
+  const openEdit = (task) => setEditingTask(task);
 
-  const handleEditSave = async () => {
-    if (!editingTask || !editForm.title.trim()) return;
+  const handleEditSave = async (formData) => {
+    if (!editingTask) return;
     setEditSaving(true);
-    const linked = (projects||[]).find(p => p.title === editForm.project);
     try {
-      const newMins = editForm.estimatedMinutes ? Number(editForm.estimatedMinutes) : null;
-      const updates = { title: editForm.title.trim(), priority: editForm.priority, dueDate: editForm.dueDate||null, estimatedMinutes: newMins, notes: editForm.notes, project: editForm.project, projectId: linked?.id || editingTask.projectId || null };
-      if (editForm.dueDate && editingTask.dueDate && editForm.dueDate > editingTask.dueDate) updates.pushCount = (editingTask.pushCount||0)+1;
-      if (editingTask.scheduledStart && newMins) updates.scheduledEnd = new Date(new Date(editingTask.scheduledStart).getTime() + newMins*60000).toISOString();
+      const updates = { ...formData };
+      if (formData.dueDate && editingTask.dueDate && formData.dueDate > editingTask.dueDate) updates.pushCount = (editingTask.pushCount||0)+1;
+      if (editingTask.scheduledStart && formData.estimatedMinutes) updates.scheduledEnd = new Date(new Date(editingTask.scheduledStart).getTime() + formData.estimatedMinutes*60000).toISOString();
       await updateTask(user.uid, editingTask.id, updates);
       setEditingTask(null);
     } catch {}
@@ -647,49 +642,18 @@ export default function HomeScreenV2() {
         </div>
       </Modal>
 
-      {/* ── Task Edit Modal ───────────────────────────────────────────────── */}
-      <Modal open={!!editingTask} onClose={() => setEditingTask(null)} title="Edit Task">
-        {editingTask && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <Input label="Title" value={editForm.title} onChange={v => setEditForm(p => ({ ...p, title: v }))} placeholder="Task title" />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Priority</label>
-                <select value={editForm.priority} onChange={e => setEditForm(p => ({ ...p, priority: e.target.value }))}
-                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                  {['critical','high','medium','low'].map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase()+p.slice(1)}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Est. Minutes</label>
-                <input type="number" value={editForm.estimatedMinutes} onChange={e => setEditForm(p => ({ ...p, estimatedMinutes: e.target.value }))} placeholder="45"
-                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
-              </div>
-            </div>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
-              <input type="date" value={editForm.dueDate} onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
-            </div>
-            <Input label="Notes" value={editForm.notes} onChange={v => setEditForm(p => ({ ...p, notes: v }))} placeholder="Notes..." />
-            {editingTask?.scheduledStart && (
-              <div style={{ padding: '10px 14px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}`, fontSize: '12px' }}>
-                <span style={{ color: tokens.textMuted }}>Scheduled: </span>
-                <span style={{ color: tokens.accent, fontWeight: 600 }}>
-                  {new Date(editingTask.scheduledStart).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {formatTime(editingTask.scheduledStart)} – {formatTime(editingTask.scheduledEnd || new Date(new Date(editingTask.scheduledStart).getTime() + (editingTask.estimatedMinutes||45)*60000).toISOString())}
-                </span>
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', paddingTop: '4px' }}>
-              <div>{editingTask?.scheduledStart && <Button variant="ghost" onClick={handleUnschedule} loading={editSaving} style={{ color: tokens.red }}>Remove from Schedule</Button>}</div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <Button variant="ghost" onClick={() => setEditingTask(null)}>Cancel</Button>
-                <Button onClick={handleEditSave} loading={editSaving}>Save</Button>
-              </div>
-            </div>
-          </div>
-        )}
-      </Modal>
+      <TaskModal
+        open={!!editingTask}
+        onClose={() => setEditingTask(null)}
+        onSave={handleEditSave}
+        task={editingTask}
+        saving={editSaving}
+        extraActions={editingTask?.scheduledStart ? (
+          <Button variant="ghost" onClick={handleUnschedule} loading={editSaving} style={{ color: tokens.red }}>
+            Unschedule
+          </Button>
+        ) : null}
+      />
 
     </div>
   );

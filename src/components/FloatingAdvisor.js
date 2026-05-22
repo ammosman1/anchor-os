@@ -1,6 +1,7 @@
 // src/components/FloatingAdvisor.js
 // Floating AI panel — replaces AdvisorScreen + BrainDumpScreen.
 // Two tabs: Chat (strategic advisor, page-aware) · Brain Dump (organise thoughts + schedule).
+// Quick capture bar sits above the tabs for instant task entry (typed or voice).
 // Opens from the ✦ button fixed to the bottom-right of every screen.
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { tokens, fonts } from '../lib/tokens';
@@ -17,6 +18,7 @@ import {
   getValidAccessToken, getEvents, getFreeSlots, createEvent, formatEventTime,
 } from '../lib/calendar';
 import { Spinner, Modal, Button } from './ui';
+import TaskModal from './TaskModal';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 
@@ -264,6 +266,17 @@ export default function FloatingAdvisor({ open, onClose }) {
   const [saveToNoteModal,   setSaveToNoteModal]   = useState({ open: false, content: '', taskId: '', saving: false });
   const recognitionRef = useRef(null);
 
+  // ── quick capture state ───────────────────────────────────────────────────
+  const [captureText,     setCaptureText]     = useState('');
+  const [captureExpanded, setCaptureExpanded] = useState(false);
+  const [captureListening,setCaptureListening]= useState(false);
+  const [captureParsing,  setCaptureParsing]  = useState(false);
+  const [captureTaskOpen, setCaptureTaskOpen] = useState(false);
+  const [captureDefaults, setCaptureDefaults] = useState({});
+  const [captureSaving,   setCaptureSaving]   = useState(false);
+  const captureRecognitionRef = useRef(null);
+  const captureInputRef       = useRef(null);
+
   // ── load chat session ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
@@ -283,7 +296,7 @@ export default function FloatingAdvisor({ open, onClose }) {
     if (open && tab === 'chat') setTimeout(() => chatInputRef.current?.focus(), 100);
   }, [open, tab]);
 
-  // ── voice recognition setup ────────────────────────────────────────────────
+  // ── voice recognition setup (brain dump) ──────────────────────────────────
   useEffect(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SR) {
@@ -294,6 +307,76 @@ export default function FloatingAdvisor({ open, onClose }) {
       recognitionRef.current = r;
     }
   }, []);
+
+  // ── voice recognition setup (quick capture) ───────────────────────────────
+  useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SR) {
+      const r = new SR();
+      r.continuous = false; r.interimResults = true; r.lang = 'en-US';
+      r.onresult = (e) => {
+        let t = '';
+        for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+        setCaptureText(t);
+      };
+      r.onend = () => {
+        setCaptureListen(false);
+      };
+      captureRecognitionRef.current = r;
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setCaptureListen = (on) => {
+    setCaptureListen._state = on;
+    setCaptureListening(on);
+  };
+
+  const toggleCaptureVoice = () => {
+    if (!captureRecognitionRef.current) { alert('Voice input not supported. Try Chrome.'); return; }
+    if (captureListening) {
+      captureRecognitionRef.current.stop();
+      setCaptureListening(false);
+    } else {
+      setCaptureText('');
+      captureRecognitionRef.current.start();
+      setCaptureListening(true);
+      setCaptureExpanded(true);
+      setTimeout(() => captureInputRef.current?.focus(), 50);
+    }
+  };
+
+  const handleCaptureSubmit = async () => {
+    const text = captureText.trim();
+    if (!text) return;
+    setCaptureParsing(true);
+    try {
+      const res = await fetch('/api/tasks/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user.getIdToken()}` },
+        body: JSON.stringify({ transcript: text }),
+      });
+      const data = res.ok ? await res.json() : {};
+      setCaptureDefaults(data.task || { title: text });
+    } catch {
+      setCaptureDefaults({ title: text });
+    }
+    setCaptureParsing(false);
+    setCaptureTaskOpen(true);
+  };
+
+  const handleCaptureSave = async (formData) => {
+    setCaptureSaving(true);
+    try {
+      await addTask(user.uid, { ...formData, source: 'quick-capture' });
+      setCaptureTaskOpen(false);
+      setCaptureText('');
+      setCaptureExpanded(false);
+      setCaptureDefaults({});
+    } catch (err) {
+      console.error('Quick capture save error:', err);
+    }
+    setCaptureSaving(false);
+  };
 
   // ── close on Escape ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -701,6 +784,66 @@ BRAIN DUMP:\n${dumpText}` }],
               )}
             </div>
 
+            {/* ── Quick Capture bar ─────────────────────────────────── */}
+            <div style={{ padding: '8px 12px', borderBottom: `1px solid ${tokens.border}`, flexShrink: 0, background: tokens.bgGlass }}>
+              {!captureExpanded ? (
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <button
+                    onClick={toggleCaptureVoice}
+                    title="Voice capture"
+                    style={{ width: 32, height: 32, borderRadius: '8px', background: captureListening ? 'rgba(212,122,107,0.2)' : tokens.accentDim, border: `1px solid ${captureListening ? tokens.red : tokens.accent}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s' }}
+                    className={captureListening ? 'pulsing' : ''}
+                  >
+                    🎤
+                  </button>
+                  <input
+                    ref={captureInputRef}
+                    value={captureText}
+                    onChange={e => setCaptureText(e.target.value)}
+                    onFocus={() => setCaptureExpanded(true)}
+                    onKeyDown={e => { if (e.key === 'Enter' && captureText.trim()) handleCaptureSubmit(); if (e.key === 'Escape') { setCaptureExpanded(false); setCaptureText(''); } }}
+                    placeholder="Quick capture a task…"
+                    style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: tokens.textPrimary, fontSize: '12px', fontFamily: fonts.body, padding: '4px 0' }}
+                  />
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <button
+                      onClick={toggleCaptureVoice}
+                      title={captureListening ? 'Stop' : 'Speak task'}
+                      style={{ width: 32, height: 32, borderRadius: '8px', background: captureListening ? 'rgba(212,122,107,0.2)' : tokens.accentDim, border: `1px solid ${captureListening ? tokens.red : tokens.accent}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', cursor: 'pointer', flexShrink: 0 }}
+                      className={captureListening ? 'pulsing' : ''}
+                    >
+                      {captureListening ? '⏹' : '🎤'}
+                    </button>
+                    <input
+                      ref={captureInputRef}
+                      autoFocus
+                      value={captureText}
+                      onChange={e => setCaptureText(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && captureText.trim()) handleCaptureSubmit(); if (e.key === 'Escape') { setCaptureExpanded(false); setCaptureText(''); } }}
+                      placeholder={captureListening ? 'Listening…' : 'e.g. "dentist Thursday 30 min start Tuesday"'}
+                      style={{ flex: 1, background: tokens.bgInput, border: `1px solid ${tokens.borderFocus}`, borderRadius: '7px', outline: 'none', color: tokens.textPrimary, fontSize: '12px', fontFamily: fonts.body, padding: '6px 10px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
+                    <button onClick={() => { setCaptureExpanded(false); setCaptureText(''); setCaptureListening(false); captureRecognitionRef.current?.stop(); }}
+                      style={{ background: 'none', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '4px 10px', fontSize: '11px', color: tokens.textMuted, cursor: 'pointer', fontFamily: fonts.body }}>
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleCaptureSubmit}
+                      disabled={!captureText.trim() || captureParsing}
+                      style={{ background: captureText.trim() && !captureParsing ? tokens.accent : 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '6px', padding: '4px 12px', fontSize: '11px', fontWeight: 700, color: captureText.trim() && !captureParsing ? '#0C0E12' : tokens.textMuted, cursor: captureText.trim() && !captureParsing ? 'pointer' : 'not-allowed', fontFamily: fonts.body, display: 'flex', alignItems: 'center', gap: '5px' }}
+                    >
+                      {captureParsing ? <><Spinner size={10} /> Parsing…</> : '+ Add Task →'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* ── Tab bar ───────────────────────────────────────────────── */}
             <div style={{ display: 'flex', gap: '4px', padding: '8px 12px', borderBottom: `1px solid ${tokens.border}`, flexShrink: 0, background: tokens.bgCard }}>
               <button style={btnStyle(tab === 'chat')} onClick={() => setTab('chat')}>✦ Chat</button>
@@ -1052,6 +1195,16 @@ BRAIN DUMP:\n${dumpText}` }],
           </div>
         </>
       )}
+
+      {/* ── Quick Capture Task Modal ── */}
+      <TaskModal
+        open={captureTaskOpen}
+        onClose={() => { setCaptureTaskOpen(false); setCaptureDefaults({}); }}
+        onSave={handleCaptureSave}
+        defaultValues={captureDefaults}
+        saving={captureSaving}
+        modalTitle="New Task"
+      />
 
       {/* ── Save to Task Note Modal ── */}
       <Modal open={saveToNoteModal.open} onClose={() => setSaveToNoteModal(m => ({ ...m, open: false }))} title="Save to Task Note">

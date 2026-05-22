@@ -8,11 +8,10 @@ import { addTask, updateTask, updateProject, saveProfile, getAICache, saveAICach
 import { generateProjectAnalysis, callAI } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
 import { calculateMomentum, getMomentumBlurb } from '../../lib/momentum';
-import { RECURRENCE_OPTIONS, getProjectNextAction, isTaskBlocked } from '../../lib/tasks';
+import { getProjectNextAction, isTaskBlocked } from '../../lib/tasks';
 import { Button, Modal, Input, MomentumBar, Spinner } from '../ui';
+import TaskModal from '../TaskModal';
 import { usePageContext } from '../../context/PageContext';
-
-const PRIORITIES = ['critical', 'high', 'medium', 'low'];
 
 const CATEGORIES = [
   { value: 'work',     label: 'Work'     },
@@ -30,12 +29,6 @@ const STATUSES = [
   { value: 'stalled',  label: 'Stalled'  },
   { value: 'paused',   label: 'Paused'   },
   { value: 'complete', label: 'Complete' },
-];
-
-const FOCUS_TYPES = [
-  { value: 'deep',    label: '🧠 Deep Work' },
-  { value: 'shallow', label: '💬 Shallow'   },
-  { value: 'admin',   label: '📋 Admin'     },
 ];
 
 function momentumColor(m) {
@@ -78,11 +71,6 @@ function Card({ children, style }) {
   );
 }
 
-const emptyTaskForm = {
-  title: '', priority: 'high', focusType: 'deep', project: '',
-  estimatedMinutes: '', dueDate: '', notes: '', tags: '', recurrence: 'none',
-};
-
 export default function ProjectDetailScreen() {
   const { projectId } = useParams();
   const navigate      = useNavigate();
@@ -112,18 +100,17 @@ export default function ProjectDetailScreen() {
   const [feedbackSaving, setFeedbackSaving]  = useState(false);
 
   // Action-to-task modal
-  const [actionModal,    setActionModal]    = useState(false);
-  const [actionTaskForm, setActionTaskForm] = useState(emptyTaskForm);
-  const [actionSaving,   setActionSaving]   = useState(false);
   const [addedActions,   setAddedActions]   = useState(new Set());
   const [skippedActions, setSkippedActions] = useState(new Set());
   const [wontDoModal,    setWontDoModal]    = useState({ open: false, action: '', reason: '' });
   const [bulkCreating,   setBulkCreating]   = useState(false);
 
-  // Add task modal
-  const [addTaskOpen,    setAddTaskOpen]    = useState(false);
-  const [newTaskForm,    setNewTaskForm]    = useState(emptyTaskForm);
-  const [addingTask,     setAddingTask]     = useState(false);
+  // Unified task modal state
+  const [taskModalOpen,     setTaskModalOpen]     = useState(false);
+  const [taskModalTask,     setTaskModalTask]     = useState(null);
+  const [taskModalDefaults, setTaskModalDefaults] = useState({});
+  const [taskModalTitle,    setTaskModalTitle]    = useState('Add Task');
+  const [taskSaving,        setTaskSaving]        = useState(false);
 
   // Edit project modal
   const [editOpen,   setEditOpen]   = useState(false);
@@ -244,37 +231,10 @@ export default function ProjectDetailScreen() {
   };
 
   const openActionModal = (action) => {
-    setActionTaskForm({ ...emptyTaskForm, title: action, project: project?.title || '' });
-    setActionModal(true);
-  };
-
-  const handleActionTaskSave = async () => {
-    if (!actionTaskForm.title.trim() || actionSaving) return;
-    setActionSaving(true);
-    try {
-      const tagsArr = actionTaskForm.tags
-        ? actionTaskForm.tags.split(',').map(t => t.trim()).filter(Boolean)
-        : [];
-      await addTask(user.uid, {
-        title:            actionTaskForm.title.trim(),
-        priority:         actionTaskForm.priority,
-        focusType:        actionTaskForm.focusType || null,
-        project:          actionTaskForm.project || project?.title || 'Inbox',
-        projectId:        projectId,
-        estimatedMinutes: actionTaskForm.estimatedMinutes ? Number(actionTaskForm.estimatedMinutes) : null,
-        dueDate:          actionTaskForm.dueDate || null,
-        notes:            actionTaskForm.notes || '',
-        tags:             tagsArr.length ? tagsArr : null,
-        recurrence:       actionTaskForm.recurrence !== 'none' ? actionTaskForm.recurrence : null,
-        source:           'project-action',
-        status:           'pending',
-      });
-      setAddedActions(prev => new Set([...prev, actionTaskForm.title]));
-      setActionModal(false);
-      setActionTaskForm(emptyTaskForm);
-    } finally {
-      setActionSaving(false);
-    }
+    setTaskModalTask(null);
+    setTaskModalDefaults({ projectId, title: action, _source: 'project-action' });
+    setTaskModalTitle('Create Task from Action');
+    setTaskModalOpen(true);
   };
 
   const handleBulkCreate = async () => {
@@ -308,31 +268,40 @@ export default function ProjectDetailScreen() {
     await updateProject(user.uid, projectId, { dismissedActions: newDismissed });
   };
 
-  const handleAddTask = async () => {
-    if (!newTaskForm.title.trim() || addingTask) return;
-    setAddingTask(true);
+  const openAddTask = () => {
+    setTaskModalTask(null);
+    setTaskModalDefaults({ projectId });
+    setTaskModalTitle('Add Task to Project');
+    setTaskModalOpen(true);
+  };
+
+  const handleTaskModalSave = async (formData) => {
+    setTaskSaving(true);
     try {
-      const tagsArr = newTaskForm.tags
-        ? newTaskForm.tags.split(',').map(t => t.trim()).filter(Boolean)
-        : [];
       await addTask(user.uid, {
-        title:            newTaskForm.title.trim(),
-        priority:         newTaskForm.priority,
-        focusType:        newTaskForm.focusType || null,
-        project:          project?.title || 'Inbox',
-        projectId:        projectId,
-        estimatedMinutes: newTaskForm.estimatedMinutes ? Number(newTaskForm.estimatedMinutes) : null,
-        dueDate:          newTaskForm.dueDate || null,
-        notes:            newTaskForm.notes || '',
-        tags:             tagsArr.length ? tagsArr : null,
-        recurrence:       newTaskForm.recurrence !== 'none' ? newTaskForm.recurrence : null,
-        source:           'project',
+        title:            formData.title,
+        priority:         formData.priority,
+        focusType:        formData.focusType || null,
+        context:          formData.context || null,
+        projectId:        formData.projectId || projectId,
+        goalId:           formData.goalId || null,
+        estimatedMinutes: formData.estimatedMinutes ? Number(formData.estimatedMinutes) : null,
+        startDate:        formData.startDate || null,
+        dueDate:          formData.dueDate || null,
+        notes:            formData.notes || '',
+        tags:             formData.tags ? formData.tags.split(',').map(t => t.trim()).filter(Boolean) : null,
+        recurrence:       formData.recurrence !== 'none' ? formData.recurrence : null,
+        blockedBy:        formData.blockedBy || [],
+        source:           formData._source || 'project',
         status:           'pending',
       });
-      setNewTaskForm(emptyTaskForm);
-      setAddTaskOpen(false);
+      if (formData._source === 'project-action') {
+        setAddedActions(prev => new Set([...prev, formData.title]));
+      }
+      setTaskModalOpen(false);
+      setTaskModalTask(null);
     } finally {
-      setAddingTask(false);
+      setTaskSaving(false);
     }
   };
 
@@ -725,7 +694,7 @@ export default function ProjectDetailScreen() {
       <Card>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
           <SectionLabel style={{ marginBottom: 0 }}>Tasks · {doneTasks.length}/{projectTasks.length} done</SectionLabel>
-          <Button size="sm" variant="ghost" onClick={() => setAddTaskOpen(true)}>+ Add Task</Button>
+          <Button size="sm" variant="ghost" onClick={openAddTask}>+ Add Task</Button>
         </div>
 
         {projectTasks.length === 0 && (
@@ -781,23 +750,16 @@ export default function ProjectDetailScreen() {
         )}
       </Card>
 
-      {/* ── Add Task Modal ── */}
-      <Modal open={addTaskOpen} onClose={() => { setAddTaskOpen(false); setNewTaskForm(emptyTaskForm); }} title="Add Task to Project">
-        <TaskFormFields form={newTaskForm} setForm={setNewTaskForm} projects={projects} />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
-          <Button variant="ghost" onClick={() => { setAddTaskOpen(false); setNewTaskForm(emptyTaskForm); }}>Cancel</Button>
-          <Button onClick={handleAddTask} loading={addingTask} disabled={!newTaskForm.title.trim()}>Add Task</Button>
-        </div>
-      </Modal>
-
-      {/* ── Action → Task Modal ── */}
-      <Modal open={actionModal} onClose={() => { setActionModal(false); setActionTaskForm(emptyTaskForm); }} title="Create Task from Action">
-        <TaskFormFields form={actionTaskForm} setForm={setActionTaskForm} projects={projects} />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '14px' }}>
-          <Button variant="ghost" onClick={() => { setActionModal(false); setActionTaskForm(emptyTaskForm); }}>Cancel</Button>
-          <Button onClick={handleActionTaskSave} loading={actionSaving} disabled={!actionTaskForm.title.trim()}>Create Task</Button>
-        </div>
-      </Modal>
+      {/* Unified Task Modal */}
+      <TaskModal
+        open={taskModalOpen}
+        onClose={() => { setTaskModalOpen(false); setTaskModalTask(null); }}
+        onSave={handleTaskModalSave}
+        task={taskModalTask}
+        defaultValues={taskModalDefaults}
+        modalTitle={taskModalTitle}
+        saving={taskSaving}
+      />
 
       {/* ── Edit Project Modal ── */}
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit Project">
@@ -1004,61 +966,3 @@ export default function ProjectDetailScreen() {
   );
 }
 
-// Shared form fields component for add/action-to-task modals
-function TaskFormFields({ form, setForm, projects }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Input label="Title" value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="What needs to happen?" />
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-        <div>
-          <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Priority</label>
-          <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
-            style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-            {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Focus Type</label>
-          <select value={form.focusType} onChange={e => setForm(f => ({ ...f, focusType: e.target.value }))}
-            style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-            {FOCUS_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
-          </select>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-        <div>
-          <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Recurrence</label>
-          <select value={form.recurrence} onChange={e => setForm(f => ({ ...f, recurrence: e.target.value }))}
-            style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-            {RECURRENCE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Est. Minutes</label>
-          <input type="number" min="5" max="480" value={form.estimatedMinutes}
-            onChange={e => setForm(f => ({ ...f, estimatedMinutes: e.target.value }))}
-            placeholder="45"
-            style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
-        </div>
-      </div>
-
-      <div>
-        <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
-        <input type="date" value={form.dueDate}
-          onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))}
-          style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, colorScheme: 'light', boxSizing: 'border-box' }} />
-      </div>
-
-      <div>
-        <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Tags (comma separated)</label>
-        <input value={form.tags} onChange={e => setForm(f => ({ ...f, tags: e.target.value }))}
-          placeholder="e.g. design, research"
-          style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
-      </div>
-
-      <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Context, links, details..." multiline rows={2} />
-    </div>
-  );
-}

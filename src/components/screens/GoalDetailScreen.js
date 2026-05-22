@@ -7,9 +7,9 @@ import { useData } from '../../context/DataContext';
 import { updateGoal, addTask, updateTask, getAICache, saveAICache, saveProfile } from '../../lib/db';
 import { generateGoalInsights, generateGoalExecutionPlan, scoreGoals } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
-import { RECURRENCE_OPTIONS } from '../../lib/tasks';
 import { fetchMonthlyCashFlow, fetchAccounts } from '../../lib/teller';
-import { Button, Modal, Input, MomentumBar, Spinner } from '../ui';
+import { Button, Modal, MomentumBar, Spinner } from '../ui';
+import TaskModal from '../TaskModal';
 import { usePageContext } from '../../context/PageContext';
 
 const GOAL_TYPE_CONFIG = {
@@ -18,14 +18,6 @@ const GOAL_TYPE_CONFIG = {
   income:      { label: 'Income',      color: '#C8A96E' },
   qualitative: { label: 'Life',        color: '#9B85C9' },
 };
-
-const PRIORITIES = ['critical', 'high', 'medium', 'low'];
-
-const FOCUS_TYPES = [
-  { value: 'deep',    label: '🧠 Deep Work' },
-  { value: 'shallow', label: '💬 Shallow'   },
-  { value: 'admin',   label: '📋 Admin'     },
-];
 
 function monthsFrom(yyyyMM) {
   if (!yyyyMM) return null;
@@ -119,33 +111,22 @@ export default function GoalDetailScreen() {
   const [planApproving,  setPlanApproving]  = useState(false);
   const [approvedTasks,  setApprovedTasks]  = useState(new Set());
 
-  const [addTaskOpen,    setAddTaskOpen]    = useState(false);
-  const [addingTask,     setAddingTask]     = useState(false);
-  const emptyTaskForm = {
-    title: '', priority: 'high', focusType: 'deep', project: '',
-    estimatedMinutes: '', dueDate: '', notes: '', tags: '', recurrence: 'none',
-  };
-  const [newTaskForm,    setNewTaskForm]    = useState(emptyTaskForm);
-
   // AI feedback
   const [feedbackOpen,   setFeedbackOpen]   = useState(false);
   const [feedbackText,   setFeedbackText]    = useState('');
   const [feedbackSaving, setFeedbackSaving]  = useState(false);
 
-  // Action → Task
-  const [actionModal,    setActionModal]    = useState(false);
-  const [actionTaskForm, setActionTaskForm] = useState(emptyTaskForm);
-  const [actionSaving,   setActionSaving]   = useState(false);
+  // Unified task modal state
+  const [taskModalOpen,    setTaskModalOpen]    = useState(false);
+  const [taskModalTask,    setTaskModalTask]    = useState(null);   // null = create, object = edit
+  const [taskModalDefaults, setTaskModalDefaults] = useState({});
+  const [taskModalTitle,   setTaskModalTitle]   = useState('Add Task');
+  const [taskSaving,       setTaskSaving]       = useState(false);
+
   const [addedActions,   setAddedActions]   = useState(new Set());
   const [skippedActions, setSkippedActions] = useState(new Set());
   const [wontDoModal,    setWontDoModal]    = useState({ open: false, action: '', reason: '' });
   const [bulkCreating,   setBulkCreating]   = useState(false);
-
-  // Task editing
-  const [editTaskOpen,   setEditTaskOpen]   = useState(false);
-  const [editingTask,    setEditingTask]    = useState(null);
-  const [editTaskForm,   setEditTaskForm]   = useState(emptyTaskForm);
-  const [editTaskSaving, setEditTaskSaving] = useState(false);
 
   const [balanceOpen,     setBalanceOpen]     = useState(false);
   const [newBalance,      setNewBalance]      = useState('');
@@ -401,30 +382,58 @@ export default function GoalDetailScreen() {
     }
   };
 
-  const handleAddTask = async () => {
-    if (!newTaskForm.title.trim() || addingTask) return;
-    setAddingTask(true);
+  const openAddTask = () => {
+    setTaskModalTask(null);
+    setTaskModalDefaults({ goalId });
+    setTaskModalTitle('Add Task to Goal');
+    setTaskModalOpen(true);
+  };
+
+  const handleTaskModalSave = async (formData) => {
+    setTaskSaving(true);
     try {
-      const tagsArr = newTaskForm.tags
-        ? newTaskForm.tags.split(',').map(t => t.trim()).filter(Boolean)
-        : [];
-      await addTask(user.uid, {
-        title:            newTaskForm.title.trim(),
-        priority:         newTaskForm.priority,
-        focusType:        newTaskForm.focusType || null,
-        project:          newTaskForm.project || goal.title || 'Inbox',
-        estimatedMinutes: newTaskForm.estimatedMinutes ? Number(newTaskForm.estimatedMinutes) : null,
-        dueDate:          newTaskForm.dueDate || null,
-        notes:            newTaskForm.notes || '',
-        tags:             tagsArr.length ? tagsArr : null,
-        recurrence:       newTaskForm.recurrence !== 'none' ? newTaskForm.recurrence : null,
-        goalId,
-        status:           'pending',
-      });
-      setNewTaskForm(emptyTaskForm);
-      setAddTaskOpen(false);
+      if (taskModalTask) {
+        await updateTask(user.uid, taskModalTask.id, {
+          title:            formData.title,
+          priority:         formData.priority,
+          focusType:        formData.focusType || null,
+          context:          formData.context || null,
+          projectId:        formData.projectId || null,
+          goalId:           formData.goalId || goalId,
+          estimatedMinutes: formData.estimatedMinutes ? Number(formData.estimatedMinutes) : null,
+          startDate:        formData.startDate || null,
+          dueDate:          formData.dueDate || null,
+          notes:            formData.notes || '',
+          tags:             formData.tags ? formData.tags.split(',').map(t => t.trim()).filter(Boolean) : null,
+          recurrence:       formData.recurrence !== 'none' ? formData.recurrence : null,
+          blockedBy:        formData.blockedBy || [],
+        });
+      } else {
+        await addTask(user.uid, {
+          title:            formData.title,
+          priority:         formData.priority,
+          focusType:        formData.focusType || null,
+          context:          formData.context || null,
+          projectId:        formData.projectId || null,
+          goalId:           formData.goalId || goalId,
+          estimatedMinutes: formData.estimatedMinutes ? Number(formData.estimatedMinutes) : null,
+          startDate:        formData.startDate || null,
+          dueDate:          formData.dueDate || null,
+          notes:            formData.notes || '',
+          tags:             formData.tags ? formData.tags.split(',').map(t => t.trim()).filter(Boolean) : null,
+          recurrence:       formData.recurrence !== 'none' ? formData.recurrence : null,
+          blockedBy:        formData.blockedBy || [],
+          source:           formData._source || null,
+          status:           'pending',
+        });
+        if (formData._source === 'goal-action') {
+          setAddedActions(prev => new Set([...prev, formData.title]));
+        }
+      }
+      setTaskModalOpen(false);
+      setTaskModalTask(null);
     } finally {
-      setAddingTask(false);
+      setTaskSaving(false);
     }
   };
 
@@ -448,44 +457,10 @@ export default function GoalDetailScreen() {
   };
 
   const openEditTask = (task) => {
-    setEditingTask(task);
-    setEditTaskForm({
-      title:            task.title || '',
-      priority:         task.priority || 'high',
-      focusType:        task.focusType || 'deep',
-      project:          task.project || '',
-      estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : '',
-      dueDate:          task.dueDate || '',
-      notes:            task.notes || '',
-      tags:             (task.tags || []).join(', '),
-      recurrence:       task.recurrence || 'none',
-    });
-    setEditTaskOpen(true);
-  };
-
-  const handleEditTaskSave = async () => {
-    if (!editingTask || !editTaskForm.title.trim() || editTaskSaving) return;
-    setEditTaskSaving(true);
-    try {
-      const tagsArr = editTaskForm.tags
-        ? editTaskForm.tags.split(',').map(t => t.trim()).filter(Boolean)
-        : [];
-      await updateTask(user.uid, editingTask.id, {
-        title:            editTaskForm.title.trim(),
-        priority:         editTaskForm.priority,
-        focusType:        editTaskForm.focusType || null,
-        project:          editTaskForm.project || editingTask.project || goal.title || 'Inbox',
-        estimatedMinutes: editTaskForm.estimatedMinutes ? Number(editTaskForm.estimatedMinutes) : null,
-        dueDate:          editTaskForm.dueDate || null,
-        notes:            editTaskForm.notes || '',
-        tags:             tagsArr.length ? tagsArr : null,
-        recurrence:       editTaskForm.recurrence !== 'none' ? editTaskForm.recurrence : null,
-      });
-      setEditTaskOpen(false);
-      setEditingTask(null);
-    } finally {
-      setEditTaskSaving(false);
-    }
+    setTaskModalTask(task);
+    setTaskModalDefaults({});
+    setTaskModalTitle('Edit Task');
+    setTaskModalOpen(true);
   };
 
   const handleFeedbackSubmit = async () => {
@@ -506,37 +481,10 @@ export default function GoalDetailScreen() {
   };
 
   const openActionModal = (action) => {
-    setActionTaskForm({ ...emptyTaskForm, title: action, project: goal.title || '' });
-    setActionModal(true);
-  };
-
-  const handleActionTaskSave = async () => {
-    if (!actionTaskForm.title.trim() || actionSaving) return;
-    setActionSaving(true);
-    try {
-      const tagsArr = actionTaskForm.tags
-        ? actionTaskForm.tags.split(',').map(t => t.trim()).filter(Boolean)
-        : [];
-      await addTask(user.uid, {
-        title:            actionTaskForm.title.trim(),
-        priority:         actionTaskForm.priority,
-        focusType:        actionTaskForm.focusType || null,
-        project:          actionTaskForm.project || goal.title || 'Inbox',
-        estimatedMinutes: actionTaskForm.estimatedMinutes ? Number(actionTaskForm.estimatedMinutes) : null,
-        dueDate:          actionTaskForm.dueDate || null,
-        notes:            actionTaskForm.notes || '',
-        tags:             tagsArr.length ? tagsArr : null,
-        recurrence:       actionTaskForm.recurrence !== 'none' ? actionTaskForm.recurrence : null,
-        goalId,
-        source: 'goal-action',
-        status: 'pending',
-      });
-      setAddedActions(prev => new Set([...prev, actionTaskForm.title]));
-      setActionModal(false);
-      setActionTaskForm(emptyTaskForm);
-    } finally {
-      setActionSaving(false);
-    }
+    setTaskModalTask(null);
+    setTaskModalDefaults({ goalId, title: action, _source: 'goal-action' });
+    setTaskModalTitle('Create Task from Action');
+    setTaskModalOpen(true);
   };
 
   const handleBulkCreate = async () => {
@@ -921,7 +869,7 @@ export default function GoalDetailScreen() {
       <Card>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
           <SectionLabel style={{ marginBottom: 0 }}>Tasks · {completedTasks.length}/{linkedTasks.length} done</SectionLabel>
-          <Button size="sm" variant="ghost" onClick={() => setAddTaskOpen(true)}>+ Add Task</Button>
+          <Button size="sm" variant="ghost" onClick={openAddTask}>+ Add Task</Button>
         </div>
 
         {linkedTasks.length > 0 && (
@@ -1138,109 +1086,21 @@ export default function GoalDetailScreen() {
         </div>
       </Modal>
 
-      {/* Action → Task Modal */}
-      <Modal open={actionModal} onClose={() => { setActionModal(false); setActionTaskForm(emptyTaskForm); }} title="Create Task from Action">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <Input label="Title" value={actionTaskForm.title} onChange={v => setActionTaskForm(f => ({ ...f, title: v }))} placeholder="What needs to happen?" />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Priority</label>
-              <select value={actionTaskForm.priority} onChange={e => setActionTaskForm(f => ({ ...f, priority: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Focus Type</label>
-              <select value={actionTaskForm.focusType} onChange={e => setActionTaskForm(f => ({ ...f, focusType: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                {FOCUS_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
-              </select>
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
-              <input type="date" value={actionTaskForm.dueDate} onChange={e => setActionTaskForm(f => ({ ...f, dueDate: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, colorScheme: 'light', boxSizing: 'border-box' }} />
-            </div>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Est. Minutes</label>
-              <input type="number" min="5" max="480" value={actionTaskForm.estimatedMinutes} onChange={e => setActionTaskForm(f => ({ ...f, estimatedMinutes: e.target.value }))} placeholder="45"
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
-            </div>
-          </div>
-          <Input label="Notes" value={actionTaskForm.notes} onChange={v => setActionTaskForm(f => ({ ...f, notes: v }))} placeholder="Context..." multiline rows={2} />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <Button variant="ghost" onClick={() => { setActionModal(false); setActionTaskForm(emptyTaskForm); }}>Cancel</Button>
-            <Button onClick={handleActionTaskSave} loading={actionSaving} disabled={!actionTaskForm.title.trim()}>Create Task</Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Edit Task Modal */}
-      <Modal open={editTaskOpen} onClose={() => { setEditTaskOpen(false); setEditingTask(null); }} title="Edit Task">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <Input label="Title" value={editTaskForm.title} onChange={v => setEditTaskForm(f => ({ ...f, title: v }))} placeholder="What needs to happen?" />
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Priority</label>
-              <select value={editTaskForm.priority} onChange={e => setEditTaskForm(f => ({ ...f, priority: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Focus Type</label>
-              <select value={editTaskForm.focusType} onChange={e => setEditTaskForm(f => ({ ...f, focusType: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                {FOCUS_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
-              <input type="date" value={editTaskForm.dueDate} onChange={e => setEditTaskForm(f => ({ ...f, dueDate: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, colorScheme: 'light', boxSizing: 'border-box' }} />
-            </div>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Est. Minutes</label>
-              <input type="number" min="5" max="480" value={editTaskForm.estimatedMinutes} onChange={e => setEditTaskForm(f => ({ ...f, estimatedMinutes: e.target.value }))} placeholder="45"
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Recurrence</label>
-              <select value={editTaskForm.recurrence} onChange={e => setEditTaskForm(f => ({ ...f, recurrence: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                {RECURRENCE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Tags (comma separated)</label>
-              <input value={editTaskForm.tags} onChange={e => setEditTaskForm(f => ({ ...f, tags: e.target.value }))} placeholder="e.g. design, research"
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
-            </div>
-          </div>
-
-          <Input label="Notes" value={editTaskForm.notes} onChange={v => setEditTaskForm(f => ({ ...f, notes: v }))} placeholder="Context, links, details..." multiline rows={2} />
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-            <Button variant="ghost" size="sm" onClick={async () => { await handleToggleTask(editingTask); setEditTaskOpen(false); setEditingTask(null); }}>
-              ✓ Mark Complete
-            </Button>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <Button variant="ghost" onClick={() => { setEditTaskOpen(false); setEditingTask(null); }}>Cancel</Button>
-              <Button onClick={handleEditTaskSave} loading={editTaskSaving} disabled={!editTaskForm.title.trim()}>Save Changes</Button>
-            </div>
-          </div>
-        </div>
-      </Modal>
+      {/* Unified Task Modal (add / action→task / edit) */}
+      <TaskModal
+        open={taskModalOpen}
+        onClose={() => { setTaskModalOpen(false); setTaskModalTask(null); }}
+        onSave={handleTaskModalSave}
+        task={taskModalTask}
+        defaultValues={taskModalDefaults}
+        modalTitle={taskModalTitle}
+        saving={taskSaving}
+        extraActions={taskModalTask ? (
+          <Button variant="ghost" size="sm" onClick={async () => { await handleToggleTask(taskModalTask); setTaskModalOpen(false); setTaskModalTask(null); }}>
+            ✓ Mark Complete
+          </Button>
+        ) : null}
+      />
 
       {/* Won't Do Modal */}
       <Modal open={wontDoModal.open} onClose={() => setWontDoModal({ open: false, action: '', reason: '' })} title="Won't Do">
@@ -1432,78 +1292,6 @@ export default function GoalDetailScreen() {
         </div>
       </Modal>
 
-      {/* Add Task Modal */}
-      <Modal open={addTaskOpen} onClose={() => { setAddTaskOpen(false); setNewTaskForm(emptyTaskForm); }} title="Add Task to Goal">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <Input label="Title" value={newTaskForm.title} onChange={v => setNewTaskForm(f => ({ ...f, title: v }))} placeholder="What needs to happen?" />
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Priority</label>
-              <select value={newTaskForm.priority} onChange={e => setNewTaskForm(f => ({ ...f, priority: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                {PRIORITIES.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Focus Type</label>
-              <select value={newTaskForm.focusType} onChange={e => setNewTaskForm(f => ({ ...f, focusType: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                {FOCUS_TYPES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Project</label>
-              <select value={newTaskForm.project} onChange={e => setNewTaskForm(f => ({ ...f, project: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                <option value="">Use Goal Name</option>
-                <option value="Inbox">Inbox</option>
-                {(projects || []).filter(p => p.status === 'active').map(p => <option key={p.id} value={p.title}>{p.title}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Recurrence</label>
-              <select value={newTaskForm.recurrence} onChange={e => setNewTaskForm(f => ({ ...f, recurrence: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                {RECURRENCE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
-              <input type="date" value={newTaskForm.dueDate}
-                onChange={e => setNewTaskForm(f => ({ ...f, dueDate: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, colorScheme: 'light', boxSizing: 'border-box' }} />
-            </div>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Est. Minutes</label>
-              <input type="number" min="5" max="480" value={newTaskForm.estimatedMinutes}
-                onChange={e => setNewTaskForm(f => ({ ...f, estimatedMinutes: e.target.value }))}
-                placeholder="45"
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
-            </div>
-          </div>
-
-          <div>
-            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Tags (comma separated)</label>
-            <input value={newTaskForm.tags} onChange={e => setNewTaskForm(f => ({ ...f, tags: e.target.value }))}
-              placeholder="e.g. design, research"
-              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
-          </div>
-
-          <Input label="Notes" value={newTaskForm.notes} onChange={v => setNewTaskForm(f => ({ ...f, notes: v }))} placeholder="Context, links, details..." multiline rows={2} />
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <Button variant="ghost" onClick={() => { setAddTaskOpen(false); setNewTaskForm(emptyTaskForm); }}>Cancel</Button>
-            <Button onClick={handleAddTask} loading={addingTask} disabled={!newTaskForm.title.trim()}>Add Task</Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

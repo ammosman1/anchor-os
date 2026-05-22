@@ -8,8 +8,9 @@ import {
   formatEventTime, initiateCalendarAuth, getFreeSlots,
 } from '../../lib/calendar';
 import { Button, Modal, Input, Spinner, priorityColors } from '../ui';
-import { updateTask } from '../../lib/db';
+import { addTask, updateTask } from '../../lib/db';
 import { RECURRENCE_OPTIONS, isTaskBlocked, isDeferred } from '../../lib/tasks';
+import TaskModal from '../TaskModal';
 import PlanScheduleFlow from './PlanScheduleFlow';
 import WorkScheduleImportModal from './WorkScheduleImportModal';
 import { fetchWeeklyWeather, weatherCodeToEmoji, DEFAULT_ZIP } from '../../lib/weather';
@@ -138,10 +139,12 @@ export default function CalendarScreen() {
   const [sidebarSearch,       setSidebarSearch]       = useState('');
   const [sidebarPriority,     setSidebarPriority]     = useState(''); // '' | 'critical' | 'high' | 'medium' | 'low'
   const [sidebarProjectId,    setSidebarProjectId]    = useState(''); // '' = all
-  const [calView, setCalView]          = useState('week'); // 'day' | '3day' | 'week'
+  const [calView, setCalView] = useState(() => localStorage.getItem('anchor_calendar_view') || 'week');
   const [conflicts, setConflicts]      = useState([]);
-  // Task edit modal
-  const [editingTask, setEditingTask]  = useState(null);
+  // Task edit/create modal (unified)
+  const [editingTask,   setEditingTask]  = useState(null);  // null = closed, task obj = edit, 'new' = create
+  const [taskSaving,    setTaskSaving]   = useState(false);
+  // Legacy editForm kept for the calendar-event detail panel (not task editing)
   const [editForm, setEditForm]        = useState({});
   const [editSaving, setEditSaving]    = useState(false);
   // Drag from sidebar
@@ -406,78 +409,45 @@ export default function CalendarScreen() {
 
   useEffect(() => { fetchWeek(weekStart(ws)); }, [ws, fetchWeek]);
 
-  // ── Task edit ─────────────────────────────────────────────────────────────
-  const openEdit = (task) => {
-    setEditingTask(task);
-    setEditForm({
-      title:            task.title || '',
-      priority:         task.priority || 'medium',
-      dueDate:          task.dueDate || '',
-      estimatedMinutes: task.estimatedMinutes || '',
-      notes:            task.notes || '',
-      project:          task.project || 'Inbox',
-      projectId:        task.projectId || null,
-      goalId:           task.goalId || '',
-      context:          task.context || 'personal',
-      focusType:        task.focusType || 'deep',
-      tags:             Array.isArray(task.tags) ? task.tags.join(', ') : task.tags || '',
-      recurrence:       task.recurrence || 'none',
-    });
-  };
+  // ── Task edit/create (unified) ────────────────────────────────────────────
+  const openEdit     = (task) => setEditingTask(task);
+  const openNewTask  = ()     => setEditingTask('new');
+  const closeTask    = ()     => setEditingTask(null);
 
-  const handleEditSave = async () => {
-    if (!editingTask || !editForm.title.trim()) return;
-    setEditSaving(true);
-    const linked = (projects || []).find(p => p.title === editForm.project);
+  const handleTaskSave = async (formData) => {
+    setTaskSaving(true);
     try {
-      const newMins = editForm.estimatedMinutes ? Number(editForm.estimatedMinutes) : null;
-      const tagsArr = editForm.tags
-        ? editForm.tags.split(',').map(t => t.trim()).filter(Boolean)
-        : [];
-      const updates = {
-        title:            editForm.title.trim(),
-        priority:         editForm.priority,
-        dueDate:          editForm.dueDate || null,
-        estimatedMinutes: newMins,
-        notes:            editForm.notes,
-        project:          editForm.project,
-        projectId:        linked?.id || editForm.projectId || null,
-        goalId:           editForm.goalId || null,
-        context:          editForm.context || null,
-        focusType:        editForm.focusType || null,
-        tags:             tagsArr.length ? tagsArr : null,
-        recurrence:       editForm.recurrence !== 'none' ? editForm.recurrence : null,
-      };
-      // Recalculate end time when duration changes and task has a time slot
-      if (editingTask.scheduledStart && newMins) {
-        updates.scheduledEnd = new Date(new Date(editingTask.scheduledStart).getTime() + newMins * 60000).toISOString();
-      }
-      await updateTask(user.uid, editingTask.id, updates);
-      // Sync title and/or duration changes to linked GCal event
-      if (editingTask.calendarEventId && calendarIntegration?.connected) {
-        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const gcalUpdates = {};
-        if (editForm.title.trim() !== editingTask.title) gcalUpdates.summary = editForm.title.trim();
-        if (updates.scheduledEnd) gcalUpdates.end = { dateTime: updates.scheduledEnd, timeZone: tz };
-        if (Object.keys(gcalUpdates).length > 0) {
-          try {
-            const token = await getValidAccessToken(user.uid, calendarIntegration);
-            if (token) {
-              await updateEvent(token, editingTask.calendarEventId, gcalUpdates);
-              if (gcalUpdates.summary) {
-                setEvents(prev => prev.map(e =>
-                  e.id === editingTask.calendarEventId ? { ...e, summary: gcalUpdates.summary } : e
-                ));
+      if (!editingTask || editingTask === 'new') {
+        await addTask(user.uid, { ...formData, source: 'manual', status: 'pending' });
+      } else {
+        const updates = { ...formData };
+        if (editingTask.scheduledStart && formData.estimatedMinutes) {
+          updates.scheduledEnd = new Date(
+            new Date(editingTask.scheduledStart).getTime() + formData.estimatedMinutes * 60000
+          ).toISOString();
+        }
+        await updateTask(user.uid, editingTask.id, updates);
+        if (editingTask.calendarEventId && calendarIntegration?.connected) {
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const gcalUpdates = {};
+          if (formData.title !== editingTask.title) gcalUpdates.summary = formData.title;
+          if (updates.scheduledEnd) gcalUpdates.end = { dateTime: updates.scheduledEnd, timeZone: tz };
+          if (Object.keys(gcalUpdates).length > 0) {
+            try {
+              const token = await getValidAccessToken(user.uid, calendarIntegration);
+              if (token) {
+                await updateEvent(token, editingTask.calendarEventId, gcalUpdates);
+                if (gcalUpdates.summary) setEvents(prev => prev.map(e => e.id === editingTask.calendarEventId ? { ...e, summary: gcalUpdates.summary } : e));
               }
-            }
-          } catch (err) { if (isDev) console.warn('GCal update failed:', err); }
+            } catch (err) { if (isDev) console.warn('GCal update failed:', err); }
+          }
         }
       }
       setEditingTask(null);
     } catch (err) {
-      if (isDev) console.error('Edit save error:', err);
+      if (isDev) console.error('Task save error:', err);
     } finally {
-      setEditSaving(false);
+      setTaskSaving(false);
     }
   };
 
@@ -824,8 +794,9 @@ export default function CalendarScreen() {
   };
   const switchView = (view) => {
     setCalView(view);
+    localStorage.setItem('anchor_calendar_view', view);
     if (view === 'week') setWs(weekStart(ws));
-    else setWs(new Date()); // go to today when entering day/3day
+    else setWs(new Date());
   };
 
   const openCreate = (day, hour, minute = 0) => {
@@ -989,9 +960,14 @@ export default function CalendarScreen() {
             background: tokens.bgCard,
           }}>
             <div style={{ padding: '10px 12px', borderBottom: `1px solid ${tokens.border}`, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <Button onClick={() => setPlanOpen(true)} style={{ width: '100%', justifyContent: 'center' }}>
-                ✦ Plan My Schedule
-              </Button>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <Button onClick={() => setPlanOpen(true)} style={{ flex: 1, justifyContent: 'center' }}>
+                  ✦ Plan My Schedule
+                </Button>
+                <Button onClick={openNewTask} variant="ghost" style={{ flexShrink: 0 }} title="New Task">
+                  + Task
+                </Button>
+              </div>
               <button onClick={() => setImportOpen(true)}
                 style={{ width: '100%', padding: '7px', background: tokens.bgGlass, border: `1px solid ${tokens.border}`, borderRadius: '8px', color: tokens.textSecondary, fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: fonts.body, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.15s' }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = tokens.borderHover; e.currentTarget.style.color = tokens.textPrimary; }}
@@ -1435,124 +1411,29 @@ export default function CalendarScreen() {
         }}
       />
 
-      {/* ── Task Edit Modal ── */}
-      <Modal open={!!editingTask} onClose={() => setEditingTask(null)} title="Edit Task">
-        {editingTask && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            <Input label="Title" value={editForm.title} onChange={v => setEditForm(p => ({ ...p, title: v }))} placeholder="Task title" />
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Priority</label>
-                <select value={editForm.priority} onChange={e => setEditForm(p => ({ ...p, priority: e.target.value }))}
-                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                  {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Focus Type</label>
-                <select value={editForm.focusType} onChange={e => setEditForm(p => ({ ...p, focusType: e.target.value }))}
-                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                  {FOCUS_TYPES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Project</label>
-                <select value={editForm.project} onChange={e => setEditForm(p => ({ ...p, project: e.target.value }))}
-                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                  <option value="Inbox">Inbox</option>
-                  {(projects || []).filter(p => p.status === 'active').map(p => <option key={p.id} value={p.title}>{p.title}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Recurrence</label>
-                <select value={editForm.recurrence} onChange={e => setEditForm(p => ({ ...p, recurrence: e.target.value }))}
-                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                  {RECURRENCE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-                </select>
-              </div>
-            </div>
-
-            {(goals || []).filter(g => g.status === 'active').length > 0 && (
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Goal (optional)</label>
-                <select value={editForm.goalId} onChange={e => setEditForm(p => ({ ...p, goalId: e.target.value }))}
-                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                  <option value="">No goal linked</option>
-                  {(goals || []).filter(g => g.status === 'active').map(g => <option key={g.id} value={g.id}>{g.title}</option>)}
-                </select>
-              </div>
-            )}
-
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Context</label>
-              <select value={editForm.context} onChange={e => setEditForm(p => ({ ...p, context: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                <option value="work">Work</option>
-                <option value="personal">Personal</option>
-                <option value="home">Home</option>
-                <option value="financial">Financial</option>
-                <option value="health">Health</option>
-              </select>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
-                <input type="date" value={editForm.dueDate || ''}
-                  onChange={e => setEditForm(p => ({ ...p, dueDate: e.target.value }))}
-                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, colorScheme: 'light', boxSizing: 'border-box' }} />
-              </div>
-              <div>
-                <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Est. Minutes</label>
-                <input type="number" min="5" max="480" value={editForm.estimatedMinutes || ''}
-                  onChange={e => setEditForm(p => ({ ...p, estimatedMinutes: e.target.value }))}
-                  placeholder="45"
-                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
-              </div>
-            </div>
-
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Tags (comma separated)</label>
-              <input value={editForm.tags} onChange={e => setEditForm(p => ({ ...p, tags: e.target.value }))}
-                placeholder="e.g. design, client, research"
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }} />
-            </div>
-
-            <Input label="Notes" value={editForm.notes} onChange={v => setEditForm(p => ({ ...p, notes: v }))} placeholder="Context, links, details..." multiline rows={2} />
-
+      {/* ── Task Edit / Create Modal ── */}
+      <TaskModal
+        open={!!editingTask}
+        onClose={closeTask}
+        onSave={handleTaskSave}
+        task={editingTask && editingTask !== 'new' ? editingTask : null}
+        saving={taskSaving}
+        modalTitle={editingTask === 'new' ? 'New Task' : 'Edit Task'}
+        extraActions={editingTask && editingTask !== 'new' ? (
+          <>
+            <Button
+              variant="ghost"
+              onClick={async () => { const t = editingTask; closeTask(); await handleMarkComplete(t); }}
+              style={{ color: tokens.green, borderColor: tokens.green }}
+            >✓ Done</Button>
             {editingTask?.scheduledStart && (
-              <div style={{ padding: '10px 14px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}`, fontSize: '12px', color: tokens.textSecondary }}>
-                <span style={{ color: tokens.textMuted }}>Scheduled: </span>
-                <span style={{ color: tokens.accent, fontWeight: 600 }}>
-                  {new Date(editingTask.scheduledStart).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {formatEventTime(editingTask.scheduledStart)} – {formatEventTime(editingTask.scheduledEnd || new Date(new Date(editingTask.scheduledStart).getTime() + (editingTask.estimatedMinutes || 45) * 60000).toISOString())}
-                </span>
-              </div>
+              <Button variant="ghost" onClick={handleUnschedule} style={{ color: tokens.red, borderColor: tokens.red }}>
+                Unschedule
+              </Button>
             )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <Button onClick={async () => { const t = editingTask; setEditingTask(null); await handleMarkComplete(t); }} variant="ghost" loading={editSaving}
-                  style={{ color: tokens.green, borderColor: tokens.green }}>
-                  ✓ Mark Complete
-                </Button>
-                {editingTask?.scheduledStart && (
-                  <Button onClick={handleUnschedule} variant="ghost" loading={editSaving}
-                    style={{ color: tokens.red, borderColor: tokens.red }}>
-                    Remove from Schedule
-                  </Button>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <Button onClick={() => setEditingTask(null)} variant="ghost">Cancel</Button>
-                <Button onClick={handleEditSave} loading={editSaving} disabled={!editForm.title.trim()}>Save Task</Button>
-              </div>
-            </div>
-          </div>
-        )}
-      </Modal>
+          </>
+        ) : null}
+      />
 
       {/* ── Work Hours Override Warning ── */}
       <Modal open={!!workHoursWarning} onClose={() => setWorkHoursWarning(null)} title="Outside Work Hours">

@@ -6,20 +6,8 @@ import { useData } from '../../context/DataContext';
 import { addTask, updateTask, deleteTask, addNote } from '../../lib/db';
 import { RECURRENCE_OPTIONS, scheduleNextRecurrence, calculateUrgency, isTaskBlocked, isDeferred } from '../../lib/tasks';
 import { getValidAccessToken, deleteEvent } from '../../lib/calendar';
-import { Card, Button, Input, Select, SectionLabel, Tag, Modal, EmptyState, priorityColors } from '../ui';
-
-const PRIORITIES = [
-  { value: 'critical', label: '🔴 Critical' },
-  { value: 'high',     label: '🟠 High'     },
-  { value: 'medium',   label: '🟡 Medium'   },
-  { value: 'low',      label: '⚪ Low'      },
-];
-
-const FOCUS_TYPES = [
-  { value: 'deep',    label: '🧠 Deep Work'  },
-  { value: 'shallow', label: '💬 Shallow'    },
-  { value: 'admin',   label: '📋 Admin'      },
-];
+import { Card, Button, SectionLabel, Tag, Modal, EmptyState, priorityColors } from '../ui';
+import TaskModal from '../TaskModal';
 
 const FOCUS_TYPE_COLORS = {
   deep:    { bg: '#1a2340', text: '#5B8DEF' },
@@ -43,19 +31,7 @@ const CONTEXT_COLORS = {
   health:    { bg: 'rgba(78,168,168,0.15)',  text: '#4EA8A8' },
 };
 
-const CATEGORY_TO_CONTEXT = {
-  work:     'work',
-  personal: 'personal',
-  home:     'home',
-  finance:  'financial',
-  health:   'health',
-  creative: 'personal',
-  business: 'work',
-};
-
 const STATUS_FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'blocked', 'done'];
-
-const emptyForm = { title: '', priority: 'high', projectId: '', goalId: '', context: 'personal', notes: '', estimatedMinutes: '', tags: '', recurrence: 'none', focusType: 'deep', dueDate: '', startDate: '', blockedBy: [] };
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -67,10 +43,6 @@ function timeAgo(ts) {
   return `${Math.floor(diff / 1440)}d ago`;
 }
 
-function parseTags(str) {
-  return str.split(',').map(s => s.trim()).filter(Boolean);
-}
-
 export default function TasksScreen() {
   const { user }                        = useAuth();
   const { tasks, projects, goals, calendarIntegration } = useData();
@@ -79,15 +51,13 @@ export default function TasksScreen() {
   const [filterProject,  setFilterProject]  = useState('');
   const [filterContext,  setFilterContext]  = useState('');
   const [showModal,  setShowModal]      = useState(false);
-  const [form,       setForm]           = useState(emptyForm);
   const [saving,     setSaving]         = useState(false);
-  const [editing,    setEditing]        = useState(null);
+  const [editingTask, setEditingTask]   = useState(null); // full task object (null = create)
   const [search,       setSearch]        = useState('');
   const [schedulingTask, setSchedulingTask] = useState(null);
   const [focusTask,    setFocusTask]     = useState(null); // { task, duration, startTime }
   const [timeLeft,     setTimeLeft]      = useState(null); // seconds
   const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '', saveToNotes: false });
-  const [blockerSearch, setBlockerSearch] = useState('');
 
   // Focus timer countdown
   useEffect(() => {
@@ -114,11 +84,6 @@ export default function TasksScreen() {
     const s = secs % 60;
     return `${m}:${String(s).padStart(2, '0')}`;
   };
-
-  const projectOptions = [
-    { value: '', label: 'Inbox (no project)' },
-    ...projects.map(p => ({ value: p.id, label: p.title })),
-  ];
 
   // All unique tags across tasks
   const allTags = useMemo(() =>
@@ -201,71 +166,22 @@ export default function TasksScreen() {
     await deleteTask(user.uid, task.id);
   };
 
-  const openNew = () => {
-    setForm(emptyForm);
-    setEditing(null);
-    setBlockerSearch('');
-    setShowModal(true);
-  };
+  const openNew  = () => { setEditingTask(null); setShowModal(true); };
+  const openEdit = (task) => { setEditingTask(task); setShowModal(true); };
 
-  const openEdit = (task) => {
-    setForm({
-      title:            task.title            || '',
-      priority:         task.priority         || 'high',
-      projectId:        task.projectId        || '',
-      goalId:           task.goalId           || '',
-      context:          task.context          || 'personal',
-      notes:            task.notes            || '',
-      estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : '',
-      tags:             task.tags?.join(', ') || '',
-      recurrence:       task.recurrence       || 'none',
-      focusType:        task.focusType        || 'deep',
-      dueDate:          task.dueDate          || '',
-      startDate:        task.startDate        || '',
-      blockedBy:        task.blockedBy        || [],
-    });
-    setEditing(task.id);
-    setBlockerSearch('');
-    setShowModal(true);
-  };
-
-  const handleSave = async () => {
-    if (!form.title.trim()) return;
+  const handleSave = async (formData) => {
     setSaving(true);
-
-    const linkedProject = projects.find(p => p.id === form.projectId);
-    const derivedContext = linkedProject
-      ? (CATEGORY_TO_CONTEXT[linkedProject.category] || form.context || 'personal')
-      : (form.context || 'personal');
-    const taskData = {
-      title:            form.title.trim(),
-      priority:         form.priority,
-      projectId:        form.projectId || null,
-      goalId:           form.goalId || null,
-      project:          linkedProject ? linkedProject.title : 'Inbox',
-      context:          derivedContext,
-      notes:            form.notes,
-      estimatedMinutes: parseInt(form.estimatedMinutes) || null,
-      tags:             parseTags(form.tags),
-      recurrence:       form.recurrence || 'none',
-      focusType:        form.focusType || 'deep',
-      dueDate:          form.dueDate    || null,
-      startDate:        form.startDate  || null,
-      blockedBy:        form.blockedBy || [],
-    };
-
-    if (editing) {
-      const existingTask = tasks.find(t => t.id === editing);
-      if (existingTask && form.dueDate && existingTask.dueDate && form.dueDate > existingTask.dueDate) {
-        taskData.pushCount = (existingTask.pushCount || 0) + 1;
+    if (editingTask) {
+      const updates = { ...formData };
+      if (formData.dueDate && editingTask.dueDate && formData.dueDate > editingTask.dueDate) {
+        updates.pushCount = (editingTask.pushCount || 0) + 1;
       }
-      await updateTask(user.uid, editing, taskData);
+      await updateTask(user.uid, editingTask.id, updates);
     } else {
-      await addTask(user.uid, { ...taskData, source: 'manual', status: 'pending' });
+      await addTask(user.uid, { ...formData, source: 'manual', status: 'pending' });
     }
     setSaving(false);
     setShowModal(false);
-    setForm(emptyForm);
   };
 
   const sourceLabel = (task) => {
@@ -563,131 +479,13 @@ export default function TasksScreen() {
         </div>
       </Modal>
 
-      {/* Task Edit Modal */}
-      <Modal open={showModal} onClose={() => { setShowModal(false); setBlockerSearch(''); }} title={editing ? 'Edit Task' : 'New Task'}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <Input label="Task" value={form.title} onChange={v => setForm(f => ({ ...f, title: v }))} placeholder="What needs to get done?" />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <Select label="Priority" value={form.priority} onChange={v => setForm(f => ({ ...f, priority: v }))} options={PRIORITIES} />
-            <Select label="Project" value={form.projectId} onChange={v => {
-              const proj = projects.find(p => p.id === v);
-              const inherited = proj ? (CATEGORY_TO_CONTEXT[proj.category] || form.context) : form.context;
-              setForm(f => ({ ...f, projectId: v, context: inherited }));
-            }} options={projectOptions} />
-          </div>
-          <div>
-            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Context</label>
-            <select value={form.context} onChange={e => setForm(f => ({ ...f, context: e.target.value }))}
-              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-              {CONTEXT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-            </select>
-          </div>
-          {(goals || []).filter(g => g.status === 'active').length > 0 && (
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Goal (optional)</label>
-              <select value={form.goalId} onChange={e => setForm(f => ({ ...f, goalId: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body }}>
-                <option value="">No goal linked</option>
-                {(goals || []).filter(g => g.status === 'active').map(g => (
-                  <option key={g.id} value={g.id}>{g.title}</option>
-                ))}
-              </select>
-            </div>
-          )}
-          <Input label="Tags (comma-separated)" value={form.tags} onChange={v => setForm(f => ({ ...f, tags: v }))} placeholder="e.g. email, client, urgent" />
-
-          {/* Blocked By */}
-          <div>
-            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>
-              Blocked By
-            </label>
-            {/* Current blockers as removable chips */}
-            {(form.blockedBy || []).length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginBottom: '6px' }}>
-                {(form.blockedBy || []).map(id => {
-                  const bt = tasks.find(t => t.id === id);
-                  return bt ? (
-                    <span key={id} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', background: 'rgba(200,160,50,0.15)', color: tokens.amber, border: '1px solid rgba(200,160,50,0.3)', borderRadius: '5px', padding: '2px 8px', fontWeight: 600 }}>
-                      ⊘ {bt.title.length > 32 ? bt.title.slice(0, 32) + '…' : bt.title}
-                      <button onClick={() => setForm(f => ({ ...f, blockedBy: f.blockedBy.filter(b => b !== id) }))}
-                        style={{ background: 'none', border: 'none', color: tokens.amber, cursor: 'pointer', fontSize: '11px', lineHeight: 1, padding: '0 0 0 2px', fontFamily: fonts.body }}>✕</button>
-                    </span>
-                  ) : null;
-                })}
-              </div>
-            )}
-            <input
-              value={blockerSearch}
-              onChange={e => setBlockerSearch(e.target.value)}
-              placeholder="Search for a task that blocks this one…"
-              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }}
-              onFocus={e => e.target.style.borderColor = tokens.borderFocus}
-              onBlur={e => e.target.style.borderColor = tokens.border}
-            />
-            {blockerSearch.trim() && (
-              <div style={{ marginTop: '4px', border: `1px solid ${tokens.border}`, borderRadius: '8px', overflow: 'hidden', background: tokens.bgCard }}>
-                {tasks
-                  .filter(t =>
-                    !t.done &&
-                    t.id !== editing &&
-                    t.title.toLowerCase().includes(blockerSearch.toLowerCase()) &&
-                    !(form.blockedBy || []).includes(t.id)
-                  )
-                  .slice(0, 5)
-                  .map((t, i, arr) => (
-                    <div key={t.id}
-                      onMouseDown={() => {
-                        setForm(f => ({ ...f, blockedBy: [...(f.blockedBy || []), t.id] }));
-                        setBlockerSearch('');
-                      }}
-                      style={{ padding: '8px 12px', fontSize: '13px', color: tokens.textPrimary, cursor: 'pointer', borderBottom: i < arr.length - 1 ? `1px solid ${tokens.border}` : 'none', display: 'flex', alignItems: 'center', gap: '8px' }}
-                      onMouseEnter={e => e.currentTarget.style.background = tokens.bgGlass}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                    >
-                      <span style={{ fontSize: '10px', color: tokens.textMuted, textTransform: 'capitalize' }}>{t.priority}</span>
-                      {t.title}
-                    </div>
-                  ))
-                }
-                {tasks.filter(t => !t.done && t.id !== editing && t.title.toLowerCase().includes(blockerSearch.toLowerCase()) && !(form.blockedBy || []).includes(t.id)).length === 0 && (
-                  <div style={{ padding: '8px 12px', fontSize: '12px', color: tokens.textMuted }}>No matching tasks</div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <Input label="Notes" value={form.notes} onChange={v => setForm(f => ({ ...f, notes: v }))} placeholder="Any context..." multiline rows={4} />
-          {editing?.completionNote && (
-            <div style={{ padding: '10px 12px', background: `${tokens.greenDim}`, border: `1px solid ${tokens.green}22`, borderRadius: '8px', fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.6 }}>
-              <span style={{ fontWeight: 700, color: tokens.green, fontSize: '10px', letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>✓ Completion Note</span>
-              {editing.completionNote}
-            </div>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Start Date <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(available from)</span></label>
-              <input type="date" value={form.startDate} max={form.dueDate || undefined}
-                onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box', colorScheme: 'dark' }} />
-            </div>
-            <div>
-              <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Due Date</label>
-              <input type="date" value={form.dueDate} min={form.startDate || undefined}
-                onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box', colorScheme: 'dark' }} />
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <Input label="Est. Minutes" value={form.estimatedMinutes} onChange={v => setForm(f => ({ ...f, estimatedMinutes: v }))} placeholder="30, 60..." type="number" />
-            <Select label="Focus Type" value={form.focusType} onChange={v => setForm(f => ({ ...f, focusType: v }))} options={FOCUS_TYPES} />
-          </div>
-          <Select label="Repeat" value={form.recurrence} onChange={v => setForm(f => ({ ...f, recurrence: v }))} options={RECURRENCE_OPTIONS} />
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <Button onClick={() => { setShowModal(false); setBlockerSearch(''); }} variant="ghost">Cancel</Button>
-            <Button onClick={handleSave} loading={saving} disabled={!form.title.trim()}>{editing ? 'Save' : 'Add Task'}</Button>
-          </div>
-        </div>
-      </Modal>
+      <TaskModal
+        open={showModal}
+        onClose={() => setShowModal(false)}
+        onSave={handleSave}
+        task={editingTask}
+        saving={saving}
+      />
     </div>
   );
 }
