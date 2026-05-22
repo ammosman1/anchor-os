@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { addGoal, updateGoal, deleteGoal, addTask, getAICache, saveAICache } from '../../lib/db';
 import { scoreGoals, generateGoalScenarios } from '../../lib/ai';
-import { fetchMonthlyCashFlow } from '../../lib/plaid';
+import { fetchMonthlyCashFlow } from '../../lib/teller';
 import { Button, Input, Select, Modal, EmptyState, MomentumBar, Tag } from '../ui';
 
 const STATUS_OPTIONS = [

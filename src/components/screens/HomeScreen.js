@@ -10,7 +10,7 @@ import { updateTask, addTask, saveProfile, getPulseCache, savePulseCache } from 
 import { getValidAccessToken, getEvents } from '../../lib/calendar';
 import { calculateMomentum } from '../../lib/momentum';
 import { calculateUrgency, isTaskBlocked, isDeferred } from '../../lib/tasks';
-import { fetchMonthlyCashFlow } from '../../lib/plaid';
+import { fetchMonthlyCashFlow } from '../../lib/teller';
 import { fetchWeeklyWeather, isOutdoorTask, weatherCodeToEmoji, DEFAULT_ZIP } from '../../lib/weather';
 import {
   Card, SectionLabel, MomentumBar, Tag, Button,

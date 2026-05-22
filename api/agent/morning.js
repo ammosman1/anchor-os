@@ -111,23 +111,24 @@ export default async function handler(req, res) {
         .get();
       const lastReview = reviewSnap.docs[0]?.data() || null;
 
-      // ── Plaid cash flow (if available) ────────────────────────────────────
+      // ── Teller cash flow (if available) ──────────────────────────────────
       let plaidSummary = '';
       const plaidSnap = await db.collection('users').doc(uid).collection('plaidItems')
         .limit(1).get();
       if (!plaidSnap.empty) {
-        const plaidItem = plaidSnap.docs[0].data();
-        if (plaidItem?.accessToken) {
+        const tellerItem = plaidSnap.docs[0].data();
+        if (tellerItem?.accessToken) {
           try {
             const appUrl = process.env.APP_URL || `https://${process.env.VERCEL_URL}`;
-            const plaidRes = await fetch(`${appUrl}/api/plaid/transactions`, {
+            const txRes = await fetch(`${appUrl}/api/teller/transactions`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ accessToken: plaidItem.accessToken, days: 30 }),
+              body: JSON.stringify({ accessToken: tellerItem.accessToken, days: 30 }),
             });
-            if (plaidRes.ok) {
-              const { transactions } = await plaidRes.json();
+            if (txRes.ok) {
+              const { transactions } = await txRes.json();
               if (transactions?.length) {
+                // Normalized to Plaid convention: negative=income, positive=spending
                 const income   = transactions.filter(t => t.amount < 0).reduce((s, t) => s + Math.abs(t.amount), 0);
                 const spending = transactions.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
                 const surplus  = income - spending;

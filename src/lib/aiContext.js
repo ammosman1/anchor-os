@@ -310,7 +310,7 @@ export function buildHolisticContext({
   const netWorthVal    = totalAssetsVal - totalDebtVal;
 
   if (effectiveFinance || totalDebtVal > 0 || totalAssetsVal > 0) {
-    const src     = plaidData ? 'Plaid' : manualCashFlow ? 'manual import' : null;
+    const src     = plaidData ? 'Teller' : manualCashFlow ? 'manual import' : null;
     const surplus  = effectiveFinance?.monthlySurplus  ?? effectiveFinance?.surplus;
     const spending = effectiveFinance?.monthlySpending ?? effectiveFinance?.spending;
     const income   = effectiveFinance?.monthlyIncome   ?? effectiveFinance?.income;

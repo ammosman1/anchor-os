@@ -12,7 +12,7 @@ import { buildHolisticContext } from '../../lib/aiContext';
 import { updateTask, getPulseCache, savePulseCache } from '../../lib/db';
 import { getValidAccessToken, getEvents } from '../../lib/calendar';
 import { calculateUrgency, isTaskBlocked } from '../../lib/tasks';
-import { fetchMonthlyCashFlow } from '../../lib/plaid';
+import { fetchMonthlyCashFlow } from '../../lib/teller';
 import { fetchWeeklyWeather, isOutdoorTask, weatherCodeToEmoji, DEFAULT_ZIP } from '../../lib/weather';
 import { calculateMomentum } from '../../lib/momentum';
 import { Card, Tag, Button, priorityColors, Modal, Input, Spinner } from '../ui';

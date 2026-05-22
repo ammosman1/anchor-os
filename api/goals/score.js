@@ -102,7 +102,7 @@ export default async function handler(req, res) {
     : null;
 
   const financialContext = effectivePlaidData
-    ? `FINANCIAL REALITY (${plaidData ? 'Plaid' : 'manually imported'}):
+    ? `FINANCIAL REALITY (${plaidData ? 'Teller' : 'manually imported'}):
 - Monthly surplus: $${effectivePlaidData.monthlySurplus?.toLocaleString() || 'unknown'}
 - Monthly spending: $${effectivePlaidData.monthlySpending?.toLocaleString() || 'unknown'}
 - Monthly income: $${effectivePlaidData.monthlyIncome?.toLocaleString() || 'unknown'}`

@@ -8,7 +8,7 @@ import { useData } from '../../context/DataContext';
 import { getDebtAdvice } from '../../lib/ai';
 import { auth } from '../../lib/firebase';
 import { addDebtAccount, updateDebtAccount, deleteDebtAccount, savePlaidItem, deletePlaidItem, saveManualCashFlow, addTask, addAssetAccount, updateAssetAccount, deleteAssetAccount, addDebtBalanceSnapshot, saveSavingsAnalysis, saveSavingsAnalysisMonth, markRecommendationActedOn, markSubscriptionActedOn, markSubscriptionKept, getAICache, saveAICache } from '../../lib/db';
-import { openPlaidLink, calcCashFlow, formatTxAmount, formatTxDate } from '../../lib/plaid';
+import { openTellerConnect, calcCashFlow, formatTxAmount, formatTxDate } from '../../lib/teller';
 import { Card, Button, Input, Select, SectionLabel, MomentumBar, Modal, AICard, EmptyState } from '../ui';
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -292,8 +292,8 @@ export default function DebtScreen() {
         const allAccounts = [], allTx = [];
         await Promise.all(plaidItems.map(async item => {
           const [aRes, tRes] = await Promise.all([
-            fetch('/api/plaid/accounts',     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accessToken: item.accessToken }) }),
-            fetch('/api/plaid/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accessToken: item.accessToken, days: 30 }) }),
+            fetch('/api/teller/accounts',     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accessToken: item.accessToken }) }),
+            fetch('/api/teller/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accessToken: item.accessToken, days: 30 }) }),
           ]);
           const aData = await aRes.json(); const tData = await tRes.json();
           if (aData.accounts)     allAccounts.push(...aData.accounts.map(a => ({ ...a, institutionName: item.institutionName })));
@@ -349,15 +349,28 @@ export default function DebtScreen() {
     return { requiredPerMonth, onPace: surplus >= requiredPerMonth, monthsLeft, goalTitle: finGoal.title };
   }, [finGoal, surplus]);
 
-  // ── Plaid connect ─────────────────────────────────────────────────────────
-  const handleConnect = async () => {
+  // ── Teller connect ────────────────────────────────────────────────────────
+  const handleConnect = () => {
     setConnecting(true);
-    try {
-      await openPlaidLink(user.uid, async (data) => {
-        await savePlaidItem(user.uid, data.itemId, { accessToken: data.accessToken, itemId: data.itemId, institutionId: data.institutionId, institutionName: data.institutionName, accounts: data.accounts });
-      });
-    } catch (err) { if (isDev) console.error('Plaid connect error:', err); }
-    finally { setConnecting(false); }
+    openTellerConnect(async (data) => {
+      try {
+        // Use enrollmentId as the Firestore doc key (replaces Plaid itemId)
+        const docId = data.enrollmentId || data.accessToken.slice(-12);
+        await savePlaidItem(user.uid, docId, {
+          accessToken:     data.accessToken,
+          enrollmentId:    data.enrollmentId,
+          institutionId:   data.institutionId,
+          institutionName: data.institutionName,
+          accounts:        data.accounts,
+        });
+      } catch (err) {
+        if (isDev) console.error('Teller save error:', err);
+      } finally {
+        setConnecting(false);
+      }
+    });
+    // openTellerConnect is synchronous (widget handles its own async), reset if widget exits
+    setTimeout(() => setConnecting(false), 30000);
   };
 
   // ── Debt account grouping ─────────────────────────────────────────────────
@@ -888,7 +901,7 @@ export default function DebtScreen() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
               <SectionLabel style={{ marginBottom: 0 }}>Monthly Cash Flow</SectionLabel>
               <span style={{ fontSize: '10px', color: tokens.textMuted }}>
-                {effectiveFlow.source === 'plaid' ? 'Via Plaid · last 30 days' : `Via import · ${fmtImportDate(effectiveFlow.importedAt)}${effectiveFlow.importedFrom ? ' · ' + effectiveFlow.importedFrom : ''}`}
+                {effectiveFlow.source === 'plaid' ? 'Via Teller · last 30 days' : `Via import · ${fmtImportDate(effectiveFlow.importedAt)}${effectiveFlow.importedFrom ? ' · ' + effectiveFlow.importedFrom : ''}`}
               </span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', textAlign: 'center' }}>

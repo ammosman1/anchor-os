@@ -8,7 +8,7 @@ import { updateGoal, addTask, updateTask, getAICache, saveAICache, saveProfile }
 import { generateGoalInsights, generateGoalExecutionPlan, scoreGoals } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
 import { RECURRENCE_OPTIONS } from '../../lib/tasks';
-import { fetchMonthlyCashFlow, fetchAccounts } from '../../lib/plaid';
+import { fetchMonthlyCashFlow, fetchAccounts } from '../../lib/teller';
 import { Button, Modal, Input, MomentumBar, Spinner } from '../ui';
 import { usePageContext } from '../../context/PageContext';
 
@@ -591,12 +591,12 @@ export default function GoalDetailScreen() {
 
   // Auto-sync balance from Plaid on load if account is linked
   useEffect(() => {
-    if (!goal || goal.goalType !== 'financial' || !goal.plaidAccountId || !plaidItems?.length) return;
+    if (!goal || goal.goalType !== 'financial' || !goal.tellerAccountId || !plaidItems?.length) return;
     const autoSync = async () => {
       try {
         const all = await Promise.all(plaidItems.map(item => fetchAccounts(item.accessToken)));
         const accounts = all.flat();
-        const acct = accounts.find(a => a.accountId === goal.plaidAccountId);
+        const acct = accounts.find(a => a.accountId === goal.tellerAccountId);
         if (acct?.balances?.current != null) {
           await updateGoal(user.uid, goalId, { currentAmount: acct.balances.current });
         }
@@ -615,7 +615,7 @@ export default function GoalDetailScreen() {
 
   const handleSyncFromPlaid = async (account) => {
     setNewBalance(String(account.balances.current));
-    await updateGoal(user.uid, goalId, { plaidAccountId: account.accountId });
+    await updateGoal(user.uid, goalId, { tellerAccountId: account.accountId });
   };
 
   if (!goal) {
@@ -1101,7 +1101,7 @@ export default function GoalDetailScreen() {
           {plaidItems?.length > 0 && (
             <div>
               <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: tokens.textMuted, marginBottom: '8px' }}>
-                Sync from Plaid
+                Sync from Teller
               </div>
               {loadingAccounts && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: tokens.textMuted }}>
@@ -1114,9 +1114,9 @@ export default function GoalDetailScreen() {
               {plaidAccounts.map(acct => (
                 <div key={acct.accountId}
                   onClick={() => handleSyncFromPlaid(acct)}
-                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', borderRadius: '7px', border: `1px solid ${goal.plaidAccountId === acct.accountId ? tokens.accent : tokens.border}`, background: goal.plaidAccountId === acct.accountId ? tokens.accentDim : 'transparent', cursor: 'pointer', marginBottom: '4px', transition: 'all 0.12s' }}
-                  onMouseEnter={e => { if (goal.plaidAccountId !== acct.accountId) e.currentTarget.style.background = tokens.bgCardHover; }}
-                  onMouseLeave={e => { if (goal.plaidAccountId !== acct.accountId) e.currentTarget.style.background = 'transparent'; }}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', borderRadius: '7px', border: `1px solid ${goal.tellerAccountId === acct.accountId ? tokens.accent : tokens.border}`, background: goal.tellerAccountId === acct.accountId ? tokens.accentDim : 'transparent', cursor: 'pointer', marginBottom: '4px', transition: 'all 0.12s' }}
+                  onMouseEnter={e => { if (goal.tellerAccountId !== acct.accountId) e.currentTarget.style.background = tokens.bgCardHover; }}
+                  onMouseLeave={e => { if (goal.tellerAccountId !== acct.accountId) e.currentTarget.style.background = 'transparent'; }}
                 >
                   <div>
                     <div style={{ fontSize: '13px', color: tokens.textPrimary, fontWeight: 500 }}>{acct.name}</div>
@@ -1124,7 +1124,7 @@ export default function GoalDetailScreen() {
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: '14px', fontWeight: 700, color: tokens.accent }}>${acct.balances.current?.toLocaleString()}</div>
-                    {goal.plaidAccountId === acct.accountId && <div style={{ fontSize: '10px', color: tokens.green }}>linked</div>}
+                    {goal.tellerAccountId === acct.accountId && <div style={{ fontSize: '10px', color: tokens.green }}>linked</div>}
                   </div>
                 </div>
               ))}
