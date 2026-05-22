@@ -2,6 +2,8 @@
 // Fetches all accounts for a Teller enrollment, including live balances.
 // Returns normalized shape matching what the app expects from Plaid.
 
+import { tellerFetch } from './_http.js';
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
@@ -12,7 +14,7 @@ export default async function handler(req, res) {
   const headers = { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' };
 
   try {
-    const acctRes = await fetch('https://api.teller.io/accounts', { headers });
+    const acctRes = await tellerFetch('https://api.teller.io/accounts', { headers });
     if (!acctRes.ok) {
       const err = await acctRes.json().catch(() => ({}));
       return res.status(400).json({ error: err.error?.message || 'Failed to fetch accounts' });
@@ -23,7 +25,7 @@ export default async function handler(req, res) {
     const withBalances = await Promise.all(
       accountList.map(async (a) => {
         try {
-          const balRes = await fetch(`https://api.teller.io/accounts/${a.id}/balances`, { headers });
+          const balRes = await tellerFetch(`https://api.teller.io/accounts/${a.id}/balances`, { headers });
           const bal    = balRes.ok ? await balRes.json() : {};
           return {
             // Normalized shape — mirrors what Plaid returned so screens don't change

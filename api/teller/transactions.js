@@ -3,6 +3,8 @@
 // Normalizes amounts to Plaid sign convention (positive=spending, negative=income)
 // so all downstream cash-flow logic stays identical.
 
+import { tellerFetch } from './_http.js';
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
@@ -18,7 +20,7 @@ export default async function handler(req, res) {
 
   try {
     // 1. Get all accounts for this enrollment
-    const acctRes = await fetch('https://api.teller.io/accounts', { headers });
+    const acctRes = await tellerFetch('https://api.teller.io/accounts', { headers });
     if (!acctRes.ok) {
       const errBody = await acctRes.json().catch(() => ({}));
       console.error('Teller accounts error:', acctRes.status, errBody);
@@ -34,7 +36,7 @@ export default async function handler(req, res) {
     const txArrays = await Promise.all(
       accounts.map(async (acct) => {
         try {
-          const txRes = await fetch(
+          const txRes = await tellerFetch(
             `https://api.teller.io/accounts/${acct.id}/transactions?count=500`,
             { headers }
           );
