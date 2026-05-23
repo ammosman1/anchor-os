@@ -174,6 +174,7 @@ export default function CalendarScreen() {
   const resizeRef = useRef(null);
   const justResized = useRef(false);
   const [resizeState, setResizeState] = useState(null);
+  const [optimisticTaskEnds, setOptimisticTaskEnds] = useState({});
   const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
 
   const yesterdayStr = ymd(new Date(Date.now() - 86400000));
@@ -197,6 +198,20 @@ export default function CalendarScreen() {
   }, [gridStart]); // re-scroll when user changes grid start hour
 
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+
+  // Clear optimistic resize overrides once Firestore confirms the new scheduledEnd
+  useEffect(() => {
+    if (Object.keys(optimisticTaskEnds).length === 0) return;
+    setOptimisticTaskEnds(prev => {
+      const next = { ...prev };
+      let changed = false;
+      for (const [taskId, end] of Object.entries(prev)) {
+        const task = tasks.find(t => t.id === taskId);
+        if (task?.scheduledEnd === end) { delete next[taskId]; changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const zip = userProfile?.zip || DEFAULT_ZIP;
@@ -262,7 +277,7 @@ export default function CalendarScreen() {
       })
       .map(t => {
         const startMs = new Date(t.scheduledStart).getTime();
-        const endIso  = t.scheduledEnd || new Date(startMs + (t.estimatedMinutes || 45) * 60000).toISOString();
+        const endIso  = optimisticTaskEnds[t.id] || t.scheduledEnd || new Date(startMs + (t.estimatedMinutes || 45) * 60000).toISOString();
         return {
           id: `task-${t.id}`,
           _taskId: t.id,
@@ -276,7 +291,7 @@ export default function CalendarScreen() {
           end:   { dateTime: endIso },
         };
       });
-  }, [tasks, ws, events]);
+  }, [tasks, ws, events, optimisticTaskEnds]);
 
   // GCal event IDs for done tasks — used to hide the GCal block so only the green Anchor block shows
   const doneTaskCalEventIds = useMemo(() =>
@@ -308,17 +323,17 @@ export default function CalendarScreen() {
       setDragState(prev => prev ? { ...prev, deltaMins } : null);
     };
 
-    const onMouseUp = async (e) => {
+    const onMouseUp = (e) => {
       // ── Resize commit ────────────────────────────────────────────────────────
       if (resizeRef.current) {
         const ref = resizeRef.current;
         resizeRef.current = null;
         const rawDelta = e.clientY - ref.startY;
         const deltaEndMins = Math.round(rawDelta / 15) * 15;
-        setResizeState(null);
         justResized.current = true;
-        setTimeout(() => { justResized.current = false; }, 150);
-        if (deltaEndMins === 0) return;
+        setTimeout(() => { justResized.current = false; }, 200);
+
+        if (deltaEndMins === 0) { setResizeState(null); return; }
 
         const ev = ref.event;
         const origStart = new Date(ev.start.dateTime);
@@ -328,77 +343,96 @@ export default function CalendarScreen() {
         const newEnd    = rawNewEnd < minEnd ? minEnd : rawNewEnd;
         const tz        = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-        if (!ev._isTask) {
+        // ── Optimistic updates BEFORE clearing resize state ─────────────────
+        if (ev._isTask) {
+          setOptimisticTaskEnds(prev => ({ ...prev, [ev._taskId]: newEnd.toISOString() }));
+          const linkedCalId = (tasksRef.current || []).find(t => t.id === ev._taskId)?.calendarEventId;
+          if (linkedCalId) {
+            setEvents(prev => prev.map(e =>
+              e.id === linkedCalId ? { ...e, end: { dateTime: newEnd.toISOString() } } : e
+            ));
+          }
+        } else {
           setEvents(prev => prev.map(e =>
             e.id === ev.id ? { ...e, end: { dateTime: newEnd.toISOString() } } : e
           ));
         }
-        try {
-          if (!ev._isTask) {
-            const token = await getValidAccessToken(user.uid, calendarIntegration);
-            if (token) await updateEvent(token, ev.id, { end: { dateTime: newEnd.toISOString(), timeZone: tz } });
-            const linked = (tasksRef.current || []).find(t => t.calendarEventId === ev.id);
-            if (linked) await updateTask(user.uid, linked.id, {
-              scheduledEnd: newEnd.toISOString(),
-              estimatedMinutes: Math.round((newEnd - origStart) / 60000),
-            });
-          } else {
-            await updateTask(user.uid, ev._taskId, {
-              scheduledEnd: newEnd.toISOString(),
-              estimatedMinutes: Math.round((newEnd - origStart) / 60000),
-            });
-            const task = (tasksRef.current || []).find(t => t.id === ev._taskId);
-            if (task?.calendarEventId && calendarIntegration?.connected) {
-              try {
-                const token = await getValidAccessToken(user.uid, calendarIntegration);
-                if (token) await updateEvent(token, task.calendarEventId, { end: { dateTime: newEnd.toISOString(), timeZone: tz } });
-              } catch (err) { if (isDev) console.warn('GCal resize sync failed:', err); }
+        setResizeState(null); // clear after optimistic update — no snap-back
+
+        // ── Async saves (fire-and-forget) ────────────────────────────────────
+        (async () => {
+          try {
+            if (!ev._isTask) {
+              const token = await getValidAccessToken(user.uid, calendarIntegration);
+              if (token) await updateEvent(token, ev.id, { end: { dateTime: newEnd.toISOString(), timeZone: tz } });
+              const linked = (tasksRef.current || []).find(t => t.calendarEventId === ev.id);
+              if (linked) await updateTask(user.uid, linked.id, {
+                scheduledEnd: newEnd.toISOString(),
+                estimatedMinutes: Math.round((newEnd - origStart) / 60000),
+              });
+            } else {
+              await updateTask(user.uid, ev._taskId, {
+                scheduledEnd: newEnd.toISOString(),
+                estimatedMinutes: Math.round((newEnd - origStart) / 60000),
+              });
+              const task = (tasksRef.current || []).find(t => t.id === ev._taskId);
+              if (task?.calendarEventId && calendarIntegration?.connected) {
+                try {
+                  const token = await getValidAccessToken(user.uid, calendarIntegration);
+                  if (token) await updateEvent(token, task.calendarEventId, { end: { dateTime: newEnd.toISOString(), timeZone: tz } });
+                } catch (err) { if (isDev) console.warn('GCal resize sync failed:', err); }
+              }
+            }
+          } catch (err) {
+            if (isDev) console.error('Resize failed:', err);
+            // Rollback on error
+            if (ev._isTask) {
+              setOptimisticTaskEnds(prev => { const n = { ...prev }; delete n[ev._taskId]; return n; });
+            } else {
+              setEvents(prev => prev.map(e => e.id === ev.id ? ev : e));
             }
           }
-        } catch (err) {
-          if (isDev) console.error('Resize failed:', err);
-          if (!ev._isTask) setEvents(prev => prev.map(e => e.id === ev.id ? ev : e));
-        }
 
-        // ── Cascade-bump Anchor tasks displaced by the extension ───────────────
-        if (deltaEndMins > 0) {
-          const sameDay = origStart.toISOString().split('T')[0];
-          const BUFFER_MS = 10 * 60000;
-          const displaced = (tasksRef.current || [])
-            .filter(t => {
-              if (t.done || !t.scheduledStart) return false;
-              if (!t.scheduledStart.startsWith(sameDay)) return false;
-              const tStart = new Date(t.scheduledStart);
-              return tStart >= origEnd && tStart < newEnd; // in the newly claimed zone
-            })
-            .sort((a, b) => new Date(a.scheduledStart) - new Date(b.scheduledStart));
+          // ── Cascade-bump tasks displaced by extension ──────────────────────
+          if (deltaEndMins > 0) {
+            const sameDay = origStart.toISOString().split('T')[0];
+            const BUFFER_MS = 10 * 60000;
+            const displaced = (tasksRef.current || [])
+              .filter(t => {
+                if (t.done || !t.scheduledStart) return false;
+                if (!t.scheduledStart.startsWith(sameDay)) return false;
+                const tStart = new Date(t.scheduledStart);
+                return tStart >= origEnd && tStart < newEnd;
+              })
+              .sort((a, b) => new Date(a.scheduledStart) - new Date(b.scheduledStart));
 
-          let cascadeCursor = newEnd;
-          for (const t of displaced) {
-            const tStart = new Date(t.scheduledStart);
-            const duration = t.scheduledEnd
-              ? new Date(t.scheduledEnd).getTime() - tStart.getTime()
-              : (t.estimatedMinutes || 45) * 60000;
-            if (tStart.getTime() >= cascadeCursor.getTime()) break;
-            const bumpedStart = new Date(cascadeCursor.getTime() + BUFFER_MS);
-            const bumpedEnd   = new Date(bumpedStart.getTime() + duration);
-            cascadeCursor = bumpedEnd;
-            try {
-              await updateTask(user.uid, t.id, {
-                scheduledStart: bumpedStart.toISOString(),
-                scheduledEnd:   bumpedEnd.toISOString(),
-                scheduledDate:  sameDay,
-              });
-              if (t.calendarEventId && calendarIntegration?.connected) {
-                const token = await getValidAccessToken(user.uid, calendarIntegration);
-                if (token) await updateEvent(token, t.calendarEventId, {
-                  start: { dateTime: bumpedStart.toISOString(), timeZone: tz },
-                  end:   { dateTime: bumpedEnd.toISOString(),   timeZone: tz },
+            let cascadeCursor = newEnd;
+            for (const t of displaced) {
+              const tStart   = new Date(t.scheduledStart);
+              const duration = t.scheduledEnd
+                ? new Date(t.scheduledEnd).getTime() - tStart.getTime()
+                : (t.estimatedMinutes || 45) * 60000;
+              if (tStart.getTime() >= cascadeCursor.getTime()) break;
+              const bumpedStart = new Date(cascadeCursor.getTime() + BUFFER_MS);
+              const bumpedEnd   = new Date(bumpedStart.getTime() + duration);
+              cascadeCursor = bumpedEnd;
+              try {
+                await updateTask(user.uid, t.id, {
+                  scheduledStart: bumpedStart.toISOString(),
+                  scheduledEnd:   bumpedEnd.toISOString(),
+                  scheduledDate:  sameDay,
                 });
-              }
-            } catch (err) { if (isDev) console.warn('Cascade bump failed for', t.title, err); }
+                if (t.calendarEventId && calendarIntegration?.connected) {
+                  const token = await getValidAccessToken(user.uid, calendarIntegration);
+                  if (token) await updateEvent(token, t.calendarEventId, {
+                    start: { dateTime: bumpedStart.toISOString(), timeZone: tz },
+                    end:   { dateTime: bumpedEnd.toISOString(),   timeZone: tz },
+                  });
+                }
+              } catch (err) { if (isDev) console.warn('Cascade bump failed for', t.title, err); }
+            }
           }
-        }
+        })();
         return;
       }
 
@@ -1504,6 +1538,7 @@ export default function CalendarScreen() {
                                   resizeRef.current = { event: ev, startY: e.clientY };
                                   setResizeState({ eventId: ev.id, deltaEndMins: 0 });
                                 }}
+                                onClick={e => e.stopPropagation()}
                                 title="Drag to resize"
                                 style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 10, cursor: 'ns-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0 0 4px 4px' }}
                               >
