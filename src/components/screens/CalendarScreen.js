@@ -171,6 +171,8 @@ export default function CalendarScreen() {
   const isDraggingFromSidebar   = useRef(false);
   const draggedCalendarTask     = useRef(null);  // task block being re-dragged from the grid
   const [dragState, setDragState] = useState(null);
+  const resizeRef = useRef(null);
+  const [resizeState, setResizeState] = useState(null);
   const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
 
   const yesterdayStr = ymd(new Date(Date.now() - 86400000));
@@ -292,6 +294,12 @@ export default function CalendarScreen() {
 
   useEffect(() => {
     const onMouseMove = (e) => {
+      if (resizeRef.current) {
+        const deltaY = e.clientY - resizeRef.current.startY;
+        const deltaEndMins = Math.round(deltaY / 15) * 15;
+        setResizeState(prev => prev ? { ...prev, deltaEndMins } : null);
+        return;
+      }
       if (!dragRef.current) return;
       const deltaY = e.clientY - dragRef.current.startY;
       if (Math.abs(deltaY) > 4) dragRef.current.hasMoved = true;
@@ -300,6 +308,58 @@ export default function CalendarScreen() {
     };
 
     const onMouseUp = async (e) => {
+      // ── Resize commit ────────────────────────────────────────────────────────
+      if (resizeRef.current) {
+        const ref = resizeRef.current;
+        resizeRef.current = null;
+        const rawDelta = e.clientY - ref.startY;
+        const deltaEndMins = Math.round(rawDelta / 15) * 15;
+        setResizeState(null);
+        if (deltaEndMins === 0) return;
+
+        const ev = ref.event;
+        const origStart = new Date(ev.start.dateTime);
+        const origEnd   = new Date(ev.end.dateTime);
+        const rawNewEnd = new Date(origEnd.getTime() + deltaEndMins * 60000);
+        const minEnd    = new Date(origStart.getTime() + 15 * 60000);
+        const newEnd    = rawNewEnd < minEnd ? minEnd : rawNewEnd;
+        const tz        = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+        if (!ev._isTask) {
+          setEvents(prev => prev.map(e =>
+            e.id === ev.id ? { ...e, end: { dateTime: newEnd.toISOString() } } : e
+          ));
+        }
+        try {
+          if (!ev._isTask) {
+            const token = await getValidAccessToken(user.uid, calendarIntegration);
+            if (token) await updateEvent(token, ev.id, { end: { dateTime: newEnd.toISOString(), timeZone: tz } });
+            const linked = (tasksRef.current || []).find(t => t.calendarEventId === ev.id);
+            if (linked) await updateTask(user.uid, linked.id, {
+              scheduledEnd: newEnd.toISOString(),
+              estimatedMinutes: Math.round((newEnd - origStart) / 60000),
+            });
+          } else {
+            await updateTask(user.uid, ev._taskId, {
+              scheduledEnd: newEnd.toISOString(),
+              estimatedMinutes: Math.round((newEnd - origStart) / 60000),
+            });
+            const task = (tasksRef.current || []).find(t => t.id === ev._taskId);
+            if (task?.calendarEventId && calendarIntegration?.connected) {
+              try {
+                const token = await getValidAccessToken(user.uid, calendarIntegration);
+                if (token) await updateEvent(token, task.calendarEventId, { end: { dateTime: newEnd.toISOString(), timeZone: tz } });
+              } catch (err) { if (isDev) console.warn('GCal resize sync failed:', err); }
+            }
+          }
+        } catch (err) {
+          if (isDev) console.error('Resize failed:', err);
+          if (!ev._isTask) setEvents(prev => prev.map(e => e.id === ev.id ? ev : e));
+        }
+        return;
+      }
+
+      // ── Drag-to-move commit ─────────────────────────────────────────────────
       if (!dragRef.current) return;
       const ref = dragRef.current;
       dragRef.current = null;
@@ -1302,11 +1362,18 @@ export default function CalendarScreen() {
                           ? new Date(ev.end.dateTime).getHours() * 60 + new Date(ev.end.dateTime).getMinutes()
                           : gridEnd * 60;
                         const baseTop    = minsToTop(Math.max(sMins, gridStart * 60), gridStart);
-                        const height     = Math.max(((Math.min(eMins, gridEnd * 60) - Math.max(sMins, gridStart * 60)) / 60) * HOUR_HEIGHT - 2, 18);
+                        const baseHeight = Math.max(((Math.min(eMins, gridEnd * 60) - Math.max(sMins, gridStart * 60)) / 60) * HOUR_HEIGHT - 2, 18);
                         const color      = eventColor(ev, ei);
                         const pct        = 100 / ev._totalCols;
                         const isDragging = dragState?.eventId === ev.id;
+                        const isResizing = resizeState?.eventId === ev.id;
                         const top        = isDragging ? baseTop + dragState.deltaMins : baseTop;
+                        const resizeDeltaH = isResizing ? (resizeState.deltaEndMins / 60) * HOUR_HEIGHT : 0;
+                        const height     = Math.max(baseHeight + resizeDeltaH, 18);
+                        const liveEndMs  = isResizing
+                          ? new Date(ev.end.dateTime).getTime() + resizeState.deltaEndMins * 60000
+                          : null;
+                        const liveEndIso = liveEndMs ? new Date(Math.max(liveEndMs, new Date(ev.start.dateTime).getTime() + 15 * 60000)).toISOString() : null;
                         const dayFc      = weatherForecast?.forecast?.find(f => f.date === ymd(day));
                         const weatherAlert = ev._isTask && ev._outdoor && dayFc && !dayFc.outdoorFriendly;
                         return (
@@ -1314,10 +1381,10 @@ export default function CalendarScreen() {
                             draggable={ev._isTask && !ev._done}
                             onDragStart={ev._isTask && !ev._done ? (e) => { e.stopPropagation(); handleCalendarTaskDragStart(e, ev); } : undefined}
                             onDragEnd={ev._isTask && !ev._done ? handleCalendarTaskDragEnd : undefined}
-                            onMouseDown={(e) => { if (!isDragging && !ev._isTask) onEventMouseDown(e, ev); }}
+                            onMouseDown={(e) => { if (!isDragging && !isResizing && !ev._isTask) onEventMouseDown(e, ev); }}
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (dragRef.current || dragState?.eventId === ev.id) return;
+                              if (dragRef.current || resizeRef.current || dragState?.eventId === ev.id || resizeState?.eventId === ev.id) return;
                               if (ev._isTask) {
                                 const t = tasks.find(tk => tk.id === ev._taskId);
                                 if (t) openEdit(t);
@@ -1325,9 +1392,9 @@ export default function CalendarScreen() {
                                 setDetail(ev);
                               }
                             }}
-                            onMouseEnter={e => { if (!dragState) e.currentTarget.style.filter = 'brightness(1.18)'; }}
+                            onMouseEnter={e => { if (!dragState && !resizeState) e.currentTarget.style.filter = 'brightness(1.18)'; }}
                             onMouseLeave={e => e.currentTarget.style.filter = 'none'}
-                            style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: ev._isTask && !ev._done ? 'grab' : ev._isTask ? 'pointer' : isDragging ? 'grabbing' : 'grab', zIndex: isDragging ? 20 : 5, boxShadow: isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: ev._done ? 0.7 : isDragging ? 0.9 : 1, transition: isDragging ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none' }}>
+                            style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: isResizing ? 'ns-resize' : ev._isTask && !ev._done ? 'grab' : ev._isTask ? 'pointer' : isDragging ? 'grabbing' : 'grab', zIndex: isResizing ? 25 : isDragging ? 20 : 5, boxShadow: isResizing ? '0 6px 20px rgba(0,0,0,0.55)' : isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: ev._done ? 0.7 : isDragging ? 0.9 : 1, transition: isDragging || isResizing ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none' }}>
                             {/* Weather alert badge */}
                             {weatherAlert && (
                               <div title={`${dayFc.label} — not ideal for outdoor tasks`} style={{ position: 'absolute', top: 2, right: 4, fontSize: '10px', lineHeight: 1, zIndex: 2 }}>⚠</div>
@@ -1354,7 +1421,12 @@ export default function CalendarScreen() {
                             {height > 32 && (
                               <div style={{ fontSize: '10px', color: color.text, opacity: 0.85, marginTop: '2px', whiteSpace: 'nowrap' }}>
                                 {formatEventTime(ev.start.dateTime)}
-                                {ev.end?.dateTime ? ` – ${formatEventTime(ev.end.dateTime)}` : ''}
+                                {(liveEndIso || ev.end?.dateTime) ? ` – ${formatEventTime(liveEndIso || ev.end.dateTime)}` : ''}
+                                {isResizing && liveEndIso && (
+                                  <span style={{ opacity: 0.65, marginLeft: 5 }}>
+                                    {Math.round((new Date(liveEndIso) - new Date(ev.start.dateTime)) / 60000)}m
+                                  </span>
+                                )}
                               </div>
                             )}
                             {height > 52 && ev.location && (
@@ -1363,7 +1435,7 @@ export default function CalendarScreen() {
                               </div>
                             )}
                             {/* Split button — only for active anchor task blocks with enough height */}
-                            {ev._isTask && !ev._done && height > 44 && (
+                            {ev._isTask && !ev._done && height > 44 && !isResizing && (
                               <button
                                 onClick={e => {
                                   e.stopPropagation();
@@ -1374,10 +1446,26 @@ export default function CalendarScreen() {
                                   setSplitRemaining(String(t.estimatedMinutes || 45));
                                 }}
                                 title="Split task — mark partial progress and re-schedule remainder"
-                                style={{ position: 'absolute', bottom: 3, right: 4, background: 'rgba(0,0,0,0.28)', border: 'none', color: color.text, borderRadius: '4px', padding: '1px 5px', fontSize: '9px', cursor: 'pointer', fontFamily: fonts.body, lineHeight: 1.4, opacity: 0.75 }}
+                                style={{ position: 'absolute', bottom: 12, right: 4, background: 'rgba(0,0,0,0.28)', border: 'none', color: color.text, borderRadius: '4px', padding: '1px 5px', fontSize: '9px', cursor: 'pointer', fontFamily: fonts.body, lineHeight: 1.4, opacity: 0.75 }}
                                 onMouseEnter={e => { e.stopPropagation(); e.currentTarget.style.opacity = '1'; }}
                                 onMouseLeave={e => e.currentTarget.style.opacity = '0.75'}
                               >✂ split</button>
+                            )}
+                            {/* Resize handle — drag bottom edge to extend/shorten duration */}
+                            {!ev._done && (
+                              <div
+                                draggable={false}
+                                onMouseDown={e => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  resizeRef.current = { event: ev, startY: e.clientY };
+                                  setResizeState({ eventId: ev.id, deltaEndMins: 0 });
+                                }}
+                                title="Drag to resize"
+                                style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 10, cursor: 'ns-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0 0 4px 4px' }}
+                              >
+                                <div style={{ width: 22, height: 2, background: color.text, opacity: isResizing ? 0.7 : 0.22, borderRadius: 1, transition: 'opacity 0.15s' }} />
+                              </div>
                             )}
                           </div>
                         );
