@@ -339,12 +339,16 @@ Give me the optimal payoff sequence and one actionable move for this week. Max 4
   return callAI({ messages: [{ role: 'user', content }], maxTokens: 300 });
 }
 
-export async function buildSchedule({ tasks, slots, focusProfile, today, tomorrow }) {
+export async function buildSchedule({ tasks, slots, focusProfile, today, tomorrow, intent }) {
   const energyLevel = focusProfile?.recentEnergy ?? 70;
   const energyNote =
-    energyLevel < 45 ? 'Low energy week — schedule light, leave breathing room between blocks.' :
-    energyLevel > 75 ? 'High energy week — can handle more complex and back-to-back blocks.' :
+    energyLevel < 45 ? 'Low energy — schedule light, leave breathing room between blocks.' :
+    energyLevel > 75 ? 'High energy — can handle more complex and back-to-back blocks.' :
     'Moderate energy — mix deep and lighter tasks, avoid over-scheduling.';
+
+  const intentSection = (intent?.topPriority || intent?.toDefer)
+    ? `\nANDREW'S STATED PRIORITIES FOR TODAY:${intent.topPriority ? `\n- Most important: ${intent.topPriority}` : ''}${intent.toDefer ? `\n- Push off / avoid: ${intent.toDefer}` : ''}\n`
+    : '';
 
   const content = `Build a realistic time-blocked schedule.
 
@@ -364,9 +368,10 @@ FOCUS WINDOWS (assign tasks to matching windows):
 - Late afternoon 3pm–6pm → quick tasks (emails, admin, short actions)
 
 ENERGY CONTEXT: ${energyNote}
-
+${intentSection}
 RULES:
 - Critical and high priority tasks get the best available slots
+- Always honor Andrew's stated priorities — if he named something as most important, schedule it first in the best slot
 - Never put deep work in an afternoon low-focus slot if a morning slot is free
 - Add 10-minute buffers between consecutive blocks — don't stack them back-to-back
 - Do not schedule more than 5 hours of focused work per day

@@ -254,6 +254,8 @@ export default function FloatingAdvisor({ open, onClose }) {
   const [savingTasks,       setSavingTasks]       = useState(false);
   const [createdTaskRefs,   setCreatedTaskRefs]   = useState([]);
   const [created,           setCreated]           = useState({ projects: [], tasks: [] });
+  const [intentCapturing,   setIntentCapturing]   = useState(false);
+  const [intent,            setIntent]            = useState({ topPriority: '', toDefer: '', energy: 'medium' });
   const [scheduling,        setScheduling]        = useState(false);
   const [scheduleBlocks,    setScheduleBlocks]    = useState([]);
   const [rawSlots,          setRawSlots]          = useState({ today: [], tomorrow: [] });
@@ -610,8 +612,14 @@ BRAIN DUMP:\n${dumpText}` }],
   };
 
   // ── dump: build schedule ───────────────────────────────────────────────────
-  const handleBuildSchedule = async () => {
+  const openIntentCapture = () => {
+    setIntent({ topPriority: '', toDefer: '', energy: 'medium' });
+    setIntentCapturing(true);
+  };
+
+  const handleBuildSchedule = async (intentData) => {
     if (scheduling) return;
+    setIntentCapturing(false);
     setScheduling(true);
     setScheduleError('');
     try {
@@ -642,7 +650,8 @@ BRAIN DUMP:\n${dumpText}` }],
       const recentReviews = weeklyReviews.slice(0, 4);
       const recentEnergy  = recentReviews.length ? Math.round(recentReviews.reduce((s, r) => s + (r.energyScore || 60), 0) / recentReviews.length) : 65;
       const urgentSet     = new Set(dumpResult?.urgentFlags || []);
-      const existingTasks = tasks.filter(t => !t.done && !t.scheduledStart).map(t => ({ title: t.title, taskId: t.id, priority: t.priority || 'medium', estimatedMinutes: t.estimatedMinutes || 30 }));
+      const todayStr = new Date().toISOString().split('T')[0];
+      const existingTasks = tasks.filter(t => !t.done && !t.scheduledStart && !(t.deferredUntil && t.deferredUntil > todayStr)).map(t => ({ title: t.title, taskId: t.id, priority: t.priority || 'medium', estimatedMinutes: t.estimatedMinutes || 30, dueDate: t.dueDate || null, pushCount: t.pushCount || 0, context: t.context || null }));
       const seen = new Set();
       const allTasks = [
         ...createdTaskRefs.map(t => ({ title: t.title, taskId: t.id, priority: t.priority, estimatedMinutes: t.estimatedMinutes })),
@@ -656,7 +665,9 @@ BRAIN DUMP:\n${dumpText}` }],
       const todayLabel    = todayDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
       const tomorrowLabel = tomorrowDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
-      const data = await buildSchedule({ tasks: allTasks, slots: { today: todaySlots, tomorrow: tomorrowSlots }, focusProfile: { recentEnergy }, today: todayLabel, tomorrow: tomorrowLabel });
+      const intentPayload = intentData || intent;
+      const energyOverride = intentPayload.energy === 'high' ? 85 : intentPayload.energy === 'low' ? 35 : null;
+      const data = await buildSchedule({ tasks: allTasks, slots: { today: todaySlots, tomorrow: tomorrowSlots }, focusProfile: { recentEnergy: energyOverride ?? recentEnergy }, today: todayLabel, tomorrow: tomorrowLabel, intent: intentPayload });
       if (!data) { setScheduleError('Schedule build failed. Try again.'); return; }
       setScheduleBlocks(data.schedule || []);
       setScheduleDates({ today: todayLabel, tomorrow: tomorrowLabel });
@@ -1109,15 +1120,63 @@ BRAIN DUMP:\n${dumpText}` }],
                         {/* Schedule builder CTA */}
                         <div style={{ padding: '12px', background: 'linear-gradient(135deg, rgba(91,143,212,0.07), rgba(91,143,212,0.03))', border: `1px solid rgba(91,143,212,0.18)`, borderRadius: '10px', marginBottom: '10px' }}>
                           <div style={{ fontSize: '12px', fontWeight: 600, color: tokens.textPrimary, marginBottom: '3px' }}>Build a time-blocked schedule</div>
-                          <div style={{ fontSize: '11px', color: tokens.textMuted, marginBottom: '8px' }}>
-                            {calendarConnected ? 'Reads your calendar + tasks, factors in priority and focus type.' : 'Connect Google Calendar on Life OS to unlock.'}
-                          </div>
-                          {calendarConnected
-                            ? <button onClick={handleBuildSchedule} disabled={scheduling} style={{ background: tokens.accent, border: 'none', borderRadius: '7px', padding: '7px 12px', color: '#0C0E12', fontSize: '12px', fontWeight: 700, cursor: scheduling ? 'not-allowed' : 'pointer', fontFamily: fonts.body, display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                {scheduling ? <><Spinner size={12} /> Building…</> : '✦ Build My Schedule'}
-                              </button>
-                            : <span style={{ fontSize: '11px', color: tokens.textMuted, fontStyle: 'italic' }}>Calendar not connected</span>
-                          }
+
+                          {/* Intent capture inline panel */}
+                          {intentCapturing ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                              <div>
+                                <label style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '4px' }}>What's most important today?</label>
+                                <input
+                                  value={intent.topPriority}
+                                  onChange={e => setIntent(i => ({ ...i, topPriority: e.target.value }))}
+                                  placeholder="e.g. Finish the Wells Fargo docs, call Mike"
+                                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '6px 9px', color: tokens.textPrimary, fontSize: '12px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }}
+                                  onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+                                  onBlur={e => e.target.style.borderColor = tokens.border}
+                                />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '4px' }}>Anything to push off or avoid?</label>
+                                <input
+                                  value={intent.toDefer}
+                                  onChange={e => setIntent(i => ({ ...i, toDefer: e.target.value }))}
+                                  placeholder="e.g. Skip anything that can wait until next week"
+                                  style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '6px 9px', color: tokens.textPrimary, fontSize: '12px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }}
+                                  onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+                                  onBlur={e => e.target.style.borderColor = tokens.border}
+                                />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '4px' }}>Energy today</label>
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                  {[['low', '🔋 Low'], ['medium', '⚡ Medium'], ['high', '🔥 High']].map(([val, label]) => (
+                                    <button key={val} onClick={() => setIntent(i => ({ ...i, energy: val }))}
+                                      style={{ flex: 1, padding: '5px 6px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: fonts.body, border: `1px solid ${intent.energy === val ? tokens.accent : tokens.border}`, background: intent.energy === val ? tokens.accentDim : 'transparent', color: intent.energy === val ? tokens.accent : tokens.textMuted }}>
+                                      {label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
+                                <button onClick={() => setIntentCapturing(false)} style={{ background: 'none', border: `1px solid ${tokens.border}`, borderRadius: '6px', padding: '6px 10px', color: tokens.textMuted, fontSize: '11px', cursor: 'pointer', fontFamily: fonts.body }}>Cancel</button>
+                                <button onClick={() => handleBuildSchedule(intent)} disabled={scheduling} style={{ flex: 1, background: tokens.accent, border: 'none', borderRadius: '6px', padding: '6px 10px', color: '#0C0E12', fontSize: '12px', fontWeight: 700, cursor: scheduling ? 'not-allowed' : 'pointer', fontFamily: fonts.body, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                                  {scheduling ? <><Spinner size={12} /> Building…</> : '✦ Build Schedule'}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <div style={{ fontSize: '11px', color: tokens.textMuted, marginBottom: '8px' }}>
+                                {calendarConnected ? 'Reads your calendar + tasks, factors in priority and focus type.' : 'Connect Google Calendar on Life OS to unlock.'}
+                              </div>
+                              {calendarConnected
+                                ? <button onClick={openIntentCapture} disabled={scheduling} style={{ background: tokens.accent, border: 'none', borderRadius: '7px', padding: '7px 12px', color: '#0C0E12', fontSize: '12px', fontWeight: 700, cursor: scheduling ? 'not-allowed' : 'pointer', fontFamily: fonts.body, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                    {scheduling ? <><Spinner size={12} /> Building…</> : '✦ Build My Schedule'}
+                                  </button>
+                                : <span style={{ fontSize: '11px', color: tokens.textMuted, fontStyle: 'italic' }}>Calendar not connected</span>
+                              }
+                            </>
+                          )}
                           {scheduleError && <div style={{ fontSize: '11px', color: tokens.red, marginTop: '8px' }}>{scheduleError}</div>}
                         </div>
 

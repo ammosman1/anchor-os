@@ -109,7 +109,9 @@ export default function HabitsScreen() {
   const [editHabit,    setEditHabit]    = useState(null);
   const [form,         setForm]         = useState(BLANK_FORM);
   const [saving,       setSaving]       = useState(false);
-  const [toggling,     setToggling]     = useState(new Set());
+  const [toggling,      setToggling]     = useState(new Set());
+  const [retroToggling, setRetroToggling] = useState(new Set());
+  const [toggleError,   setToggleError]   = useState('');
   const [deleteConf,   setDeleteConf]   = useState(null);
   const [aiInsights,   setAiInsights]   = useState('');
   const [insightsLoading, setInsightsLoading] = useState(false);
@@ -153,11 +155,30 @@ export default function HabitsScreen() {
   const handleToggle = async (habit) => {
     if (toggling.has(habit.id)) return;
     setToggling(prev => new Set(prev).add(habit.id));
+    setToggleError('');
     try {
-      const log = habitLogs.find(l => l.habitId === habit.id && l.date === today);
+      const log = (habitLogs || []).find(l => l.habitId === habit.id && l.date === today);
       await setHabitLog(user.uid, habit.id, today, !(log?.done));
+    } catch (err) {
+      console.error('Habit toggle error:', err);
+      setToggleError('Could not save — check your connection and try again.');
+      setTimeout(() => setToggleError(''), 4000);
     } finally {
       setToggling(prev => { const n = new Set(prev); n.delete(habit.id); return n; });
+    }
+  };
+
+  const handleRetroToggle = async (habit, date) => {
+    const key = `${habit.id}_${date}`;
+    if (retroToggling.has(key)) return;
+    setRetroToggling(prev => new Set(prev).add(key));
+    try {
+      const log = (habitLogs || []).find(l => l.habitId === habit.id && l.date === date);
+      await setHabitLog(user.uid, habit.id, date, !(log?.done));
+    } catch (err) {
+      console.error('Retro toggle error:', err);
+    } finally {
+      setRetroToggling(prev => { const n = new Set(prev); n.delete(key); return n; });
     }
   };
 
@@ -285,6 +306,12 @@ export default function HabitsScreen() {
         </div>
       )}
 
+      {toggleError && (
+        <div style={{ background: 'rgba(220,60,60,0.12)', border: '1px solid rgba(220,60,60,0.3)', borderRadius: '8px', padding: '10px 14px', fontSize: '13px', color: tokens.red, marginBottom: '12px' }}>
+          {toggleError}
+        </div>
+      )}
+
       {/* Habit list */}
       {activeHabits.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -370,25 +397,36 @@ export default function HabitsScreen() {
                   </div>
                 </div>
 
-                {/* Heatmap — only days from startDate */}
+                {/* Heatmap — only days from startDate; past 7 days are retroactively editable */}
                 <div style={{ marginTop: '12px' }}>
                   <div style={{ display: 'flex', gap: '2px', overflowX: 'auto' }}>
-                    {heatmap.map((day, i) => (
-                      <div
-                        key={i}
-                        title={`${day.date}: ${day.done ? 'Done' : 'Missed'}`}
-                        style={{
-                          width: 9, height: 9, flexShrink: 0, borderRadius: '2px',
-                          background: day.done ? tokens.green : tokens.border,
-                          opacity: day.done ? 0.9 : 0.45,
-                          outline: day.date === today ? `1.5px solid ${tokens.accent}` : 'none',
-                          outlineOffset: '1px',
-                        }}
-                      />
-                    ))}
+                    {heatmap.map((day, i) => {
+                      const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                      const retroEditable = day.date < today && day.date >= sevenDaysAgo.toISOString().split('T')[0];
+                      const retroKey = `${habit.id}_${day.date}`;
+                      const retroLoading = retroToggling.has(retroKey);
+                      return (
+                        <div
+                          key={i}
+                          onClick={retroEditable ? () => handleRetroToggle(habit, day.date) : undefined}
+                          title={retroEditable
+                            ? `${day.date}: ${day.done ? 'Done ✓ (click to unmark)' : 'Missed (click to mark done)'}`
+                            : `${day.date}: ${day.done ? 'Done' : 'Missed'}`}
+                          style={{
+                            width: 9, height: 9, flexShrink: 0, borderRadius: '2px',
+                            background: retroLoading ? tokens.accent : day.done ? tokens.green : tokens.border,
+                            opacity: day.done ? 0.9 : retroEditable ? 0.6 : 0.45,
+                            outline: day.date === today ? `1.5px solid ${tokens.accent}` : retroEditable ? `1px solid ${tokens.textMuted}` : 'none',
+                            outlineOffset: '1px',
+                            cursor: retroEditable ? 'pointer' : 'default',
+                            transition: 'background 0.15s, opacity 0.15s',
+                          }}
+                        />
+                      );
+                    })}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '9px', color: tokens.textMuted }}>
-                    <span>{startLabel}</span><span>Today</span>
+                    <span>{startLabel}</span><span style={{ color: tokens.textMuted, fontStyle: 'italic' }}>tap past 7d to edit</span><span>Today</span>
                   </div>
                 </div>
 

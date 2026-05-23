@@ -89,11 +89,23 @@ export function nextRecurrenceDate(baseDateStr, recurrence) {
   return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}`;
 }
 
-// Returns true if the task has at least one uncompleted blocker.
 // True when a task has a future startDate and shouldn't be scheduled or surfaced yet.
 export function isDeferred(task) {
   if (!task.startDate) return false;
   return task.startDate > new Date().toISOString().split('T')[0];
+}
+
+// True when a task was explicitly deferred by the user until a future date.
+export function isTaskDeferred(task) {
+  if (!task.deferredUntil) return false;
+  return task.deferredUntil > new Date().toISOString().split('T')[0];
+}
+
+export function getNextMonday() {
+  const d = new Date();
+  const daysUntilMonday = d.getDay() === 0 ? 1 : 8 - d.getDay();
+  d.setDate(d.getDate() + daysUntilMonday);
+  return d.toISOString().split('T')[0];
 }
 
 export function isTaskBlocked(task, allTasks) {

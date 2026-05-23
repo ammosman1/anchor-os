@@ -31,7 +31,19 @@ const CONTEXT_COLORS = {
   health:    { bg: 'rgba(78,168,168,0.15)',  text: '#4EA8A8' },
 };
 
-const STATUS_FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'blocked', 'done'];
+const STATUS_FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'blocked', 'deferred', 'done'];
+
+function getNextMonday() {
+  const d = new Date();
+  const daysUntilMonday = d.getDay() === 0 ? 1 : 8 - d.getDay();
+  d.setDate(d.getDate() + daysUntilMonday);
+  return d.toISOString().split('T')[0];
+}
+
+function isTaskDeferred(task) {
+  if (!task.deferredUntil) return false;
+  return task.deferredUntil > new Date().toISOString().split('T')[0];
+}
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -98,13 +110,14 @@ export default function TasksScreen() {
     if (filterProject && t.projectId !== filterProject) return false;
     if (filterContext && t.context !== filterContext) return false;
     switch (filter) {
-      case 'inbox':      return !t.done && (!t.projectId || t.project === 'Inbox');
-      case 'brain-dump': return !t.done && t.source === 'brain-dump';
-      case 'critical':   return !t.done && t.priority === 'critical';
-      case 'high':       return !t.done && (t.priority === 'critical' || t.priority === 'high');
-      case 'blocked':    return !t.done && isTaskBlocked(t, tasks);
+      case 'inbox':      return !t.done && !isTaskDeferred(t) && (!t.projectId || t.project === 'Inbox');
+      case 'brain-dump': return !t.done && !isTaskDeferred(t) && t.source === 'brain-dump';
+      case 'critical':   return !t.done && !isTaskDeferred(t) && t.priority === 'critical';
+      case 'high':       return !t.done && !isTaskDeferred(t) && (t.priority === 'critical' || t.priority === 'high');
+      case 'blocked':    return !t.done && !isTaskDeferred(t) && isTaskBlocked(t, tasks);
+      case 'deferred':   return !t.done && isTaskDeferred(t);
       case 'done':       return t.done;
-      default:           return !t.done;
+      default:           return !t.done && !isTaskDeferred(t);
     }
   }).sort((a, b) => {
     // Blocked tasks sink to bottom within their filter group
@@ -114,10 +127,11 @@ export default function TasksScreen() {
     return calculateUrgency(b) - calculateUrgency(a);
   });
 
-  const doneCount    = tasks.filter(t => t.done).length;
-  const pendingCount = tasks.filter(t => !t.done).length;
-  const inboxCount   = tasks.filter(t => !t.done && (!t.projectId || t.project === 'Inbox')).length;
-  const brainCount   = tasks.filter(t => !t.done && t.source === 'brain-dump').length;
+  const doneCount     = tasks.filter(t => t.done).length;
+  const pendingCount  = tasks.filter(t => !t.done && !isTaskDeferred(t)).length;
+  const inboxCount    = tasks.filter(t => !t.done && !isTaskDeferred(t) && (!t.projectId || t.project === 'Inbox')).length;
+  const brainCount    = tasks.filter(t => !t.done && t.source === 'brain-dump').length;
+  const deferredCount = tasks.filter(t => !t.done && isTaskDeferred(t)).length;
 
   const handleSaveCompletionNote = async () => {
     const noteText = completionNote.text.trim();
@@ -138,6 +152,18 @@ export default function TasksScreen() {
       }
     }
     setCompletionNote({ open: false, task: null, text: '', saveToNotes: false });
+  };
+
+  const handleDefer = async (task) => {
+    const until = getNextMonday();
+    await updateTask(user.uid, task.id, {
+      deferredUntil: until,
+      deferCount: (task.deferCount || 0) + 1,
+    });
+  };
+
+  const handleUnDefer = async (task) => {
+    await updateTask(user.uid, task.id, { deferredUntil: null });
   };
 
   const handleToggle = async (task) => {
@@ -207,7 +233,7 @@ export default function TasksScreen() {
           <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Task Inbox</div>
           <h1 style={{ fontFamily: fonts.display, fontSize: '26px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>All Tasks</h1>
           <p style={{ color: tokens.textSecondary, fontSize: '13px', marginTop: '4px' }}>
-            {pendingCount} pending · {inboxCount} in inbox · {doneCount} done
+            {pendingCount} pending · {inboxCount} in inbox · {deferredCount > 0 ? `${deferredCount} deferred · ` : ''}{doneCount} done
           </p>
         </div>
         <Button onClick={openNew}>+ New Task</Button>
@@ -372,6 +398,7 @@ export default function TasksScreen() {
                     )}
                     {task.dueDate && <span style={{ fontSize: '10px', color: tokens.textMuted }}>· due {task.dueDate}</span>}
                     {isDeferred(task) && <span style={{ fontSize: '10px', fontWeight: 600, color: tokens.blue, background: tokens.blueDim, padding: '1px 6px', borderRadius: '4px' }}>⏸ starts {task.startDate}</span>}
+                    {isTaskDeferred(task) && <span style={{ fontSize: '10px', fontWeight: 600, color: tokens.amber, background: 'rgba(200,160,50,0.12)', padding: '1px 6px', borderRadius: '4px' }}>⏭ deferred to {task.deferredUntil}{(task.deferCount || 0) > 1 ? ` (${task.deferCount}x)` : ''}</span>}
                     {(task.pushCount || 0) >= 1 && <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.red, background: tokens.redDim, padding: '1px 6px', borderRadius: '4px' }}>↻{task.pushCount}</span>}
                     {task.status === 'scheduled' && <span style={{ fontSize: '10px', color: tokens.blue, fontWeight: 600 }}>· Scheduled</span>}
                     {task.recurrence && task.recurrence !== 'none' && <span style={{ fontSize: '10px', color: tokens.green, fontWeight: 600 }}>· ↻ {task.recurrence}</span>}
@@ -435,6 +462,11 @@ export default function TasksScreen() {
                           ◷
                         </button>
                         <button onClick={() => openEdit(task)} style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', fontFamily: fonts.body }}>Edit</button>
+                        {isTaskDeferred(task) ? (
+                          <button onClick={() => handleUnDefer(task)} title="Un-defer — move back to active" style={{ background: 'none', border: 'none', color: tokens.amber, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', fontFamily: fonts.body }}>↩</button>
+                        ) : (
+                          <button onClick={() => handleDefer(task)} title="Defer to next Monday" style={{ background: 'none', border: 'none', color: tokens.textMuted, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', fontFamily: fonts.body }}>⏭</button>
+                        )}
                       </>
                     )}
                     <button onClick={() => handleDelete(task)} style={{ background: 'none', border: 'none', color: tokens.red, fontSize: '11px', cursor: 'pointer', padding: '2px 6px', opacity: 0.6, fontFamily: fonts.body }}>✕</button>
