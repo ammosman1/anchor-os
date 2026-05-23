@@ -99,10 +99,30 @@ const THEME_DEFS = {
     colorScheme: 'light', selectOptionBg: '#fff', selectOptionColor: '#0A1820',
     rangeTrackBg: 'rgba(0,0,0,0.10)',
   },
+  indigo: {
+    bg: '#F4F5FC', bgCard: '#FFFFFF', bgCardHover: '#F8F9FE',
+    bgGlass: 'rgba(255,255,255,0.82)', bgInput: '#ECEEF8', bgNav: '#FFFFFF',
+    border: 'rgba(20,18,60,0.08)', borderHover: 'rgba(20,18,60,0.16)', borderFocus: 'rgba(91,91,214,0.40)',
+    accent: '#5B5BD6', accentLight: '#6E6EE6', accentDim: 'rgba(91,91,214,0.10)', accentGlow: 'rgba(91,91,214,0.08)',
+    green: '#1A7A50', greenDim: 'rgba(26,122,80,0.10)',
+    blue: '#2060B0', blueDim: 'rgba(32,96,176,0.10)',
+    red: '#B02020', redDim: 'rgba(176,32,32,0.10)',
+    amber: '#A06010', amberDim: 'rgba(160,96,16,0.10)',
+    purple: '#7C3AED', purpleDim: 'rgba(124,58,237,0.10)',
+    textPrimary: '#12103A', textSecondary: 'rgba(18,16,58,0.58)',
+    textMuted: 'rgba(18,16,58,0.38)', textDisabled: 'rgba(18,16,58,0.22)',
+    track: 'rgba(0,0,0,0.08)',
+    shadowCard: '0 1px 3px rgba(20,18,60,0.05), 0 4px 14px rgba(20,18,60,0.07)',
+    shadowGlow: '0 0 24px rgba(91,91,214,0.10)', shadowNav: '0 1px 0 rgba(20,18,60,0.07)',
+    scrollbar: 'rgba(0,0,0,0.13)', scrollbarH: 'rgba(0,0,0,0.20)',
+    colorScheme: 'light', selectOptionBg: '#fff', selectOptionColor: '#12103A',
+    rangeTrackBg: 'rgba(0,0,0,0.10)',
+  },
 };
 
 export const THEME_LIST = [
-  { id: 'warmCream', name: 'Warm Cream',  description: 'Warm editorial, default' },
+  { id: 'indigo',    name: 'Indigo',      description: 'Clean white, indigo accent' },
+  { id: 'warmCream', name: 'Warm Cream',  description: 'Warm editorial' },
   { id: 'pureLight', name: 'Pure Light',  description: 'Clean white, navy accent' },
   { id: 'sage',      name: 'Sage',        description: 'Fresh forest green tones' },
   { id: 'midnight',  name: 'Midnight',    description: 'Dark mode with gold' },
@@ -114,8 +134,8 @@ export function setTheme(id) {
   window.location.reload();
 }
 
-const _id = (() => { try { return localStorage.getItem('anchorTheme') || 'warmCream'; } catch { return 'warmCream'; } })();
-const _t = THEME_DEFS[_id] || THEME_DEFS.warmCream;
+const _id = (() => { try { return localStorage.getItem('anchorTheme') || 'indigo'; } catch { return 'indigo'; } })();
+const _t = THEME_DEFS[_id] || THEME_DEFS.indigo;
 
 // iOS uses <html> background for the home-indicator safe-area strip.
 // Set it to bgNav so it matches the bottom nav bar color.
