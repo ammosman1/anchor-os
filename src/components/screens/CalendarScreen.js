@@ -167,6 +167,7 @@ export default function CalendarScreen() {
   const fetched                 = useRef(new Set());
   const dragRef                 = useRef(null);
   const tasksRef                = useRef(tasks);
+  const eventsRef               = useRef([]);
   const draggedSidebarTask      = useRef(null);
   const isDraggingFromSidebar   = useRef(false);
   const draggedCalendarTask     = useRef(null);  // task block being re-dragged from the grid
@@ -198,6 +199,7 @@ export default function CalendarScreen() {
   }, [gridStart]); // re-scroll when user changes grid start hour
 
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+  useEffect(() => { eventsRef.current = events; }, [events]);
 
   // Clear optimistic resize overrides once Firestore confirms the new scheduledEnd
   useEffect(() => {
@@ -406,6 +408,34 @@ export default function CalendarScreen() {
               })
               .sort((a, b) => new Date(a.scheduledStart) - new Date(b.scheduledStart));
 
+            // GCal events on this day (non-task) used to skip over blocked time
+            const dayGcalEvents = (eventsRef.current || [])
+              .filter(e => {
+                if (e._isTask || !e.start?.dateTime) return false;
+                const eDay = e.start.dateTime.split('T')[0];
+                return eDay === sameDay;
+              });
+
+            const advancePastGcal = (start, durationMs) => {
+              let s = start;
+              let changed = true;
+              while (changed) {
+                changed = false;
+                for (const gcal of dayGcalEvents) {
+                  const gcalStart = new Date(gcal.start.dateTime);
+                  const gcalEnd   = new Date(gcal.end.dateTime);
+                  const proposedEnd = new Date(s.getTime() + durationMs);
+                  // overlap: s < gcalEnd && proposedEnd > gcalStart
+                  if (s < gcalEnd && proposedEnd > gcalStart) {
+                    s = new Date(gcalEnd.getTime() + BUFFER_MS);
+                    changed = true;
+                    break;
+                  }
+                }
+              }
+              return s;
+            };
+
             let cascadeCursor = newEnd;
             for (const t of displaced) {
               const tStart   = new Date(t.scheduledStart);
@@ -413,7 +443,8 @@ export default function CalendarScreen() {
                 ? new Date(t.scheduledEnd).getTime() - tStart.getTime()
                 : (t.estimatedMinutes || 45) * 60000;
               if (tStart.getTime() >= cascadeCursor.getTime()) break;
-              const bumpedStart = new Date(cascadeCursor.getTime() + BUFFER_MS);
+              const rawBumpedStart = new Date(cascadeCursor.getTime() + BUFFER_MS);
+              const bumpedStart = advancePastGcal(rawBumpedStart, duration);
               const bumpedEnd   = new Date(bumpedStart.getTime() + duration);
               cascadeCursor = bumpedEnd;
               try {
