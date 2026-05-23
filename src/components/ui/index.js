@@ -39,9 +39,14 @@ export function Button({
 
   const variants = {
     primary: {
-      background: disabled ? tokens.track : hovered ? tokens.accentLight : tokens.accent,
-      color: disabled ? tokens.textDisabled : tokens.bgCard === '#FFFFFF' ? '#0C0E12' : '#fff',
+      background: disabled
+        ? tokens.track
+        : `linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(0,0,0,0.06) 100%), ${hovered ? tokens.accentLight : tokens.accent}`,
+      color: disabled ? tokens.textDisabled : tokens.accentText || '#FFFFFF',
       border: 'none',
+      boxShadow: disabled ? 'none' : hovered
+        ? `0 4px 12px ${tokens.accentGlow.replace('0.08', '0.32').replace('0.06', '0.28')}, 0 1px 3px rgba(0,0,0,0.12)`
+        : `0 1px 4px ${tokens.accentGlow.replace('0.08', '0.20').replace('0.06', '0.16')}, 0 1px 2px rgba(0,0,0,0.08)`,
     },
     ghost: {
       background: hovered ? tokens.bgCardHover : 'transparent',
