@@ -455,26 +455,28 @@ export default function CalendarScreen() {
           : e
       ));
 
-      try {
-        const token = await getValidAccessToken(user.uid, calendarIntegration);
-        if (token) {
-          await updateEvent(token, ev.id, {
-            start: { dateTime: newStart.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-            end:   { dateTime: newEnd.toISOString(),   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-          });
+      (async () => {
+        try {
+          const token = await getValidAccessToken(user.uid, calendarIntegration);
+          if (token) {
+            await updateEvent(token, ev.id, {
+              start: { dateTime: newStart.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+              end:   { dateTime: newEnd.toISOString(),   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+            });
+          }
+          const linkedTask = (tasksRef.current || []).find(t => t.calendarEventId === ev.id);
+          if (linkedTask) {
+            await updateTask(user.uid, linkedTask.id, {
+              scheduledDate:  newStart.toISOString().split('T')[0],
+              scheduledStart: newStart.toISOString(),
+              scheduledEnd:   newEnd.toISOString(),
+            });
+          }
+        } catch (err) {
+          if (isDev) console.error('Drag reschedule failed:', err);
+          setEvents(prev => prev.map(e => e.id === ev.id ? ev : e));
         }
-        const linkedTask = (tasksRef.current || []).find(t => t.calendarEventId === ev.id);
-        if (linkedTask) {
-          await updateTask(user.uid, linkedTask.id, {
-            scheduledDate:  newStart.toISOString().split('T')[0],
-            scheduledStart: newStart.toISOString(),
-            scheduledEnd:   newEnd.toISOString(),
-          });
-        }
-      } catch (err) {
-        if (isDev) console.error('Drag reschedule failed:', err);
-        setEvents(prev => prev.map(e => e.id === ev.id ? ev : e));
-      }
+      })();
     };
 
     document.addEventListener('mousemove', onMouseMove);
