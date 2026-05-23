@@ -10,7 +10,7 @@ import {
 import { buildScheduleForDays } from '../../lib/ai';
 import { updateTask } from '../../lib/db';
 import { Button, Spinner, priorityColors } from '../ui';
-import { calculateUrgency, isDeferred } from '../../lib/tasks';
+import { calculateUrgency, isDeferred, isTaskDeferred } from '../../lib/tasks';
 import { isOutdoorTask } from '../../lib/weather';
 const STEPS = ['scope', 'triage', 'building', 'review', 'commit', 'done'];
 
@@ -56,6 +56,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
   const [gcalCount, setGcalCount]         = useState(0);
   const [buildStatus, setBuildStatus]     = useState('');
   const [error, setError]                 = useState('');
+  const [intent, setIntent]               = useState({ topPriority: '', toDefer: '', energy: 'medium' });
 
   const yesterdayStr = useMemo(() => yesterdayYMD(), []);
 
@@ -63,6 +64,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
     .filter(t => {
       if (t.done) return false;
       if (isDeferred(t)) return false;
+      if (isTaskDeferred(t)) return false;
       if (!t.scheduledDate) return true;
       if (t.scheduledDate <= yesterdayStr) return true;
       return false;
@@ -80,6 +82,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
     setCommitMode('anchor');
     setError('');
     setGcalCount(0);
+    setIntent({ topPriority: '', toDefer: '', energy: 'medium' });
   }, [candidateTasks]);
 
   useEffect(() => {
@@ -167,13 +170,15 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
       }
 
       setBuildStatus('AI is building your plan...');
+      const energyOverride = intent.energy === 'high' ? 85 : intent.energy === 'low' ? 35 : null;
       const result = await buildScheduleForDays({
         tasks: selected,
         slotsMap,
         days,
         currentTime: now.toISOString(),
-        focusProfile: { recentEnergy: userProfile?.energyToday ? userProfile.energyToday * 10 : 70 },
+        focusProfile: { recentEnergy: energyOverride ?? (userProfile?.energyToday ? userProfile.energyToday * 10 : 70) },
         weatherForecast: weatherForecast?.forecast || null,
+        intent,
       });
 
       const scheduledIds = new Set((result?.schedule || []).map(s => s.taskId).filter(Boolean));
@@ -308,7 +313,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
           {/* ── SCOPE ── */}
           {step === 'scope' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <p style={{ color: tokens.textSecondary, fontSize: '13px', marginBottom: '8px' }}>
+              <p style={{ color: tokens.textSecondary, fontSize: '13px', marginBottom: '4px' }}>
                 Choose how far out to plan. Anchor will find free slots and build a draft schedule.
               </p>
               {[
@@ -326,6 +331,47 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
                   <div style={{ fontSize: '12px', color: tokens.textSecondary, marginTop: '3px' }}>{opt.sub}</div>
                 </button>
               ))}
+
+              {/* Intent capture */}
+              <div style={{ borderTop: `1px solid ${tokens.border}`, paddingTop: '14px', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: tokens.textMuted }}>Optional — help AI prioritize</div>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 600, color: tokens.textSecondary, display: 'block', marginBottom: '5px' }}>What's most important today?</label>
+                  <input
+                    value={intent.topPriority}
+                    onChange={e => setIntent(p => ({ ...p, topPriority: e.target.value }))}
+                    placeholder="e.g. Finish the Johnson proposal"
+                    style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '7px', padding: '8px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                    onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+                    onBlur={e => e.target.style.borderColor = tokens.border}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 600, color: tokens.textSecondary, display: 'block', marginBottom: '5px' }}>Anything to push off or avoid?</label>
+                  <input
+                    value={intent.toDefer}
+                    onChange={e => setIntent(p => ({ ...p, toDefer: e.target.value }))}
+                    placeholder="e.g. Admin tasks, email replies"
+                    style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '7px', padding: '8px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                    onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+                    onBlur={e => e.target.style.borderColor = tokens.border}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', fontWeight: 600, color: tokens.textSecondary, display: 'block', marginBottom: '5px' }}>Energy level</label>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {[['low', 'Low'], ['medium', 'Medium'], ['high', 'High']].map(([val, label]) => (
+                      <button key={val} onClick={() => setIntent(p => ({ ...p, energy: val }))} style={{
+                        flex: 1, padding: '7px 0', fontSize: '12px', fontWeight: 600, borderRadius: '7px', cursor: 'pointer', fontFamily: 'inherit',
+                        background: intent.energy === val ? tokens.accentDim : 'transparent',
+                        border: `1.5px solid ${intent.energy === val ? tokens.accent : tokens.border}`,
+                        color: intent.energy === val ? tokens.accent : tokens.textSecondary,
+                        transition: 'all 0.12s',
+                      }}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

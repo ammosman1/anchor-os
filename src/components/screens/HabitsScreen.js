@@ -399,34 +399,59 @@ export default function HabitsScreen() {
 
                 {/* Heatmap — only days from startDate; past 7 days are retroactively editable */}
                 <div style={{ marginTop: '12px' }}>
-                  <div style={{ display: 'flex', gap: '2px', overflowX: 'auto' }}>
+                  {/* Day-of-week labels above dots */}
+                  <div style={{ display: 'flex', gap: '3px', overflowX: 'auto', marginBottom: '3px' }}>
+                    {heatmap.map((day, i) => {
+                      const d = new Date(day.date + 'T12:00:00');
+                      const dow = ['S','M','T','W','T','F','S'][d.getDay()];
+                      const showLabel = i === 0 || d.getDay() === 1; // always show first + every Monday
+                      return (
+                        <div key={i} style={{ width: 13, height: 11, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {showLabel && (
+                            <span style={{ fontSize: '8px', color: tokens.textMuted, fontWeight: 600, lineHeight: 1 }}>{dow}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Heatmap dots */}
+                  <div style={{ display: 'flex', gap: '3px', overflowX: 'auto' }}>
                     {heatmap.map((day, i) => {
                       const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
                       const retroEditable = day.date < today && day.date >= sevenDaysAgo.toISOString().split('T')[0];
                       const retroKey = `${habit.id}_${day.date}`;
                       const retroLoading = retroToggling.has(retroKey);
+                      const isToday = day.date === today;
+                      const d = new Date(day.date + 'T12:00:00');
+                      const dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                       return (
                         <div
                           key={i}
                           onClick={retroEditable ? () => handleRetroToggle(habit, day.date) : undefined}
-                          title={retroEditable
-                            ? `${day.date}: ${day.done ? 'Done ✓ (click to unmark)' : 'Missed (click to mark done)'}`
-                            : `${day.date}: ${day.done ? 'Done' : 'Missed'}`}
+                          title={`${dateLabel}: ${day.done ? 'Done ✓' : 'Missed'}${retroEditable ? ' (click to edit)' : ''}`}
                           style={{
-                            width: 9, height: 9, flexShrink: 0, borderRadius: '2px',
-                            background: retroLoading ? tokens.accent : day.done ? tokens.green : tokens.border,
-                            opacity: day.done ? 0.9 : retroEditable ? 0.6 : 0.45,
-                            outline: day.date === today ? `1.5px solid ${tokens.accent}` : retroEditable ? `1px solid ${tokens.textMuted}` : 'none',
-                            outlineOffset: '1px',
+                            width: 13, height: 13, flexShrink: 0, borderRadius: '3px',
+                            background: retroLoading ? tokens.accent : day.done ? tokens.green : 'rgba(255,255,255,0.07)',
+                            border: isToday
+                              ? `1.5px solid ${tokens.accent}`
+                              : day.done
+                                ? `1px solid rgba(109,191,158,0.4)`
+                                : retroEditable
+                                  ? `1px solid rgba(255,255,255,0.18)`
+                                  : `1px solid rgba(255,255,255,0.07)`,
+                            opacity: retroLoading ? 0.7 : day.done ? 1 : retroEditable ? 0.7 : 0.4,
                             cursor: retroEditable ? 'pointer' : 'default',
-                            transition: 'background 0.15s, opacity 0.15s',
+                            transition: 'background 0.15s, opacity 0.15s, border-color 0.15s',
+                            boxSizing: 'border-box',
                           }}
                         />
                       );
                     })}
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '9px', color: tokens.textMuted }}>
-                    <span>{startLabel}</span><span style={{ color: tokens.textMuted, fontStyle: 'italic' }}>tap past 7d to edit</span><span>Today</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '5px', fontSize: '9px', color: tokens.textMuted }}>
+                    <span>{startLabel}</span>
+                    <span style={{ fontStyle: 'italic' }}>tap past 7d to edit</span>
+                    <span>Today</span>
                   </div>
                 </div>
 

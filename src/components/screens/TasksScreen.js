@@ -156,10 +156,25 @@ export default function TasksScreen() {
 
   const handleDefer = async (task) => {
     const until = getNextMonday();
-    await updateTask(user.uid, task.id, {
+    const updates = {
       deferredUntil: until,
       deferCount: (task.deferCount || 0) + 1,
-    });
+      status: 'pending',
+      scheduledDate: null,
+      scheduledStart: null,
+      scheduledEnd: null,
+      calendarEventId: null,
+    };
+    // Delete linked GCal event so it disappears from calendar immediately
+    if (task.calendarEventId && calendarIntegration?.connected) {
+      try {
+        const token = await getValidAccessToken(user.uid, calendarIntegration);
+        if (token) await deleteEvent(token, task.calendarEventId);
+      } catch (err) {
+        console.warn('GCal delete on defer failed:', err);
+      }
+    }
+    await updateTask(user.uid, task.id, updates);
   };
 
   const handleUnDefer = async (task) => {

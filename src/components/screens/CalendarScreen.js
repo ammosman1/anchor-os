@@ -172,6 +172,7 @@ export default function CalendarScreen() {
   const draggedCalendarTask     = useRef(null);  // task block being re-dragged from the grid
   const [dragState, setDragState] = useState(null);
   const resizeRef = useRef(null);
+  const justResized = useRef(false);
   const [resizeState, setResizeState] = useState(null);
   const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
 
@@ -315,6 +316,8 @@ export default function CalendarScreen() {
         const rawDelta = e.clientY - ref.startY;
         const deltaEndMins = Math.round(rawDelta / 15) * 15;
         setResizeState(null);
+        justResized.current = true;
+        setTimeout(() => { justResized.current = false; }, 150);
         if (deltaEndMins === 0) return;
 
         const ev = ref.event;
@@ -355,6 +358,46 @@ export default function CalendarScreen() {
         } catch (err) {
           if (isDev) console.error('Resize failed:', err);
           if (!ev._isTask) setEvents(prev => prev.map(e => e.id === ev.id ? ev : e));
+        }
+
+        // ── Cascade-bump Anchor tasks displaced by the extension ───────────────
+        if (deltaEndMins > 0) {
+          const sameDay = origStart.toISOString().split('T')[0];
+          const BUFFER_MS = 10 * 60000;
+          const displaced = (tasksRef.current || [])
+            .filter(t => {
+              if (t.done || !t.scheduledStart) return false;
+              if (!t.scheduledStart.startsWith(sameDay)) return false;
+              const tStart = new Date(t.scheduledStart);
+              return tStart >= origEnd && tStart < newEnd; // in the newly claimed zone
+            })
+            .sort((a, b) => new Date(a.scheduledStart) - new Date(b.scheduledStart));
+
+          let cascadeCursor = newEnd;
+          for (const t of displaced) {
+            const tStart = new Date(t.scheduledStart);
+            const duration = t.scheduledEnd
+              ? new Date(t.scheduledEnd).getTime() - tStart.getTime()
+              : (t.estimatedMinutes || 45) * 60000;
+            if (tStart.getTime() >= cascadeCursor.getTime()) break;
+            const bumpedStart = new Date(cascadeCursor.getTime() + BUFFER_MS);
+            const bumpedEnd   = new Date(bumpedStart.getTime() + duration);
+            cascadeCursor = bumpedEnd;
+            try {
+              await updateTask(user.uid, t.id, {
+                scheduledStart: bumpedStart.toISOString(),
+                scheduledEnd:   bumpedEnd.toISOString(),
+                scheduledDate:  sameDay,
+              });
+              if (t.calendarEventId && calendarIntegration?.connected) {
+                const token = await getValidAccessToken(user.uid, calendarIntegration);
+                if (token) await updateEvent(token, t.calendarEventId, {
+                  start: { dateTime: bumpedStart.toISOString(), timeZone: tz },
+                  end:   { dateTime: bumpedEnd.toISOString(),   timeZone: tz },
+                });
+              }
+            } catch (err) { if (isDev) console.warn('Cascade bump failed for', t.title, err); }
+          }
         }
         return;
       }
@@ -1384,7 +1427,7 @@ export default function CalendarScreen() {
                             onMouseDown={(e) => { if (!isDragging && !isResizing && !ev._isTask) onEventMouseDown(e, ev); }}
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (dragRef.current || resizeRef.current || dragState?.eventId === ev.id || resizeState?.eventId === ev.id) return;
+                              if (dragRef.current || resizeRef.current || justResized.current || dragState?.eventId === ev.id || resizeState?.eventId === ev.id) return;
                               if (ev._isTask) {
                                 const t = tasks.find(tk => tk.id === ev._taskId);
                                 if (t) openEdit(t);

@@ -455,13 +455,13 @@ Return ONLY valid JSON:
   }
 }
 
-export async function buildScheduleForDays({ tasks, slotsMap, days, focusProfile, currentTime }) {
+export async function buildScheduleForDays({ tasks, slotsMap, days, focusProfile, currentTime, intent }) {
   if (process.env.NODE_ENV === 'production') {
     try {
       const res = await fetch('/api/schedule/build', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tasks, slotsMap, days, focusProfile, currentTime }),
+        body: JSON.stringify({ tasks, slotsMap, days, focusProfile, currentTime, intent }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -492,8 +492,11 @@ FREE TIME SLOTS PER DAY:
 ${JSON.stringify(daysJson, null, 2)}
 
 ENERGY CONTEXT: ${energyNote}
-
+${(intent?.topPriority || intent?.toDefer) ? `
+STATED PRIORITIES:${intent.topPriority ? `\n- Most important: ${intent.topPriority}` : ''}${intent.toDefer ? `\n- Push off / avoid: ${intent.toDefer}` : ''}
+` : ''}
 RULES:
+- Always honor stated priorities — if something was named most important, schedule it first
 - Critical/high priority tasks get earliest available slots
 - Add 10-minute buffers between consecutive blocks
 - Max 5 hours focused work per day
