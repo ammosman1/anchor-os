@@ -455,13 +455,13 @@ Return ONLY valid JSON:
   }
 }
 
-export async function buildScheduleForDays({ tasks, slotsMap, days, focusProfile, currentTime, intent }) {
+export async function buildScheduleForDays({ tasks, slotsMap, days, focusProfile, currentTime, intent, habits, healthLogs }) {
   if (process.env.NODE_ENV === 'production') {
     try {
       const res = await fetch('/api/schedule/build', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tasks, slotsMap, days, focusProfile, currentTime, intent }),
+        body: JSON.stringify({ tasks, slotsMap, days, focusProfile, currentTime, intent, habits, healthLogs }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -492,7 +492,13 @@ FREE TIME SLOTS PER DAY:
 ${JSON.stringify(daysJson, null, 2)}
 
 ENERGY CONTEXT: ${energyNote}
-${(intent?.topPriority || intent?.toDefer) ? `
+${(habits?.length) ? `
+ACTIVE HABITS (with purpose context):
+${habits.filter(h => h.active !== false).map(h => `- ${h.title}${h.description ? ` — ${h.description}` : ''}`).join('\n')}
+` : ''}${(healthLogs?.length) ? `
+RECENT HEALTH (last 7 days):
+${healthLogs.slice(0, 7).map(l => `- ${l.date}: energy ${l.energy ?? '?'}/5, sleep ${l.sleep ?? '?'}, exercise ${l.exercise === true ? 'yes' : l.exercise === false ? 'no' : '?'}`).join('\n')}
+` : ''}${(intent?.topPriority || intent?.toDefer) ? `
 STATED PRIORITIES:${intent.topPriority ? `\n- Most important: ${intent.topPriority}` : ''}${intent.toDefer ? `\n- Push off / avoid: ${intent.toDefer}` : ''}
 ` : ''}
 RULES:

@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { getAIFocusRecommendation, getWeeklyFocusStatement, getTodaysPulse } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
-import { updateTask, addTask, saveProfile, getPulseCache, savePulseCache } from '../../lib/db';
+import { updateTask, addTask, saveProfile, getPulseCache, savePulseCache, saveHealthLog } from '../../lib/db';
 import { getValidAccessToken, getEvents } from '../../lib/calendar';
 import { calculateMomentum } from '../../lib/momentum';
 import { calculateUrgency, isTaskBlocked, isDeferred } from '../../lib/tasks';
@@ -60,7 +60,7 @@ const QUOTES = [
 
 export default function HomeScreen() {
   const { user, profile, updateProfile } = useAuth();
-  const { tasks, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, brainDumpDigests, userProfile, plaidItems, dailyReviews, manualCashFlow, debtAccounts, assetAccounts, notes, lastWeeklyReset, savingsAnalysis, savingsHistory, actedOnRecommendations, habits, habitLogs } = useData();
+  const { tasks, totalDebt, goals, calendarIntegration, projects, weeklyReviews, brainDumps, brainDumpDigests, userProfile, plaidItems, dailyReviews, manualCashFlow, debtAccounts, assetAccounts, notes, lastWeeklyReset, savingsAnalysis, savingsHistory, actedOnRecommendations, habits, habitLogs, healthLogs = [] } = useData();
   const navigate = useNavigate();
 
   const [energy,      setEnergy]      = useState(profile?.energyToday || 7);
@@ -78,6 +78,8 @@ export default function HomeScreen() {
   const [pulseLoading,  setPulseLoading]  = useState(false);
   const [pulseCachedAt, setPulseCachedAt] = useState(null);
 
+  const [healthCheckin, setHealthCheckin] = useState({ energy: null, exercise: null, sleep: null });
+  const [healthSaving,  setHealthSaving]  = useState(false);
   const [feedback, setFeedback] = useState({ open: false, key: '', text: '', saving: false });
   const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
   const [actionCenterOpen,  setActionCenterOpen]  = useState(true);
@@ -88,6 +90,14 @@ export default function HomeScreen() {
 
   const isAfter5pm = new Date().getHours() >= 17;
   const todayStr   = todayYMD();
+
+  // Initialize health check-in from today's log (if already saved)
+  const todayHealthLog = useMemo(() => healthLogs.find(l => l.date === todayStr), [healthLogs, todayStr]);
+  useEffect(() => {
+    if (todayHealthLog) {
+      setHealthCheckin({ energy: todayHealthLog.energy ?? null, exercise: todayHealthLog.exercise ?? null, sleep: todayHealthLog.sleep ?? null });
+    }
+  }, [todayHealthLog]);
 
   // Tasks left behind: past-calendar (any priority) OR overdue by due date, excluding dropped
   const carryForwardTasks = useMemo(() => {
@@ -617,6 +627,15 @@ export default function HomeScreen() {
     }
   };
 
+  const handleHealthSave = async (updates) => {
+    const next = { ...healthCheckin, ...updates };
+    setHealthCheckin(next);
+    if (next.energy !== null || next.exercise !== null || next.sleep !== null) {
+      setHealthSaving(true);
+      try { await saveHealthLog(user.uid, todayStr, next); } finally { setHealthSaving(false); }
+    }
+  };
+
   const momentumColor = (m) => m >= 65 ? tokens.green : m >= 35 ? tokens.accent : tokens.red;
 
   return (
@@ -653,6 +672,68 @@ export default function HomeScreen() {
         </div>
       </div>
 
+
+      {/* Daily Health Check-in */}
+      <div className="fade-up stagger-1" style={{ marginBottom: '14px' }}>
+        <div style={{ background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '12px', padding: '12px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+            <span style={{ fontSize: '12px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '0.04em' }}>Today's Health</span>
+            {healthSaving && <span style={{ fontSize: '10px', color: tokens.textMuted }}>Saving…</span>}
+            {todayHealthLog && !healthSaving && <span style={{ fontSize: '10px', color: tokens.green }}>✓ Logged</span>}
+          </div>
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+            {/* Energy */}
+            <div>
+              <div style={{ fontSize: '10px', fontWeight: 600, color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>Energy</div>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {[
+                  { val: 1, label: '😴', tip: 'Drained' },
+                  { val: 2, label: '😑', tip: 'Low' },
+                  { val: 3, label: '😊', tip: 'Okay' },
+                  { val: 4, label: '💪', tip: 'Good' },
+                  { val: 5, label: '🔥', tip: 'On fire' },
+                ].map(({ val, label, tip }) => (
+                  <button key={val} title={tip} onClick={() => handleHealthSave({ energy: val })}
+                    style={{ fontSize: '18px', lineHeight: 1, background: healthCheckin.energy === val ? tokens.accentDim : 'transparent', border: `1px solid ${healthCheckin.energy === val ? tokens.accent : tokens.border}`, borderRadius: '8px', padding: '4px 6px', cursor: 'pointer', transition: 'all 0.12s', opacity: healthCheckin.energy && healthCheckin.energy !== val ? 0.45 : 1 }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Sleep */}
+            <div>
+              <div style={{ fontSize: '10px', fontWeight: 600, color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>Sleep</div>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {[
+                  { val: 'poor', label: '😵', tip: 'Poor' },
+                  { val: 'ok',   label: '😐', tip: 'Okay' },
+                  { val: 'good', label: '😴', tip: 'Good' },
+                ].map(({ val, label, tip }) => (
+                  <button key={val} title={tip} onClick={() => handleHealthSave({ sleep: val })}
+                    style={{ fontSize: '18px', lineHeight: 1, background: healthCheckin.sleep === val ? tokens.accentDim : 'transparent', border: `1px solid ${healthCheckin.sleep === val ? tokens.accent : tokens.border}`, borderRadius: '8px', padding: '4px 6px', cursor: 'pointer', transition: 'all 0.12s', opacity: healthCheckin.sleep && healthCheckin.sleep !== val ? 0.45 : 1 }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Exercise */}
+            <div>
+              <div style={{ fontSize: '10px', fontWeight: 600, color: tokens.textMuted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '5px' }}>Exercise</div>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {[
+                  { val: true,  label: '✅', tip: 'Done' },
+                  { val: false, label: '⬜', tip: 'Skipped' },
+                ].map(({ val, label, tip }) => (
+                  <button key={String(val)} title={tip} onClick={() => handleHealthSave({ exercise: val })}
+                    style={{ fontSize: '18px', lineHeight: 1, background: healthCheckin.exercise === val ? tokens.accentDim : 'transparent', border: `1px solid ${healthCheckin.exercise === val ? tokens.accent : tokens.border}`, borderRadius: '8px', padding: '4px 6px', cursor: 'pointer', transition: 'all 0.12s', opacity: healthCheckin.exercise !== null && healthCheckin.exercise !== val ? 0.45 : 1 }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Action Center */}
       {actionItems.length > 0 && (

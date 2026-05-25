@@ -100,7 +100,7 @@ function formatShortDate(dateStr) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-const BLANK_FORM = { title: '', frequency: 'daily', goalId: '', startDate: todayStr() };
+const BLANK_FORM = { title: '', frequency: 'daily', goalId: '', startDate: todayStr(), description: '' };
 
 export default function HabitsScreen() {
   const { user }                     = useAuth();
@@ -127,6 +127,7 @@ export default function HabitsScreen() {
       frequency: h.frequency || 'daily',
       goalId: h.goalId || '',
       startDate: h.startDate || todayStr(),
+      description: h.description || '',
     });
     setModalOpen(true);
   };
@@ -140,6 +141,7 @@ export default function HabitsScreen() {
         frequency: form.frequency,
         goalId: form.goalId || null,
         startDate: form.startDate || todayStr(),
+        description: form.description.trim() || null,
       };
       if (editHabit) {
         await updateHabit(user.uid, editHabit.id, data);
@@ -485,6 +487,18 @@ export default function HabitsScreen() {
             onChange={v => setForm(p => ({ ...p, title: v }))}
             placeholder="e.g. Morning walk, Read 20 min, No screens before 9am"
           />
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Why / Purpose <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional — helps AI understand intent)</span></label>
+            <textarea
+              value={form.description}
+              onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
+              placeholder="e.g. Mental clarity and energy for afternoon focus blocks, ties to long-term health goal"
+              rows={2}
+              style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '9px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box', resize: 'vertical', lineHeight: 1.5 }}
+              onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+              onBlur={e => e.target.style.borderColor = tokens.border}
+            />
+          </div>
           <div>
             <label style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tokens.textMuted, display: 'block', marginBottom: '6px' }}>Frequency</label>
             <div style={{ display: 'flex', gap: '6px' }}>

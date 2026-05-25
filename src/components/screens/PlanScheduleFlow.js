@@ -43,7 +43,7 @@ function yesterdayYMD() {
 
 export default function PlanScheduleFlow({ open, onClose, calendarIntegration, weatherForecast }) {
   const { user } = useAuth();
-  const { tasks, userProfile } = useData();
+  const { tasks, userProfile, habits = [], healthLogs = [] } = useData();
 
   const [step, setStep]                   = useState('scope');
   const [scope, setScope]                 = useState('today');
@@ -179,6 +179,8 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
         focusProfile: { recentEnergy: energyOverride ?? (userProfile?.energyToday ? userProfile.energyToday * 10 : 70) },
         weatherForecast: weatherForecast?.forecast || null,
         intent,
+        habits: habits.filter(h => h.active !== false),
+        healthLogs: healthLogs.slice(0, 7),
       });
 
       const scheduledIds = new Set((result?.schedule || []).map(s => s.taskId).filter(Boolean));

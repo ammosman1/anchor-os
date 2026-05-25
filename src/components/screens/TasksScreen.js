@@ -417,6 +417,15 @@ export default function TasksScreen() {
                     {(task.pushCount || 0) >= 1 && <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.red, background: tokens.redDim, padding: '1px 6px', borderRadius: '4px' }}>↻{task.pushCount}</span>}
                     {task.status === 'scheduled' && <span style={{ fontSize: '10px', color: tokens.blue, fontWeight: 600 }}>· Scheduled</span>}
                     {task.recurrence && task.recurrence !== 'none' && <span style={{ fontSize: '10px', color: tokens.green, fontWeight: 600 }}>· ↻ {task.recurrence}</span>}
+                    {task.checklist?.length > 0 && (() => {
+                      const done = task.checklist.filter(i => i.done).length;
+                      const total = task.checklist.length;
+                      return (
+                        <span style={{ fontSize: '10px', fontWeight: 600, color: done === total ? tokens.green : tokens.textMuted, background: done === total ? tokens.greenDim : tokens.track, padding: '1px 6px', borderRadius: '4px' }}>
+                          ☑ {done}/{total}
+                        </span>
+                      );
+                    })()}
                   </div>
                   {/* Tags */}
                   {task.tags?.length > 0 && (

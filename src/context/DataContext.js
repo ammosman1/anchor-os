@@ -10,6 +10,7 @@ import {
   subscribeHabits, subscribeHabitLogs, subscribeNotes, subscribeDocuments,
   subscribeSavingsAnalysis, subscribeSavingsAnalysisHistory, subscribeLastWeeklyReset,
   subscribeActedOnRecommendations, saveBrainDumpDigest, subscribeBrainDumpDigests,
+  subscribeHealthLogs,
 } from '../lib/db';
 import { setUserPersona, generateWeeklyBrainDumpDigest } from '../lib/ai';
 import { calculateMomentum } from '../lib/momentum';
@@ -40,6 +41,7 @@ export function DataProvider({ children }) {
   const [lastWeeklyReset,         setLastWeeklyReset]         = useState(null);
   const [actedOnRecommendations,  setActedOnRecommendations]  = useState([]);
   const [brainDumpDigests,        setBrainDumpDigests]        = useState([]);
+  const [healthLogs,              setHealthLogs]              = useState([]);
   const [loaded,              setLoaded]              = useState(false);
   const digestingRef = useRef(false);
 
@@ -51,7 +53,7 @@ export function DataProvider({ children }) {
       setDailyReviews([]); setManualCashFlow(null); setAssetAccounts([]);
       setHabits([]); setHabitLogs([]); setNotes([]); setDocuments([]);
       setSavingsAnalysis(null); setSavingsHistory([]); setLastWeeklyReset(null);
-      setActedOnRecommendations([]); setBrainDumpDigests([]);
+      setActedOnRecommendations([]); setBrainDumpDigests([]); setHealthLogs([]);
       setLoaded(false);
       return;
     }
@@ -78,6 +80,7 @@ export function DataProvider({ children }) {
       subscribeLastWeeklyReset(user.uid,          setLastWeeklyReset),
       subscribeActedOnRecommendations(user.uid,   setActedOnRecommendations),
       subscribeBrainDumpDigests(user.uid,         setBrainDumpDigests),
+      subscribeHealthLogs(user.uid,               setHealthLogs),
       subscribeProfile(user.uid, (prof) => {
         setUserProfile(prof);
         if (prof?.persona) setUserPersona(prof.persona);
@@ -193,7 +196,7 @@ export function DataProvider({ children }) {
     <DataContext.Provider value={{
       projects, tasks, debtAccounts, assetAccounts, ideas, brainDumps, weeklyReviews, goals, calendarIntegration, plaidItems, userProfile, dailyReviews, manualCashFlow,
       habits, habitLogs, notes, documents, savingsAnalysis, savingsHistory, lastWeeklyReset, actedOnRecommendations,
-      brainDumpDigests,
+      brainDumpDigests, healthLogs,
       activeProjects, stalledProjects, todayTasks, totalDebt, totalAssets, activeGoals,
       loaded,
     }}>

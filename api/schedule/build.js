@@ -5,7 +5,7 @@
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { tasks, slotsMap, days, focusProfile, weatherForecast, currentTime, intent } = req.body;
+  const { tasks, slotsMap, days, focusProfile, weatherForecast, currentTime, intent, habits, healthLogs } = req.body;
   if (!tasks?.length) return res.status(400).json({ error: 'tasks required' });
   if (!slotsMap || !days?.length) return res.status(400).json({ error: 'slotsMap and days required' });
 
@@ -61,7 +61,13 @@ FOCUS WINDOWS:
 ${weatherNote}
 
 ENERGY CONTEXT: ${energyNote}
-${(intent?.topPriority || intent?.toDefer) ? `
+${habits?.length ? `
+ACTIVE HABITS (context for understanding Andrew's routine):
+${habits.filter(h => h.active !== false).map(h => `- ${h.title}${h.description ? ` — ${h.description}` : ''}`).join('\n')}
+` : ''}${healthLogs?.length ? `
+RECENT HEALTH LOG (last 7 days — factor into energy/scheduling decisions):
+${healthLogs.slice(0, 7).map(l => `- ${l.date}: energy ${l.energy ?? '?'}/5, sleep ${l.sleep ?? '?'}, exercise ${l.exercise === true ? 'yes' : l.exercise === false ? 'no' : '?'}`).join('\n')}
+` : ''}${(intent?.topPriority || intent?.toDefer) ? `
 ANDREW'S STATED PRIORITIES FOR TODAY:${intent.topPriority ? `\n- Most important: ${intent.topPriority}` : ''}${intent.toDefer ? `\n- Push off / avoid: ${intent.toDefer}` : ''}
 ` : ''}
 RULES:

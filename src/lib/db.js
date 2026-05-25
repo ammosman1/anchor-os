@@ -456,6 +456,23 @@ export const subscribeHabitLogs = (uid, cb) => {
   );
 };
 
+// ─── Health Logs ─────────────────────────────────────────────────────────────
+// Doc ID is the date string (YYYY-MM-DD) — one entry per day, idempotent
+export const saveHealthLog = (uid, date, data) =>
+  setDoc(doc(db, 'users', uid, 'healthLogs', date), {
+    ...data,
+    date,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+
+export const subscribeHealthLogs = (uid, cb) => {
+  if (!uid) return () => {};
+  return onSnapshot(
+    query(collection(db, 'users', uid, 'healthLogs'), orderBy('date', 'desc'), limit(30)),
+    snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  );
+};
+
 // ─── Notes ────────────────────────────────────────────────────────────────────
 export const addNote = (uid, data) =>
   addDoc(collection(db, 'users', uid, 'notes'), {

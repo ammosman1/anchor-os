@@ -1,7 +1,7 @@
 // src/components/TaskModal.js
 // Unified task create/edit modal used by every screen.
 // Caller provides onSave(formData) and handles the actual db write.
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { tokens, fonts } from '../lib/tokens';
 import { useData } from '../context/DataContext';
 import { RECURRENCE_OPTIONS } from '../lib/tasks';
@@ -43,8 +43,12 @@ const EMPTY_FORM = {
   title: '', priority: 'high', projectId: '', goalId: '',
   context: 'personal', focusType: 'deep', recurrence: 'none',
   startDate: '', dueDate: '', estimatedMinutes: '',
-  tags: '', notes: '', blockedBy: [],
+  tags: '', notes: '', blockedBy: [], checklist: [],
 };
+
+function newChecklistItem(text = '') {
+  return { id: `ci_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, text, done: false };
+}
 
 function labelStyle() {
   return {
@@ -93,6 +97,8 @@ export default function TaskModal({
   const { projects = [], goals = [], tasks = [] } = useData();
   const [form,          setForm]          = useState(EMPTY_FORM);
   const [blockerSearch, setBlockerSearch] = useState('');
+  const [newItemText,   setNewItemText]   = useState('');
+  const newItemRef = useRef(null);
 
   // Re-initialize form whenever the modal opens or the target task changes
   useEffect(() => {
@@ -112,11 +118,13 @@ export default function TaskModal({
         tags:             Array.isArray(task.tags) ? task.tags.join(', ') : (task.tags || ''),
         notes:            task.notes            || '',
         blockedBy:        task.blockedBy        || [],
+        checklist:        task.checklist        || [],
       });
     } else {
       setForm({ ...EMPTY_FORM, ...defaultValues });
     }
     setBlockerSearch('');
+    setNewItemText('');
   }, [open, task]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (field, val) => setForm(f => ({ ...f, [field]: val }));
@@ -142,6 +150,7 @@ export default function TaskModal({
       tags:             parseTags(form.tags),
       notes:            form.notes,
       blockedBy:        form.blockedBy || [],
+      checklist:        form.checklist || [],
     });
   };
 
@@ -316,6 +325,58 @@ export default function TaskModal({
               }
             </div>
           )}
+        </div>
+
+        {/* Checklist */}
+        <div>
+          <label style={labelStyle()}>Checklist <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>({(form.checklist || []).filter(i => i.done).length}/{(form.checklist || []).length} done)</span></label>
+          {(form.checklist || []).map((item) => (
+            <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' }}>
+              <input
+                type="checkbox"
+                checked={item.done}
+                onChange={() => setForm(f => ({ ...f, checklist: f.checklist.map(i => i.id === item.id ? { ...i, done: !i.done } : i) }))}
+                style={{ width: 15, height: 15, flexShrink: 0, cursor: 'pointer', accentColor: tokens.accent }}
+              />
+              <input
+                value={item.text}
+                onChange={e => setForm(f => ({ ...f, checklist: f.checklist.map(i => i.id === item.id ? { ...i, text: e.target.value } : i) }))}
+                style={{ ...inputStyle(), flex: 1, padding: '5px 10px', fontSize: '13px', textDecoration: item.done ? 'line-through' : 'none', color: item.done ? tokens.textMuted : tokens.textPrimary }}
+                onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+                onBlur={e => e.target.style.borderColor = tokens.border}
+              />
+              <button
+                onClick={() => setForm(f => ({ ...f, checklist: f.checklist.filter(i => i.id !== item.id) }))}
+                style={{ background: 'none', border: 'none', color: tokens.textMuted, cursor: 'pointer', fontSize: '14px', padding: '0 2px', lineHeight: 1, flexShrink: 0 }}
+              >✕</button>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+            <input
+              ref={newItemRef}
+              value={newItemText}
+              onChange={e => setNewItemText(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && newItemText.trim()) {
+                  setForm(f => ({ ...f, checklist: [...(f.checklist || []), newChecklistItem(newItemText.trim())] }));
+                  setNewItemText('');
+                }
+              }}
+              placeholder="Add item… (press Enter)"
+              style={{ ...inputStyle(), flex: 1, padding: '5px 10px', fontSize: '13px' }}
+              onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+              onBlur={e => e.target.style.borderColor = tokens.border}
+            />
+            <button
+              onClick={() => {
+                if (!newItemText.trim()) return;
+                setForm(f => ({ ...f, checklist: [...(f.checklist || []), newChecklistItem(newItemText.trim())] }));
+                setNewItemText('');
+                newItemRef.current?.focus();
+              }}
+              style={{ padding: '5px 12px', background: tokens.accentDim, border: `1px solid ${tokens.accentDim}`, borderRadius: '8px', color: tokens.accent, fontWeight: 600, fontSize: '12px', cursor: 'pointer', fontFamily: fonts.body, flexShrink: 0 }}
+            >+ Add</button>
+          </div>
         </div>
 
         {/* Notes */}

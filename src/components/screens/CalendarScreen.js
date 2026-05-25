@@ -510,11 +510,29 @@ export default function CalendarScreen() {
       })();
     };
 
+    const onTouchMove = (e) => {
+      if (resizeRef.current || dragRef.current) {
+        e.preventDefault();
+        const t = e.touches[0];
+        onMouseMove({ clientY: t.clientY });
+      }
+    };
+    const onTouchEnd = (e) => {
+      if (resizeRef.current || dragRef.current) {
+        const t = e.changedTouches[0];
+        onMouseUp({ clientY: t.clientY });
+      }
+    };
+
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup',   onMouseUp);
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend',  onTouchEnd);
     return () => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup',   onMouseUp);
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend',  onTouchEnd);
     };
   }, [user, calendarIntegration]);
 
@@ -1492,6 +1510,18 @@ export default function CalendarScreen() {
                             onDragStart={ev._isTask && !ev._done ? (e) => { e.stopPropagation(); handleCalendarTaskDragStart(e, ev); } : undefined}
                             onDragEnd={ev._isTask && !ev._done ? handleCalendarTaskDragEnd : undefined}
                             onMouseDown={(e) => { if (!isDragging && !isResizing && !ev._isTask) onEventMouseDown(e, ev); }}
+                            onTouchStart={(e) => {
+                              if (ev._isTask || isDragging || isResizing) return;
+                              const t = e.touches[0];
+                              onEventMouseDown({ clientY: t.clientY, clientX: t.clientX, preventDefault: () => {}, stopPropagation: () => {} }, ev);
+                            }}
+                            onTouchMove={(e) => { if (dragRef.current || resizeRef.current) e.preventDefault(); }}
+                            onTouchEnd={(e) => {
+                              if (dragRef.current || resizeRef.current) {
+                                const t = e.changedTouches[0];
+                                document.dispatchEvent(new MouseEvent('mouseup', { clientY: t.clientY, clientX: t.clientX, bubbles: true }));
+                              }
+                            }}
                             onClick={(e) => {
                               e.stopPropagation();
                               if (dragRef.current || resizeRef.current || justResized.current || dragState?.eventId === ev.id || resizeState?.eventId === ev.id) return;
@@ -1504,7 +1534,7 @@ export default function CalendarScreen() {
                             }}
                             onMouseEnter={e => { if (!dragState && !resizeState) e.currentTarget.style.filter = 'brightness(1.18)'; }}
                             onMouseLeave={e => e.currentTarget.style.filter = 'none'}
-                            style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: isResizing ? 'ns-resize' : ev._isTask && !ev._done ? 'grab' : ev._isTask ? 'pointer' : isDragging ? 'grabbing' : 'grab', zIndex: isResizing ? 25 : isDragging ? 20 : 5, boxShadow: isResizing ? '0 6px 20px rgba(0,0,0,0.55)' : isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: ev._done ? 0.7 : isDragging ? 0.9 : 1, transition: isDragging || isResizing ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none' }}>
+                            style={{ position: 'absolute', top: top + 1, left: `calc(${pct * ev._col}% + 2px)`, width: `calc(${pct}% - 4px)`, height, background: color.bg, borderLeft: `3px solid ${color.border}`, borderRadius: '5px', padding: '3px 6px', overflow: 'hidden', cursor: isResizing ? 'ns-resize' : ev._isTask && !ev._done ? 'grab' : ev._isTask ? 'pointer' : isDragging ? 'grabbing' : 'grab', zIndex: isResizing ? 25 : isDragging ? 20 : 5, boxShadow: isResizing ? '0 6px 20px rgba(0,0,0,0.55)' : isDragging ? '0 4px 16px rgba(0,0,0,0.5)' : '0 1px 4px rgba(0,0,0,0.35)', opacity: ev._done ? 0.7 : isDragging ? 0.9 : 1, transition: isDragging || isResizing ? 'none' : 'filter 0.12s, box-shadow 0.12s', userSelect: 'none', touchAction: 'none' }}>
                             {/* Weather alert badge */}
                             {weatherAlert && (
                               <div title={`${dayFc.label} — not ideal for outdoor tasks`} style={{ position: 'absolute', top: 2, right: 4, fontSize: '10px', lineHeight: 1, zIndex: 2 }}>⚠</div>
@@ -1544,6 +1574,17 @@ export default function CalendarScreen() {
                                 📍 {ev.location}
                               </div>
                             )}
+                            {/* Checklist progress badge */}
+                            {ev._isTask && height > 44 && (() => {
+                              const t = tasks.find(tk => tk.id === ev._taskId);
+                              if (!t?.checklist?.length) return null;
+                              const done = t.checklist.filter(i => i.done).length;
+                              return (
+                                <div style={{ fontSize: '10px', color: color.text, opacity: done === t.checklist.length ? 1 : 0.75, marginTop: '2px', fontWeight: 600 }}>
+                                  ☑ {done}/{t.checklist.length}
+                                </div>
+                              );
+                            })()}
                             {/* Split button — only for active anchor task blocks with enough height */}
                             {ev._isTask && !ev._done && height > 44 && !isResizing && (
                               <button
@@ -1571,11 +1612,20 @@ export default function CalendarScreen() {
                                   resizeRef.current = { event: ev, startY: e.clientY };
                                   setResizeState({ eventId: ev.id, deltaEndMins: 0 });
                                 }}
+                                onTouchStart={e => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  const t = e.touches[0];
+                                  resizeRef.current = { event: ev, startY: t.clientY };
+                                  setResizeState({ eventId: ev.id, deltaEndMins: 0 });
+                                }}
                                 onClick={e => e.stopPropagation()}
                                 title="Drag to resize"
-                                style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 10, cursor: 'ns-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0 0 4px 4px' }}
+                                style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 12, cursor: 'ns-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '0 0 4px 4px', touchAction: 'none' }}
                               >
-                                <div style={{ width: 22, height: 2, background: color.text, opacity: isResizing ? 0.7 : 0.22, borderRadius: 1, transition: 'opacity 0.15s' }} />
+                                <div style={{ display: 'flex', gap: '3px' }}>
+                                  {[0,1,2,3,4].map(i => <div key={i} style={{ width: 3, height: 3, borderRadius: '50%', background: color.text, opacity: isResizing ? 0.8 : 0.30 }} />)}
+                                </div>
                               </div>
                             )}
                           </div>
