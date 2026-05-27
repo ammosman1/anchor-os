@@ -504,6 +504,7 @@ STATED PRIORITIES:${intent.topPriority ? `\n- Most important: ${intent.topPriori
 RULES:
 - Always honor stated priorities — if something was named most important, schedule it first
 - Critical/high priority tasks get earliest available slots
+- If a task has an "availableDays" array (e.g. ["sat","sun"]), schedule it ONLY on matching days. Codes: mon/tue/wed/thu/fri/sat/sun. Empty array = any day.
 - Add 10-minute buffers between consecutive blocks
 - Max 5 hours focused work per day
 - Roll tasks to next day if today is full; omit if nothing fits

@@ -225,6 +225,15 @@ export default function TasksScreen() {
     setShowModal(false);
   };
 
+  const handleAutoSave = async (formData) => {
+    if (!editingTask) return;
+    const updates = { ...formData };
+    if (formData.dueDate && editingTask.dueDate && formData.dueDate > editingTask.dueDate) {
+      updates.pushCount = (editingTask.pushCount || 0) + 1;
+    }
+    await updateTask(user.uid, editingTask.id, updates);
+  };
+
   const sourceLabel = (task) => {
     if (task.source === 'brain-dump')    return { label: 'Brain Dump',    color: tokens.purple };
     if (task.source === 'quick-capture') return { label: 'Quick Capture', color: tokens.blue   };
@@ -539,6 +548,7 @@ export default function TasksScreen() {
         open={showModal}
         onClose={() => setShowModal(false)}
         onSave={handleSave}
+        onAutoSave={handleAutoSave}
         task={editingTask}
         saving={saving}
       />

@@ -642,6 +642,33 @@ export default function CalendarScreen() {
     }
   };
 
+  const handleTaskAutoSave = async (formData) => {
+    if (!editingTask || editingTask === 'new') return;
+    const updates = { ...formData };
+    if (editingTask.scheduledStart && formData.estimatedMinutes) {
+      updates.scheduledEnd = new Date(
+        new Date(editingTask.scheduledStart).getTime() + formData.estimatedMinutes * 60000
+      ).toISOString();
+    }
+    await updateTask(user.uid, editingTask.id, updates);
+    if (editingTask.calendarEventId && calendarIntegration?.connected) {
+      const gcalUpdates = {};
+      if (formData.title !== editingTask.title) gcalUpdates.summary = formData.title;
+      if (updates.scheduledEnd && updates.scheduledEnd !== editingTask.scheduledEnd) {
+        gcalUpdates.end = { dateTime: updates.scheduledEnd, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+      }
+      if (Object.keys(gcalUpdates).length > 0) {
+        try {
+          const token = await getValidAccessToken(user.uid, calendarIntegration);
+          if (token) {
+            await updateEvent(token, editingTask.calendarEventId, gcalUpdates);
+            if (gcalUpdates.summary) setEvents(prev => prev.map(e => e.id === editingTask.calendarEventId ? { ...e, summary: gcalUpdates.summary } : e));
+          }
+        } catch (err) { if (isDev) console.warn('GCal auto-save sync failed:', err); }
+      }
+    }
+  };
+
   const handleMarkComplete = async (task) => {
     const now = new Date();
     const updates = { done: true, status: 'completed', completedAt: now.toISOString() };
@@ -1668,6 +1695,7 @@ export default function CalendarScreen() {
         open={!!editingTask}
         onClose={closeTask}
         onSave={handleTaskSave}
+        onAutoSave={handleTaskAutoSave}
         task={editingTask && editingTask !== 'new' ? editingTask : null}
         saving={taskSaving}
         modalTitle={editingTask === 'new' ? 'New Task' : 'Edit Task'}

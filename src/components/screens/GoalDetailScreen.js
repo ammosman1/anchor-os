@@ -463,6 +463,11 @@ export default function GoalDetailScreen() {
     setTaskModalOpen(true);
   };
 
+  const handleTaskAutoSave = async (formData) => {
+    if (!taskModalTask) return;
+    await updateTask(user.uid, taskModalTask.id, formData);
+  };
+
   const handleFeedbackSubmit = async () => {
     if (!feedbackText.trim()) return;
     setFeedbackSaving(true);
@@ -1091,6 +1096,7 @@ export default function GoalDetailScreen() {
         open={taskModalOpen}
         onClose={() => { setTaskModalOpen(false); setTaskModalTask(null); }}
         onSave={handleTaskModalSave}
+        onAutoSave={handleTaskAutoSave}
         task={taskModalTask}
         defaultValues={taskModalDefaults}
         modalTitle={taskModalTitle}

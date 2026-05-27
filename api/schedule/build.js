@@ -76,6 +76,7 @@ ${currentTime ? `- CURRENT TIME: ${currentTime}. Never schedule any block starti
 - Tasks marked WORK TASK must only be scheduled Monday–Friday during typical business hours (8am–5pm)
 - Tasks marked OVERDUE or pushed 2+ times must be scheduled first, today if possible
 - Tasks with due dates within 2 days get top priority in the schedule
+- If a task has an "availableDays" array (e.g. ["sat","sun"]), it MUST only be scheduled on matching days of the week — never on other days. Day codes: mon=Monday, tue=Tuesday, wed=Wednesday, thu=Thursday, fri=Friday, sat=Saturday, sun=Sunday. An empty array means any day is fine.
 
 PRIORITY-FIRST ORDERING:
 - Schedule ALL critical tasks before any high tasks; ALL high before medium; ALL medium before low
