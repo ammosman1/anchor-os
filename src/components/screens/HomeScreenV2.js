@@ -68,6 +68,7 @@ export default function HomeScreenV2() {
 
   const [intelData,        setIntelData]        = useState(null);
   const [intelLoading,     setIntelLoading]     = useState(false);
+  const [intelCachedAt,    setIntelCachedAt]    = useState(null);
   const [weekFocus,        setWeekFocus]        = useState(null);
   const [weekFocusLoading, setWeekFocusLoading] = useState(false);
 
@@ -300,12 +301,24 @@ export default function HomeScreenV2() {
   const fetchIntel = async (force = false) => {
     if (intelLoading) return;
     if (!force) {
-      try { const c = await getPulseCache(user.uid); if (c) { setIntelData(c); return; } } catch {}
+      try {
+        const c = await getPulseCache(user.uid);
+        if (c?.data) {
+          setIntelData(c.data);
+          setIntelCachedAt(c.cachedAtMs || null);
+          return;
+        }
+      } catch {}
     }
     setIntelLoading(true);
     try {
       const result = await getTodaysPulse({ holisticContext: getHolisticContext(), tasks, goals: goals || [], habits: habits || [], dailyReviews: dailyReviews || [] });
-      if (result) { setIntelData(result); savePulseCache(user.uid, result).catch(() => {}); }
+      if (result) {
+        const now = Date.now();
+        setIntelData(result);
+        setIntelCachedAt(now);
+        savePulseCache(user.uid, result).catch(() => {});
+      }
     } catch {}
     finally { setIntelLoading(false); }
   };
@@ -577,9 +590,16 @@ export default function HomeScreenV2() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <div style={{ width: 26, height: 26, borderRadius: '7px', background: tokens.accentDim, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}>✦</div>
-              <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Today's Intel</span>
+              <div>
+                <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Today's Intel</span>
+                {intelCachedAt && (
+                  <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '1px' }}>
+                    Updated {new Date(intelCachedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/Chicago' })} CT
+                  </div>
+                )}
+              </div>
             </div>
-            <button onClick={() => { setIntelData(null); fetchIntel(true); }} disabled={intelLoading}
+            <button onClick={() => { setIntelData(null); setIntelCachedAt(null); fetchIntel(true); }} disabled={intelLoading}
               style={{ background: 'none', border: 'none', fontSize: '13px', color: intelLoading ? tokens.textMuted : tokens.accent, cursor: intelLoading ? 'default' : 'pointer', opacity: intelLoading ? 0.5 : 1, fontFamily: fonts.body }}>
               {intelLoading ? '...' : '↻'}
             </button>
