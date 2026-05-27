@@ -493,6 +493,92 @@ export default function ProjectDetailScreen() {
         )}
       </div>
 
+      {/* ── COMPLETED PROJECT VIEW ── */}
+      {project.status === 'complete' && (
+        <>
+          {/* Completion header */}
+          <Card style={{ background: `linear-gradient(135deg, ${tokens.greenDim} 0%, ${tokens.bgCard} 100%)`, borderColor: `${tokens.green}40` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '16px' }}>
+              <div style={{ width: 44, height: 44, borderRadius: '12px', background: tokens.greenDim, border: `2px solid ${tokens.green}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', flexShrink: 0 }}>✓</div>
+              <div>
+                <div style={{ fontSize: '10px', fontWeight: 700, color: tokens.green, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '2px' }}>Project Complete</div>
+                <div style={{ fontSize: '13px', color: tokens.textSecondary }}>
+                  {project.completedAt ? `Finished ${new Date(project.completedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}` : 'Marked complete'}
+                  {(() => {
+                    const createdMs = project.createdAt?.toDate?.().getTime() ?? (project.createdAt ? new Date(project.createdAt).getTime() : null);
+                    const completedMs = project.completedAt ? new Date(project.completedAt).getTime() : null;
+                    if (!createdMs || !completedMs) return null;
+                    const weeks = Math.max(1, Math.round((completedMs - createdMs) / (7 * 24 * 60 * 60 * 1000)));
+                    return ` · ${weeks} week${weeks !== 1 ? 's' : ''}`;
+                  })()}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              {[
+                { label: 'Tasks Done', val: doneTasks.length, color: tokens.green },
+                { label: 'Total Tasks', val: projectTasks.length, color: tokens.textSecondary },
+                { label: 'Category', val: project.category || '—', color: tokens.accent },
+              ].map(s => (
+                <div key={s.label} style={{ padding: '10px 16px', background: tokens.bgCard, borderRadius: '8px', border: `1px solid ${tokens.border}`, textAlign: 'center', minWidth: '80px' }}>
+                  <div style={{ fontFamily: fonts.display, fontSize: '18px', fontWeight: 700, color: s.color }}>{s.val}</div>
+                  <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '2px' }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* Retrospective */}
+          {(project.retrospective || project.lessonsLearned) && (
+            <Card>
+              <SectionLabel>Retrospective</SectionLabel>
+              {project.retrospective && (
+                <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.65, marginBottom: project.lessonsLearned ? '14px' : 0 }}>
+                  {project.retrospective}
+                </div>
+              )}
+              {project.lessonsLearned && (
+                <div style={{ padding: '10px 14px', background: tokens.accentDim, borderRadius: '8px', border: `1px solid ${tokens.accent}30` }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: tokens.accent, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>Lessons Learned</div>
+                  <div style={{ fontSize: '12px', color: tokens.textSecondary, lineHeight: 1.55 }}>{project.lessonsLearned}</div>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Completed task list */}
+          <Card>
+            <SectionLabel>{doneTasks.length} Tasks Completed</SectionLabel>
+            {doneTasks.length === 0 && (
+              <div style={{ fontSize: '13px', color: tokens.textMuted }}>No tasks recorded.</div>
+            )}
+            {doneTasks.map((task, i) => (
+              <div key={task.id} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '8px 0', borderBottom: i < doneTasks.length - 1 ? `1px solid ${tokens.border}` : 'none', opacity: 0.7 }}>
+                <div style={{ width: 16, height: 16, borderRadius: '4px', flexShrink: 0, marginTop: '2px', border: `1.5px solid ${tokens.green}`, background: tokens.greenDim, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', color: tokens.green }}>✓</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '13px', color: tokens.textPrimary, textDecoration: 'line-through' }}>{task.title}</div>
+                  {task.completionNote && (
+                    <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px', fontStyle: 'italic' }}>{task.completionNote}</div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {linkedGoal && (
+              <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: `1px solid ${tokens.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: '12px', color: tokens.textMuted }}>Contributed to goal:</div>
+                <button onClick={() => navigate(`/goals/${linkedGoal.id}`)}
+                  style={{ background: 'rgba(91,143,212,0.12)', color: '#5B8FD4', border: 'none', borderRadius: '6px', padding: '4px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: fonts.body }}>
+                  ↗ {linkedGoal.title}
+                </button>
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+
+      {/* ── ACTIVE PROJECT CARDS (hidden when complete) ── */}
+      {project.status !== 'complete' && <>
+
       {/* ── Momentum Card ── */}
       <Card>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -749,6 +835,8 @@ export default function ProjectDetailScreen() {
           </div>
         )}
       </Card>
+
+      </> /* end active-only section */}
 
       {/* Unified Task Modal */}
       <TaskModal

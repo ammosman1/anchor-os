@@ -77,6 +77,7 @@ ${currentTime ? `- CURRENT TIME: ${currentTime}. Never schedule any block starti
 - Tasks marked OVERDUE or pushed 2+ times must be scheduled first, today if possible
 - Tasks with due dates within 2 days get top priority in the schedule
 - If a task has an "availableDays" array (e.g. ["sat","sun"]), it MUST only be scheduled on matching days of the week — never on other days. Day codes: mon=Monday, tue=Tuesday, wed=Wednesday, thu=Thursday, fri=Friday, sat=Saturday, sun=Sunday. An empty array means any day is fine.
+- Tasks with goalDeadlineUrgent=true are linked to a goal with a near or at-risk deadline — treat them with the same urgency as "high" priority and schedule them in prime morning slots when possible
 
 PRIORITY-FIRST ORDERING:
 - Schedule ALL critical tasks before any high tasks; ALL high before medium; ALL medium before low

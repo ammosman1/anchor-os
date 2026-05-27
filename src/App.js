@@ -63,7 +63,8 @@ function AppRoutes() {
       <PageContextProvider>
         <AppLayout>
           <Routes>
-            <Route path="/"           element={<HomeScreen />}      />
+            <Route path="/"           element={<HomeScreenV2 />}    />
+            <Route path="/home-v1"    element={<HomeScreen />}      />
             <Route path="/tasks"      element={<TasksScreen />}     />
             <Route path="/projects"              element={<ProjectsScreen />}      />
             <Route path="/projects/:projectId" element={<ProjectDetailScreen />} />
@@ -81,7 +82,7 @@ function AppRoutes() {
             <Route path="/documents"     element={<DocumentsScreen />}   />
             <Route path="/weekly-reset" element={<WeeklyResetWizard />} />
             <Route path="/profile"      element={<ProfileScreen />}     />
-            <Route path="/home-v2"      element={<HomeScreenV2 />}      />
+            <Route path="/home-v2"      element={<Navigate to="/" />}   />
             <Route path="*"             element={<Navigate to="/" />}   />
           </Routes>
         </AppLayout>

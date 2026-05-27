@@ -5,7 +5,7 @@ import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { updateGoal, addTask, updateTask, getAICache, saveAICache, saveProfile } from '../../lib/db';
-import { generateGoalInsights, generateGoalExecutionPlan, scoreGoals } from '../../lib/ai';
+import { generateGoalInsights, generateRollingPlan, scoreGoals } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
 import { fetchMonthlyCashFlow, fetchAccounts } from '../../lib/teller';
 import { Button, Modal, MomentumBar, Spinner } from '../ui';
@@ -340,18 +340,17 @@ export default function GoalDetailScreen() {
     setShowPlan(true);
     setPlan(null);
     try {
-      const result = await generateGoalExecutionPlan({
+      const result = await generateRollingPlan({
         goal,
         existingTasks: linkedTasks,
-        projects,
-        daysAvailablePerWeek: 3,
+        completedTasks,
       });
-      if (result?.tasks?.length > 0 || result?.milestones?.length > 0) {
+      if (result?.tasks?.length > 0) {
         setPlan(result);
-        setApprovedTasks(new Set(result.tasks?.map((_, i) => i) || []));
+        setApprovedTasks(new Set(result.tasks.map((_, i) => i)));
       }
     } catch (err) {
-      console.error('Plan generation error:', err);
+      console.error('Rolling plan generation error:', err);
     } finally {
       setPlanLoading(false);
     }
@@ -361,6 +360,7 @@ export default function GoalDetailScreen() {
     if (!plan || planApproving) return;
     setPlanApproving(true);
     try {
+      const batchId = `${goalId}_${Date.now()}`;
       const toCreate = plan.tasks.filter((_, i) => approvedTasks.has(i));
       await Promise.all(toCreate.map(t =>
         addTask(user.uid, {
@@ -370,9 +370,14 @@ export default function GoalDetailScreen() {
           notes:            t.notes || '',
           project:          t.project || goal.title || 'Inbox',
           goalId,
+          sprintBatch:      batchId,
           status:           'pending',
         })
       ));
+      await updateGoal(user.uid, goalId, {
+        lastSprintBatch: batchId,
+        lastSprintAt:    new Date().toISOString(),
+      });
       setShowPlan(false);
       setPlan(null);
     } catch (err) {
@@ -594,6 +599,35 @@ export default function GoalDetailScreen() {
   const score        = goal.likelihoodScore;
   const scoreColor   = score >= 70 ? tokens.green : score >= 40 ? tokens.amber : score != null ? tokens.red : tokens.textMuted;
 
+  // ── Live Pace ──────────────────────────────────────────────────────────────
+  const paceInfo = (() => {
+    if (!goal.targetDate || months == null || months <= 0) return null;
+    if ((goal.goalType === 'financial' || goal.goalType === 'income') && goal.targetAmount != null && displayAmount != null) {
+      const remaining = goal.targetAmount - displayAmount;
+      if (remaining <= 0) return { type: 'done' };
+      const perMonth = Math.ceil(remaining / months);
+      return { type: 'financial', perMonth, remaining, months };
+    }
+    if (goal.goalType === 'project' || goal.goalType === 'qualitative') {
+      const weeksLeft = Math.round(months * 4.33);
+      if (weeksLeft <= 0) return null;
+      const pendingCount = activeTasks.length;
+      const requiredPerWeek = pendingCount > 0 ? parseFloat((pendingCount / weeksLeft).toFixed(1)) : null;
+      return { type: 'tasks', pendingCount, weeksLeft, requiredPerWeek, backlogSparse: pendingCount < 5 };
+    }
+    return null;
+  })();
+
+  // ── Sprint State ────────────────────────────────────────────────────────────
+  const sprintState = (() => {
+    if (!goal.lastSprintBatch) return null;
+    const sprintTasks = linkedTasks.filter(t => t.sprintBatch === goal.lastSprintBatch);
+    if (sprintTasks.length === 0) return null;
+    const doneCount = sprintTasks.filter(t => t.done).length;
+    const pct = Math.round((doneCount / sprintTasks.length) * 100);
+    return { total: sprintTasks.length, done: doneCount, pct, ready: pct >= 80 };
+  })();
+
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', paddingBottom: '40px' }}>
 
@@ -737,6 +771,43 @@ export default function GoalDetailScreen() {
               <>
                 <MomentumBar value={moneyProgress} color={tokens.accent} height={5} />
                 <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '4px' }}>{moneyProgress}% of target</div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Live Pace Widget */}
+        {paceInfo && (
+          <div style={{ marginBottom: '16px', padding: '12px 14px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
+            <div style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: tokens.textMuted, marginBottom: '6px' }}>Live Pace</div>
+            {paceInfo.type === 'done' && (
+              <div style={{ fontSize: '14px', fontWeight: 700, color: tokens.green }}>Target reached!</div>
+            )}
+            {paceInfo.type === 'financial' && (
+              <>
+                <div style={{ fontSize: '18px', fontWeight: 700, color: tokens.accent }}>${paceInfo.perMonth.toLocaleString()}<span style={{ fontSize: '13px', fontWeight: 500, color: tokens.textMuted }}>/month needed</span></div>
+                <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>
+                  ${paceInfo.remaining.toLocaleString()} remaining · {paceInfo.months} month{paceInfo.months !== 1 ? 's' : ''} left
+                </div>
+              </>
+            )}
+            {paceInfo.type === 'tasks' && (
+              <>
+                {paceInfo.requiredPerWeek != null ? (
+                  <div style={{ fontSize: '16px', fontWeight: 700, color: tokens.textPrimary }}>
+                    ~{paceInfo.requiredPerWeek} task{paceInfo.requiredPerWeek !== 1 ? 's' : ''}<span style={{ fontSize: '13px', fontWeight: 500, color: tokens.textMuted }}>/week needed</span>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '13px', color: tokens.textMuted }}>No open tasks — generate a sprint to get started</div>
+                )}
+                <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>
+                  {paceInfo.pendingCount} task{paceInfo.pendingCount !== 1 ? 's' : ''} open · {paceInfo.weeksLeft} weeks left
+                </div>
+                {paceInfo.backlogSparse && (
+                  <div style={{ fontSize: '11px', color: tokens.amber, marginTop: '5px' }}>
+                    ⚑ Backlog may be incomplete — pace improves as more tasks are added via Rolling Plan
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -933,60 +1004,68 @@ export default function GoalDetailScreen() {
         )}
       </Card>
 
-      {/* ── Execution Plan Card ── */}
+      {/* ── Rolling Plan Card ── */}
       <Card>
-        <SectionLabel>Execution Plan</SectionLabel>
+        <SectionLabel>Rolling Plan</SectionLabel>
+        {sprintState?.ready && (
+          <div style={{ marginBottom: '14px', padding: '10px 14px', background: 'rgba(109,191,158,0.1)', borderRadius: '8px', border: '1px solid rgba(109,191,158,0.3)' }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: tokens.green, marginBottom: '3px' }}>Sprint {sprintState.pct}% complete</div>
+            <div style={{ fontSize: '12px', color: tokens.textSecondary }}>
+              {sprintState.done}/{sprintState.total} tasks done — ready for your next batch.
+            </div>
+          </div>
+        )}
+        {sprintState && !sprintState.ready && (
+          <div style={{ marginBottom: '14px', fontSize: '12px', color: tokens.textMuted }}>
+            Sprint in progress · {sprintState.done}/{sprintState.total} done ({sprintState.pct}%)
+          </div>
+        )}
         <div style={{ fontSize: '13px', color: tokens.textSecondary, marginBottom: '16px', lineHeight: 1.6 }}>
-          AI breaks this goal into milestones and specific tasks. Review and approve before anything is created.
+          {!sprintState
+            ? 'Generate your first sprint — 3–5 focused tasks for the next 1–2 weeks.'
+            : sprintState.ready
+              ? 'Current sprint is nearly done. Generate the next batch to keep momentum.'
+              : 'AI generates 3–5 tasks at a time, building on what you\'ve already completed.'}
         </div>
-        <Button onClick={handleGeneratePlan} variant="accent">✦ Generate Execution Plan</Button>
+        <Button onClick={handleGeneratePlan} variant="accent">
+          ✦ {!sprintState ? 'Start First Sprint' : sprintState.ready ? 'Generate Next Sprint' : 'Generate New Sprint'}
+        </Button>
       </Card>
 
-      {/* ── Execution Plan Modal ── */}
-      <Modal open={showPlan} onClose={() => { setShowPlan(false); setPlan(null); }} title="Execution Plan" width={580}>
+      {/* ── Rolling Plan Modal ── */}
+      <Modal open={showPlan} onClose={() => { setShowPlan(false); setPlan(null); }} title="Rolling Plan — Next Sprint" width={580}>
         {planLoading && (
           <div style={{ padding: '48px 0', textAlign: 'center' }}>
             <Spinner size={22} />
-            <div style={{ fontSize: '13px', color: tokens.textMuted, marginTop: '14px' }}>Building your execution plan…</div>
+            <div style={{ fontSize: '13px', color: tokens.textMuted, marginTop: '14px' }}>Building your next sprint…</div>
           </div>
         )}
 
         {!planLoading && !plan && (
           <div style={{ padding: '24px 0', textAlign: 'center', fontSize: '13px', color: tokens.textMuted }}>
-            Could not generate plan. Try again.
+            Could not generate sprint. Try again.
           </div>
         )}
 
         {!planLoading && plan && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.65, padding: '12px 14px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
-              {plan.summary}
+            {/* Phase + Summary */}
+            <div style={{ padding: '12px 14px', background: tokens.bgGlass, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
+              {plan.phase && (
+                <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: tokens.accent, marginBottom: '5px' }}>{plan.phase}</div>
+              )}
+              <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.65 }}>{plan.summary}</div>
+              {plan.rationale && (
+                <div style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '6px', fontStyle: 'italic' }}>{plan.rationale}</div>
+              )}
             </div>
-
-            {/* Milestones */}
-            {plan.milestones?.length > 0 && (
-              <div>
-                <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: tokens.textMuted, marginBottom: '8px' }}>Milestones</div>
-                {plan.milestones.map((m, i) => (
-                  <div key={i} style={{ display: 'flex', gap: '12px', padding: '10px 0', borderBottom: i < plan.milestones.length - 1 ? `1px solid ${tokens.border}` : 'none' }}>
-                    <span style={{ fontSize: '12px', fontWeight: 700, color: tokens.accent, flexShrink: 0, minWidth: '24px' }}>M{i + 1}</span>
-                    <div>
-                      <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{m.title}</div>
-                      <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>
-                        {m.targetMonth && `${formatTargetDate(m.targetMonth)} · `}{m.description}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
 
             {/* Tasks approval */}
             {plan.tasks?.length > 0 && (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: tokens.textMuted }}>
-                    Tasks to Create
+                    Sprint Tasks
                   </div>
                   <div style={{ fontSize: '11px', color: tokens.accent, fontWeight: 600 }}>{approvedTasks.size} selected</div>
                 </div>
@@ -1005,7 +1084,7 @@ export default function GoalDetailScreen() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.35 }}>{task.title}</div>
                       <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '2px' }}>
-                        {task.priority} · {task.estimatedMinutes}m{task.project && task.project !== 'Inbox' ? ` · ${task.project}` : ''}
+                        {task.priority} · {task.estimatedMinutes}m{task.notes ? ` · ${task.notes}` : ''}
                       </div>
                     </div>
                   </div>

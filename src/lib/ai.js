@@ -505,6 +505,7 @@ RULES:
 - Always honor stated priorities — if something was named most important, schedule it first
 - Critical/high priority tasks get earliest available slots
 - If a task has an "availableDays" array (e.g. ["sat","sun"]), schedule it ONLY on matching days. Codes: mon/tue/wed/thu/fri/sat/sun. Empty array = any day.
+- Tasks with goalDeadlineUrgent=true are linked to a goal at risk of missing its deadline — prioritize them in prime morning slots, same urgency as "high" priority
 - Add 10-minute buffers between consecutive blocks
 - Max 5 hours focused work per day
 - Roll tasks to next day if today is full; omit if nothing fits
@@ -787,6 +788,69 @@ Rules: 2-4 milestones, 5-15 specific tasks, task titles start with action verbs,
     if (!match) return null;
     const parsed = JSON.parse(match[0]);
     return (parsed.tasks?.length > 0 || parsed.milestones?.length > 0) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function generateRollingPlan({ goal, existingTasks, completedTasks }) {
+  const activeTasks = (existingTasks || []).filter(t => !t.done);
+  const doneTasks = completedTasks || (existingTasks || []).filter(t => t.done);
+
+  const content = `Create the NEXT SPRINT of tasks for this goal. A sprint is 3–5 specific actions for the coming 1–2 weeks only.
+
+GOAL: "${goal.title}"
+TYPE: ${goal.goalType || 'general'}
+WHY: ${goal.why || 'not specified'}
+TARGET DATE: ${goal.targetDate || 'none set'}
+${goal.targetAmount ? `TARGET: $${goal.targetAmount.toLocaleString()}` : ''}
+${goal.currentAmount != null && goal.targetAmount ? `CURRENT: $${goal.currentAmount.toLocaleString()} (${Math.round((goal.currentAmount / goal.targetAmount) * 100)}% complete)` : goal.currentAmount != null ? `CURRENT: $${goal.currentAmount.toLocaleString()}` : ''}
+${goal.description ? `CONTEXT: ${goal.description}` : ''}
+
+ALREADY COMPLETED (${doneTasks.length} tasks):
+${doneTasks.slice(-10).map(t => `- ${t.title}${t.completionNote ? ` → ${t.completionNote}` : ''}`).join('\n') || 'none yet'}
+
+CURRENTLY OPEN (${activeTasks.length} tasks — do NOT duplicate these):
+${activeTasks.slice(0, 8).map(t => `- ${t.title}`).join('\n') || 'none'}
+
+RULES:
+- Only generate tasks for what is achievable in the next 1–2 weeks
+- Never duplicate open tasks above
+- Use completion notes to inform what the logical NEXT step is
+- For financial goals: focus on income-generating or expense-reducing concrete actions, not research
+- For project goals: focus on the next executable step in the project lifecycle
+- Batch cap: 3–5 tasks ONLY — do not over-plan
+- Each task must be specific, action-verb-first, and completable in ≤ 3 hours
+
+Return ONLY valid JSON:
+{
+  "summary": "One sentence: what this sprint focuses on and why, given what has already been done",
+  "phase": "Current phase name e.g. Phase 1: Foundation",
+  "tasks": [
+    {
+      "title": "Action verb + specific task (under 10 words)",
+      "priority": "critical|high|medium",
+      "estimatedMinutes": 60,
+      "notes": "brief context or empty string"
+    }
+  ],
+  "rationale": "One sentence connecting this sprint to the previous completed work",
+  "warnings": ["Any risk or gap worth flagging"]
+}`;
+
+  const raw = await callAI({
+    messages: [{ role: 'user', content }],
+    maxTokens: 1200,
+    systemExtra: 'Return ONLY valid JSON. No markdown. No explanation.',
+  });
+
+  if (!raw) return null;
+  try {
+    const clean = raw.replace(/```json|```/g, '').trim();
+    const match = clean.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]);
+    return parsed.tasks?.length > 0 ? parsed : null;
   } catch {
     return null;
   }

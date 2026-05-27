@@ -43,7 +43,7 @@ function yesterdayYMD() {
 
 export default function PlanScheduleFlow({ open, onClose, calendarIntegration, weatherForecast }) {
   const { user } = useAuth();
-  const { tasks, userProfile, habits = [], healthLogs = [] } = useData();
+  const { tasks, goals = [], userProfile, habits = [], healthLogs = [] } = useData();
 
   const [step, setStep]                   = useState('scope');
   const [scope, setScope]                 = useState('today');
@@ -105,6 +105,21 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
     setError('');
 
     const days = getDateRange(scope);
+    // Build a lookup of at-risk goals (low score or deadline within 60 days)
+    const now = new Date();
+    const in60ms = now.getTime() + 60 * 24 * 60 * 60 * 1000;
+    const atRiskGoalIds = new Set(
+      (goals || []).filter(g => {
+        if (g.status !== 'active') return false;
+        const lowScore = g.likelihoodScore != null && g.likelihoodScore < 50;
+        const nearDeadline = g.targetDate && (() => {
+          const [y, m] = g.targetDate.split('-').map(Number);
+          return new Date(y, m - 1, 1).getTime() <= in60ms;
+        })();
+        return lowScore || nearDeadline;
+      }).map(g => g.id)
+    );
+
     const selected = candidateTasks
       .filter(t => selectedIds.has(t.id))
       .map(t => ({
@@ -117,6 +132,8 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
         pushCount:        t.pushCount || 0,
         outdoor:          isOutdoorTask(t),
         tags:             t.tags || [],
+        availableDays:    t.availableDays || [],
+        goalDeadlineUrgent: t.goalId ? atRiskGoalIds.has(t.goalId) : false,
       }));
 
     try {
