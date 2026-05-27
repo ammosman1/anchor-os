@@ -253,14 +253,12 @@ export default function HomeScreenV2() {
   }, [habits]);
 
   const habitsDoneToday = useMemo(() => {
-    const todayStr2 = new Date().toDateString(); const doneSet = new Set();
+    const doneSet = new Set();
     (habitLogs || []).forEach(log => {
-      if (log.date === todayStr2 || (log.completedAt && new Date(log.completedAt?.toDate?.() || log.completedAt).toDateString() === todayStr2)) {
-        doneSet.add(log.habitId);
-      }
+      if (log.done && log.date === todayStr) doneSet.add(log.habitId);
     });
     return doneSet;
-  }, [habitLogs]);
+  }, [habitLogs, todayStr]);
 
   // ── Action Center items ───────────────────────────────────────────────────
   const actionItems = useMemo(() => {
