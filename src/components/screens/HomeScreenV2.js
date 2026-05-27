@@ -130,10 +130,19 @@ export default function HomeScreenV2() {
     return false;
   }).sort((a, b) => (a.scheduledStart || '').localeCompare(b.scheduledStart || '')), [tasks, todayStr]);
 
+  const todayDayCode = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date().getDay()];
+
   const priorityTasks = useMemo(() => [...tasks]
-    .filter(t => !t.done && !isTaskBlocked(t, tasks) && (t.priority === 'critical' || t.priority === 'high'))
+    .filter(t => {
+      if (t.done) return false;
+      if (isTaskBlocked(t, tasks)) return false;
+      if (t.priority !== 'critical' && t.priority !== 'high') return false;
+      if (t.startDate && t.startDate > todayStr) return false;
+      if (t.availableDays?.length > 0 && !t.availableDays.includes(todayDayCode)) return false;
+      return true;
+    })
     .sort((a, b) => calculateUrgency(b) - calculateUrgency(a)),
-  [tasks]);
+  [tasks, todayStr, todayDayCode]);
 
   // Hero tasks: scheduled today first, fill with top priority — max 5
   const heroTasks = useMemo(() => {
