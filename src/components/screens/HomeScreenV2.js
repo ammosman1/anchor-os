@@ -140,6 +140,13 @@ export default function HomeScreenV2() {
       if (t.priority !== 'critical' && t.priority !== 'high') return false;
       if (t.startDate && t.startDate > todayStr) return false;
       if (t.availableDays?.length > 0 && !t.availableDays.includes(todayDayCode)) return false;
+      // Exclude tasks explicitly scheduled for a future day
+      if (t.scheduledDate && t.scheduledDate > todayStr) return false;
+      if (t.scheduledStart) {
+        const d = new Date(t.scheduledStart);
+        const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        if (ds > todayStr) return false;
+      }
       return true;
     })
     .sort((a, b) => calculateUrgency(b) - calculateUrgency(a)),
