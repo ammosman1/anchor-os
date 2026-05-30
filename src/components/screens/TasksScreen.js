@@ -35,6 +35,8 @@ const STATUS_FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'block
 
 // Signal = needs attention now. Noise = valid but not yet pressing.
 function isSignal(task) {
+  const todayStr = new Date().toISOString().split('T')[0];
+  if (task.startDate && task.startDate > todayStr) return false;
   if (task.priority === 'critical' || task.priority === 'high') return true;
   if (task.dueDate) {
     const today = new Date(); today.setHours(0,0,0,0);
