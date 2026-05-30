@@ -33,6 +33,18 @@ const CONTEXT_COLORS = {
 
 const STATUS_FILTERS = ['all', 'inbox', 'brain-dump', 'critical', 'high', 'blocked', 'deferred', 'done'];
 
+// Signal = needs attention now. Noise = valid but not yet pressing.
+function isSignal(task) {
+  if (task.priority === 'critical' || task.priority === 'high') return true;
+  if (task.dueDate) {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const due   = new Date(task.dueDate + 'T00:00:00');
+    if ((due - today) / 86400000 <= 7) return true;
+  }
+  if (task.goalId) return true;
+  return false;
+}
+
 function getNextMonday() {
   const d = new Date();
   const daysUntilMonday = d.getDay() === 0 ? 1 : 8 - d.getDay();
@@ -70,6 +82,9 @@ export default function TasksScreen() {
   const [focusTask,    setFocusTask]     = useState(null); // { task, duration, startTime }
   const [timeLeft,     setTimeLeft]      = useState(null); // seconds
   const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '', saveToNotes: false });
+  const [noiseExpanded,  setNoiseExpanded]  = useState(() => {
+    try { return localStorage.getItem('tasks-noise-expanded') === 'true'; } catch { return false; }
+  });
 
   // Focus timer countdown
   useEffect(() => {
@@ -375,13 +390,18 @@ export default function TasksScreen() {
       <div className="fade-up stagger-2" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
         {filtered.length === 0 ? (
           <EmptyState icon="✓" title={filter === 'done' ? 'Nothing completed yet' : 'No tasks here'} subtitle={filter === 'all' ? 'Add a task or do a brain dump to get started.' : `No ${filter} tasks right now.`} action={filter !== 'done' && <Button onClick={openNew} size="sm">+ Add Task</Button>} />
-        ) : (
-          filtered.map(task => {
+        ) : (() => {
+          // Signal/Noise split only on the default "all" view
+          const useGrouping = filter === 'all';
+          const signalTasks = useGrouping ? filtered.filter(t => isSignal(t)) : filtered;
+          const noiseTasks  = useGrouping ? filtered.filter(t => !isSignal(t)) : [];
+
+          const renderTask = (task, forceOpacity = null) => {
             const pc     = priorityColors[task.priority] || priorityColors.low;
             const source = sourceLabel(task);
             return (
               <div key={task.id}
-                style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 14px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '10px', transition: 'all 0.15s', opacity: task.done ? 0.55 : 1 }}
+                style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '12px 14px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '10px', transition: 'all 0.15s', opacity: forceOpacity ?? (task.done ? 0.55 : 1) }}
                 onMouseEnter={e => e.currentTarget.style.borderColor = tokens.borderHover}
                 onMouseLeave={e => e.currentTarget.style.borderColor = tokens.border}
               >
@@ -391,9 +411,9 @@ export default function TasksScreen() {
                   {task.done ? '✓' : ''}
                 </div>
 
-                {/* Content */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '14px', fontWeight: 500, color: tokens.textPrimary, textDecoration: task.done ? 'line-through' : 'none', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {/* Content — click to open */}
+                <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => openEdit(task)}>
+                  <div title={task.title} style={{ fontSize: '14px', fontWeight: 500, color: tokens.textPrimary, textDecoration: task.done ? 'line-through' : 'none', marginBottom: '3px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                     {task.title}
                   </div>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -507,8 +527,33 @@ export default function TasksScreen() {
                 </div>
               </div>
             );
-          })
-        )}
+          };
+
+          return (
+            <>
+              {signalTasks.map(renderTask)}
+              {useGrouping && noiseTasks.length > 0 && (
+                <>
+                  <button
+                    onClick={() => {
+                      const next = !noiseExpanded;
+                      setNoiseExpanded(next);
+                      try { localStorage.setItem('tasks-noise-expanded', String(next)); } catch {}
+                    }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: '10px 0 4px', fontFamily: fonts.body }}
+                  >
+                    <div style={{ flex: 1, height: '1px', background: tokens.border }} />
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: tokens.textMuted, letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
+                      Everything Else · {noiseTasks.length} {noiseExpanded ? '▴' : '▾'}
+                    </span>
+                    <div style={{ flex: 1, height: '1px', background: tokens.border }} />
+                  </button>
+                  {noiseExpanded && noiseTasks.map(t => renderTask(t, 0.5))}
+                </>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       {/* Completion Note Modal */}
