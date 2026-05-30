@@ -16,6 +16,7 @@ import { fetchWeeklyWeather, weatherCodeToEmoji, DEFAULT_ZIP } from '../../lib/w
 import { Tag, Button, priorityColors, Modal, Spinner } from '../ui';
 import PlanScheduleFlow from './PlanScheduleFlow';
 import TaskModal from '../TaskModal';
+import { useAppMode } from '../../lib/useAppMode';
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -58,6 +59,8 @@ export default function HomeScreenV2() {
     habits, habitLogs, healthLogs = [],
   } = useData();
   const navigate = useNavigate();
+
+  const [appMode, setAppMode] = useAppMode();
 
   const [planOpen,      setPlanOpen]      = useState(false);
   const [editingTask,   setEditingTask]   = useState(null);
@@ -123,13 +126,15 @@ export default function HomeScreenV2() {
 
   const scheduledToday = useMemo(() => tasks.filter(t => {
     if (t.done) return false;
+    if (appMode === 'work'     && t.context !== 'work') return false;
+    if (appMode === 'personal' && t.context === 'work') return false;
     if (t.scheduledDate === todayStr) return true;
     if (t.scheduledStart) {
       const d = new Date(t.scheduledStart);
       return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` === todayStr;
     }
     return false;
-  }).sort((a, b) => (a.scheduledStart || '').localeCompare(b.scheduledStart || '')), [tasks, todayStr]);
+  }).sort((a, b) => (a.scheduledStart || '').localeCompare(b.scheduledStart || '')), [tasks, todayStr, appMode]);
 
   const todayDayCode = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][new Date().getDay()];
 
@@ -140,17 +145,18 @@ export default function HomeScreenV2() {
       if (t.priority !== 'critical' && t.priority !== 'high') return false;
       if (t.startDate && t.startDate > todayStr) return false;
       if (t.availableDays?.length > 0 && !t.availableDays.includes(todayDayCode)) return false;
-      // Exclude tasks explicitly scheduled for a future day
       if (t.scheduledDate && t.scheduledDate > todayStr) return false;
       if (t.scheduledStart) {
         const d = new Date(t.scheduledStart);
         const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
         if (ds > todayStr) return false;
       }
+      if (appMode === 'work'     && t.context !== 'work') return false;
+      if (appMode === 'personal' && t.context === 'work') return false;
       return true;
     })
     .sort((a, b) => calculateUrgency(b) - calculateUrgency(a)),
-  [tasks, todayStr, todayDayCode]);
+  [tasks, todayStr, todayDayCode, appMode]);
 
   // Hero tasks: scheduled today first, fill with top priority — max 5
   const heroTasks = useMemo(() => {
@@ -464,6 +470,18 @@ export default function HomeScreenV2() {
             onMouseLeave={e => { e.currentTarget.style.background = tokens.accentDim; e.currentTarget.style.color = tokens.accent; }}>
             ✦ Plan My Day
           </button>
+        </div>
+      </div>
+
+      {/* ── Mode Toggle ──────────────────────────────────────────────────── */}
+      <div style={{ marginBottom: '14px' }}>
+        <div style={{ display: 'flex', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '99px', padding: '3px', gap: '2px', width: 'fit-content' }}>
+          {[['all', 'All'], ['work', 'Work'], ['personal', 'Personal']].map(([m, label]) => (
+            <button key={m} onClick={() => setAppMode(m)}
+              style={{ padding: '5px 18px', borderRadius: '99px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: fonts.body, border: 'none', transition: 'all 0.15s', background: appMode === m ? tokens.accent : 'transparent', color: appMode === m ? '#fff' : tokens.textMuted }}>
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 

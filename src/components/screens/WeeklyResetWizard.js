@@ -1,12 +1,13 @@
 // src/components/screens/WeeklyResetWizard.js
 // Sunday Weekly Reset — 7-step guided wizard to plan the week ahead
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { updateGoal, updateProject, updateTask, saveWeeklyReset } from '../../lib/db';
-import { Card, Button, SectionLabel, EmptyState } from '../ui';
+import { generateWeeklySummary } from '../../lib/ai';
+import { Card, Button, SectionLabel, EmptyState, Spinner } from '../ui';
 
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -43,6 +44,9 @@ export default function WeeklyResetWizard() {
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
 
+  const [aiSummary, setAiSummary] = useState(null);
+  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
+
   const [energy, setEnergy] = useState(3);
   const [weeklyIntention, setWeeklyIntention] = useState('');
   const [goalStatuses, setGoalStatuses] = useState({});
@@ -51,6 +55,34 @@ export default function WeeklyResetWizard() {
   const [financeChecked, setFinanceChecked] = useState(false);
 
   const weekKey = getWeekKey();
+
+  useEffect(() => {
+    setAiSummaryLoading(true);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const lastWeekStart = sevenDaysAgo.toISOString().split('T')[0];
+
+    const completedThisWeek = tasks.filter(t => {
+      if (!t.done || !t.completedAt) return false;
+      const d = t.completedAt?.toDate ? t.completedAt.toDate() : new Date(t.completedAt);
+      return d.toISOString().split('T')[0] >= lastWeekStart;
+    });
+    const missed = tasks.filter(t => !t.done && t.dueDate && t.dueDate >= lastWeekStart && t.dueDate < todayStr);
+    const pushed = tasks.filter(t => !t.done && (t.pushCount || 0) >= 1);
+    const byContext = {};
+    completedThisWeek.forEach(t => { const c = t.context || 'untagged'; byContext[c] = (byContext[c] || 0) + 1; });
+    const completedGoalIds = new Set(completedThisWeek.filter(t => t.goalId).map(t => t.goalId));
+    const activeGoalTitles = (goals || []).filter(g => completedGoalIds.has(g.id)).map(g => g.title);
+    const stalledProjects = (projects || []).filter(p => p.status === 'stalled').map(p => p.title || p.name);
+
+    generateWeeklySummary({
+      weekMetrics: { completed: completedThisWeek.length, missed: missed.length, pushed: pushed.length, byContext, activeGoalTitles, stalledProjects },
+      goals,
+    }).then(result => {
+      if (result) setAiSummary(result);
+    }).catch(() => {}).finally(() => setAiSummaryLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const activeGoals = useMemo(() => goals.filter(g => g.status === 'active'), [goals]);
 
@@ -146,6 +178,42 @@ export default function WeeklyResetWizard() {
   // ── Step 0: Check-in ──────────────────────────────────────────────────────
   const renderCheckIn = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+      {/* AI Week-in-Review */}
+      {aiSummaryLoading && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '12px' }}>
+          <Spinner size={13} />
+          <span style={{ fontSize: '12px', color: tokens.textMuted }}>Analyzing your week...</span>
+        </div>
+      )}
+      {aiSummary && (
+        <div style={{ padding: '14px 16px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '12px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '10px' }}>✦ Your Week in Review</div>
+          {aiSummary.narrative && (
+            <div style={{ fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.55, marginBottom: '10px' }}>{aiSummary.narrative}</div>
+          )}
+          {aiSummary.wins?.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: aiSummary.stalled?.length > 0 ? '8px' : 0 }}>
+              {aiSummary.wins.map((w, i) => (
+                <div key={i} style={{ fontSize: '12px', color: tokens.green }}>✓ {w}</div>
+              ))}
+            </div>
+          )}
+          {aiSummary.stalled?.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {aiSummary.stalled.map((s, i) => (
+                <div key={i} style={{ fontSize: '12px', color: tokens.amber }}>⚠ {s}</div>
+              ))}
+            </div>
+          )}
+          {aiSummary.goalAlignment && (
+            <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: `1px solid ${tokens.border}`, fontSize: '12px', color: tokens.textMuted, fontStyle: 'italic' }}>
+              {aiSummary.goalAlignment}
+            </div>
+          )}
+        </div>
+      )}
+
       <div>
         <SectionLabel>Energy going into this week</SectionLabel>
         <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
@@ -489,6 +557,20 @@ export default function WeeklyResetWizard() {
             </div>
           ))}
         </div>
+
+        {aiSummary?.nextWeekFocus?.length > 0 && (
+          <div style={{ padding: '14px 16px', background: tokens.accentDim, borderRadius: '12px', border: `1px solid ${tokens.accent}40` }}>
+            <div style={{ fontSize: '10px', fontWeight: 700, color: tokens.accent, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '10px' }}>✦ AI Recommended Focus</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+              {aiSummary.nextWeekFocus.map((item, i) => (
+                <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.accent, background: tokens.bgCard, borderRadius: '4px', padding: '2px 7px', flexShrink: 0, marginTop: '1px' }}>{i + 1}</span>
+                  <span style={{ fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.45 }}>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   };

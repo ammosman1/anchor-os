@@ -8,6 +8,7 @@ import { RECURRENCE_OPTIONS, scheduleNextRecurrence, calculateUrgency, isTaskBlo
 import { getValidAccessToken, deleteEvent } from '../../lib/calendar';
 import { Card, Button, SectionLabel, Tag, Modal, EmptyState, priorityColors } from '../ui';
 import TaskModal from '../TaskModal';
+import { useAppMode } from '../../lib/useAppMode';
 
 const FOCUS_TYPE_COLORS = {
   deep:    { bg: '#1a2340', text: '#5B8DEF' },
@@ -72,6 +73,7 @@ function timeAgo(ts) {
 export default function TasksScreen() {
   const { user }                        = useAuth();
   const { tasks, projects, goals, calendarIntegration } = useData();
+  const [appMode, setAppMode] = useAppMode();
   const [filter,         setFilter]         = useState('all');
   const [filterTag,      setFilterTag]      = useState('');
   const [filterProject,  setFilterProject]  = useState('');
@@ -122,6 +124,8 @@ export default function TasksScreen() {
 
   // Filter logic
   const filtered = tasks.filter(t => {
+    if (appMode === 'work'     && t.context !== 'work') return false;
+    if (appMode === 'personal' && t.context === 'work') return false;
     if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterTag && !(t.tags || []).includes(filterTag)) return false;
     if (filterProject && t.projectId !== filterProject) return false;
@@ -293,6 +297,18 @@ export default function TasksScreen() {
             <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '2px' }}>{item.label}</div>
           </div>
         ))}
+      </div>
+
+      {/* Mode Toggle */}
+      <div className="fade-up stagger-1" style={{ marginBottom: '10px' }}>
+        <div style={{ display: 'flex', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '99px', padding: '3px', gap: '2px', width: 'fit-content' }}>
+          {[['all', 'All'], ['work', 'Work'], ['personal', 'Personal']].map(([m, label]) => (
+            <button key={m} onClick={() => setAppMode(m)}
+              style={{ padding: '5px 18px', borderRadius: '99px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: fonts.body, border: 'none', transition: 'all 0.15s', background: appMode === m ? tokens.accent : 'transparent', color: appMode === m ? '#fff' : tokens.textMuted }}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Search */}

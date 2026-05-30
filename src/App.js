@@ -12,7 +12,6 @@ import OnboardingScreen from './components/screens/OnboardingScreen';
 import HomeScreen       from './components/screens/HomeScreen';
 import ProjectsScreen   from './components/screens/ProjectsScreen';
 import BrainDumpScreen  from './components/screens/BrainDumpScreen';
-import AdvisorScreen    from './components/screens/AdvisorScreen';
 import ReviewScreen     from './components/screens/ReviewScreen';
 import TasksScreen      from './components/screens/TasksScreen';
 import LifeScreen       from './components/screens/LifeScreen';
