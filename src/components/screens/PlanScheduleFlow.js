@@ -18,6 +18,14 @@ function ymd(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Convert a UTC ISO string to a local-time ISO string (no Z suffix) so the AI
+// sees times that match the human-readable constraint language (e.g. "6pm–10pm").
+function toLocalISO(utcIso) {
+  const d = new Date(utcIso);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:00`;
+}
+
 function getDateRange(scope) {
   const today = new Date();
   if (scope === 'today') return [ymd(today)];
@@ -163,36 +171,40 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
             const { events } = await getEvents(token, startDate.toISOString(), endDate.toISOString());
             const wh = userProfile?.workHours || null;
             const ph = userProfile?.personalHours || null;
+            const localSlot = s => ({ start: toLocalISO(s.start), end: toLocalISO(s.end), durationMins: s.durationMins });
             for (const day of days) {
               const dayEvs = (events || []).filter(e => e.start?.dateTime?.startsWith(day));
-              const workSlots     = getFreeSlots(dayEvs, day + 'T12:00:00', wh);
-              const personalSlots = ph ? getFreeSlots(dayEvs, day + 'T12:00:00', ph) : [];
+              const workSlots     = getFreeSlots(dayEvs, day + 'T12:00:00', wh).map(localSlot);
+              const personalSlots = ph ? getFreeSlots(dayEvs, day + 'T12:00:00', ph).map(localSlot) : [];
               slotsMap[day] = [...workSlots, ...personalSlots].sort((a, b) => a.start.localeCompare(b.start));
             }
           } catch {
             const wh = userProfile?.workHours || null;
             const ph = userProfile?.personalHours || null;
+            const localSlot = s => ({ start: toLocalISO(s.start), end: toLocalISO(s.end), durationMins: s.durationMins });
             for (const day of days) {
-              const workSlots     = getFreeSlots([], day + 'T12:00:00', wh);
-              const personalSlots = ph ? getFreeSlots([], day + 'T12:00:00', ph) : [];
+              const workSlots     = getFreeSlots([], day + 'T12:00:00', wh).map(localSlot);
+              const personalSlots = ph ? getFreeSlots([], day + 'T12:00:00', ph).map(localSlot) : [];
               slotsMap[day] = [...workSlots, ...personalSlots].sort((a, b) => a.start.localeCompare(b.start));
             }
           }
         } else {
           const wh = userProfile?.workHours || null;
           const ph = userProfile?.personalHours || null;
+          const localSlot = s => ({ start: toLocalISO(s.start), end: toLocalISO(s.end), durationMins: s.durationMins });
           for (const day of days) {
-            const workSlots     = getFreeSlots([], day + 'T12:00:00', wh);
-            const personalSlots = ph ? getFreeSlots([], day + 'T12:00:00', ph) : [];
+            const workSlots     = getFreeSlots([], day + 'T12:00:00', wh).map(localSlot);
+            const personalSlots = ph ? getFreeSlots([], day + 'T12:00:00', ph).map(localSlot) : [];
             slotsMap[day] = [...workSlots, ...personalSlots].sort((a, b) => a.start.localeCompare(b.start));
           }
         }
       } else {
         const wh = userProfile?.workHours || null;
         const ph = userProfile?.personalHours || null;
+        const localSlot = s => ({ start: toLocalISO(s.start), end: toLocalISO(s.end), durationMins: s.durationMins });
         for (const day of days) {
-          const workSlots     = getFreeSlots([], day + 'T12:00:00', wh);
-          const personalSlots = ph ? getFreeSlots([], day + 'T12:00:00', ph) : [];
+          const workSlots     = getFreeSlots([], day + 'T12:00:00', wh).map(localSlot);
+          const personalSlots = ph ? getFreeSlots([], day + 'T12:00:00', ph).map(localSlot) : [];
           slotsMap[day] = [...workSlots, ...personalSlots].sort((a, b) => a.start.localeCompare(b.start));
         }
       }
@@ -223,7 +235,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
         tasks: selected,
         slotsMap,
         days,
-        currentTime: now.toISOString(),
+        currentTime: toLocalISO(now.toISOString()),
         focusProfile: { recentEnergy: energyOverride ?? (userProfile?.energyToday ? userProfile.energyToday * 10 : 70) },
         weatherForecast: weatherForecast?.forecast || null,
         intent,
