@@ -162,21 +162,39 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
             const endDate   = new Date(days[days.length - 1] + 'T23:59:59');
             const { events } = await getEvents(token, startDate.toISOString(), endDate.toISOString());
             const wh = userProfile?.workHours || null;
+            const ph = userProfile?.personalHours || null;
             for (const day of days) {
               const dayEvs = (events || []).filter(e => e.start?.dateTime?.startsWith(day));
-              slotsMap[day] = getFreeSlots(dayEvs, day + 'T12:00:00', wh);
+              const workSlots     = getFreeSlots(dayEvs, day + 'T12:00:00', wh);
+              const personalSlots = ph ? getFreeSlots(dayEvs, day + 'T12:00:00', ph) : [];
+              slotsMap[day] = [...workSlots, ...personalSlots].sort((a, b) => a.start.localeCompare(b.start));
             }
           } catch {
             const wh = userProfile?.workHours || null;
-            for (const day of days) slotsMap[day] = getFreeSlots([], day + 'T12:00:00', wh);
+            const ph = userProfile?.personalHours || null;
+            for (const day of days) {
+              const workSlots     = getFreeSlots([], day + 'T12:00:00', wh);
+              const personalSlots = ph ? getFreeSlots([], day + 'T12:00:00', ph) : [];
+              slotsMap[day] = [...workSlots, ...personalSlots].sort((a, b) => a.start.localeCompare(b.start));
+            }
           }
         } else {
           const wh = userProfile?.workHours || null;
-          for (const day of days) slotsMap[day] = getFreeSlots([], day + 'T12:00:00', wh);
+          const ph = userProfile?.personalHours || null;
+          for (const day of days) {
+            const workSlots     = getFreeSlots([], day + 'T12:00:00', wh);
+            const personalSlots = ph ? getFreeSlots([], day + 'T12:00:00', ph) : [];
+            slotsMap[day] = [...workSlots, ...personalSlots].sort((a, b) => a.start.localeCompare(b.start));
+          }
         }
       } else {
         const wh = userProfile?.workHours || null;
-        for (const day of days) slotsMap[day] = getFreeSlots([], day + 'T12:00:00', wh);
+        const ph = userProfile?.personalHours || null;
+        for (const day of days) {
+          const workSlots     = getFreeSlots([], day + 'T12:00:00', wh);
+          const personalSlots = ph ? getFreeSlots([], day + 'T12:00:00', ph) : [];
+          slotsMap[day] = [...workSlots, ...personalSlots].sort((a, b) => a.start.localeCompare(b.start));
+        }
       }
 
       // Clip today's slots — remove anything ending before now+15min, trim slots that start in the past

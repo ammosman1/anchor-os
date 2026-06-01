@@ -50,8 +50,9 @@ export default async function handler(req, res) {
     if (t.outdoor) notes.push('OUTDOOR TASK');
     if (t.context === 'work') {
       notes.push(workHoursStr ? `WORK TASK — schedule only within work hours: ${workHoursStr}` : 'WORK TASK — schedule Mon–Fri business hours only');
-    } else if (t.context && personalHoursStr) {
-      notes.push(`${t.context.toUpperCase()} TASK — schedule only within personal hours: ${personalHoursStr}`);
+    } else if (t.context) {
+      const personalNote = personalHoursStr || 'evenings after 6pm and weekends only — NEVER during weekday work hours';
+      notes.push(`${t.context.toUpperCase()} TASK — schedule only during personal hours: ${personalNote}`);
     }
     return { ...t, urgencyNotes: notes.join(' | ') };
   });
@@ -96,7 +97,7 @@ RULES:
 - Always honor Andrew's stated priorities — if he named something as most important, schedule it first in the best slot
 ${currentTime ? `- CURRENT TIME: ${currentTime}. Never schedule any block starting before this time — even if a slot begins earlier, your block must start at or after this timestamp.` : ''}
 - Tasks marked WORK TASK must ONLY be scheduled within work hours: ${workHoursStr || 'Mon–Fri 8am–6pm (default)'}
-- Tasks marked PERSONAL/HOME/HEALTH/FINANCIAL TASK must ONLY be scheduled within personal hours: ${personalHoursStr || 'evenings and weekends (default)'} — never during work hours
+- Tasks marked PERSONAL/HOME/HEALTH/FINANCIAL TASK must ONLY be scheduled within personal hours: ${personalHoursStr || 'evenings after 6pm and weekends'} — NEVER schedule these during weekday work hours, even if a work-hours slot is free
 - Tasks marked OVERDUE or pushed 2+ times must be scheduled first, today if possible
 - Tasks with due dates within 2 days get top priority in the schedule
 - If a task has an "availableDays" array (e.g. ["sat","sun"]), it MUST only be scheduled on matching days of the week — never on other days. Day codes: mon=Monday, tue=Tuesday, wed=Wednesday, thu=Thursday, fri=Friday, sat=Saturday, sun=Sunday. An empty array means any day is fine.
