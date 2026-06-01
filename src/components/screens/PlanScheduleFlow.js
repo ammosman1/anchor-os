@@ -43,7 +43,7 @@ function yesterdayYMD() {
 
 export default function PlanScheduleFlow({ open, onClose, calendarIntegration, weatherForecast }) {
   const { user } = useAuth();
-  const { tasks, goals = [], userProfile, habits = [], healthLogs = [] } = useData();
+  const { tasks, goals = [], projects = [], userProfile, habits = [], healthLogs = [] } = useData();
 
   const [step, setStep]                   = useState('scope');
   const [scope, setScope]                 = useState('today');
@@ -120,23 +120,34 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
       }).map(g => g.id)
     );
 
+    // Build project taskOrder lookup so the scheduler can respect manual sequence
+    const projectOrderMap = new Map(
+      projects.map(p => [p.id, p.taskOrder || []])
+    );
+
     const selected = candidateTasks
       .filter(t => selectedIds.has(t.id))
-      .map(t => ({
-        id:               t.id,
-        title:            t.title,
-        priority:         t.priority,
-        estimatedMinutes: t.estimatedMinutes || 45,
-        project:          t.project || 'Inbox',
-        dueDate:          t.dueDate || null,
-        pushCount:        t.pushCount || 0,
-        outdoor:          isOutdoorTask(t),
-        context:          t.context || null,
-        notes:            t.notes || null,
-        tags:             t.tags || [],
-        availableDays:    t.availableDays || [],
-        goalDeadlineUrgent: t.goalId ? atRiskGoalIds.has(t.goalId) : false,
-      }));
+      .map(t => {
+        const order = t.projectId ? projectOrderMap.get(t.projectId) || [] : [];
+        const pos   = order.indexOf(t.id);
+        return {
+          id:               t.id,
+          title:            t.title,
+          priority:         t.priority,
+          estimatedMinutes: t.estimatedMinutes || 45,
+          project:          t.project || 'Inbox',
+          projectId:        t.projectId || null,
+          dueDate:          t.dueDate || null,
+          pushCount:        t.pushCount || 0,
+          outdoor:          isOutdoorTask(t),
+          context:          t.context || null,
+          notes:            t.notes || null,
+          tags:             t.tags || [],
+          availableDays:    t.availableDays || [],
+          goalDeadlineUrgent: t.goalId ? atRiskGoalIds.has(t.goalId) : false,
+          projectSortOrder: pos >= 0 ? pos : null,
+        };
+      });
 
     try {
       setBuildStatus('Fetching your calendar...');

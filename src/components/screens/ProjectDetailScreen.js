@@ -90,6 +90,44 @@ export default function ProjectDetailScreen() {
   const doneTasks    = projectTasks.filter(t => t.done);
   const activeTasks  = projectTasks.filter(t => !t.done);
 
+  // Respect saved drag order if present
+  const orderedActiveTasks = useMemo(() => {
+    if (!project?.taskOrder?.length) return activeTasks;
+    const orderMap = new Map(project.taskOrder.map((id, i) => [id, i]));
+    return [...activeTasks].sort((a, b) => {
+      const ai = orderMap.has(a.id) ? orderMap.get(a.id) : 9999;
+      const bi = orderMap.has(b.id) ? orderMap.get(b.id) : 9999;
+      return ai - bi;
+    });
+  }, [activeTasks, project?.taskOrder]);
+
+  const handleDragStart = (e, taskId) => {
+    setDraggedId(taskId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e, taskId) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (taskId !== draggedId) setDragOverId(taskId);
+  };
+
+  const handleDrop = async (e, targetId) => {
+    e.preventDefault();
+    if (!draggedId || draggedId === targetId) { setDraggedId(null); setDragOverId(null); return; }
+    const ids = orderedActiveTasks.map(t => t.id);
+    const from = ids.indexOf(draggedId);
+    const to   = ids.indexOf(targetId);
+    const next = [...ids];
+    next.splice(from, 1);
+    next.splice(to, 0, draggedId);
+    setDraggedId(null);
+    setDragOverId(null);
+    await updateProject(user.uid, projectId, { taskOrder: [...next, ...doneTasks.map(t => t.id)] });
+  };
+
+  const handleDragEnd = () => { setDraggedId(null); setDragOverId(null); };
+
   const [analysis,        setAnalysis]        = useState(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
 
@@ -118,6 +156,10 @@ export default function ProjectDetailScreen() {
   const [editSaving, setEditSaving] = useState(false);
   // Task completion note
   const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
+
+  // Drag-to-reorder
+  const [draggedId, setDraggedId]   = useState(null);
+  const [dragOverId, setDragOverId] = useState(null);
   // Project completion flow
   const [completeOpen,        setCompleteOpen]        = useState(false);
   const [completeRetro,       setCompleteRetro]       = useState('');
@@ -789,11 +831,32 @@ export default function ProjectDetailScreen() {
           </div>
         )}
 
-        {/* Active tasks */}
-        {activeTasks.map((task, i) => {
-          const due = formatDue(task.dueDate);
+        {/* Active tasks — drag to reorder */}
+        {orderedActiveTasks.map((task, i) => {
+          const due        = formatDue(task.dueDate);
+          const isDragging = draggedId === task.id;
+          const isDragOver = dragOverId === task.id && draggedId !== task.id;
           return (
-            <div key={task.id} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '9px 0', borderBottom: i < activeTasks.length - 1 || doneTasks.length > 0 ? `1px solid ${tokens.border}` : 'none' }}>
+            <div
+              key={task.id}
+              draggable
+              onDragStart={e => handleDragStart(e, task.id)}
+              onDragOver={e => handleDragOver(e, task.id)}
+              onDrop={e => handleDrop(e, task.id)}
+              onDragEnd={handleDragEnd}
+              style={{
+                display: 'flex', gap: '8px', alignItems: 'flex-start',
+                padding: '9px 0',
+                borderBottom: i < orderedActiveTasks.length - 1 || doneTasks.length > 0 ? `1px solid ${tokens.border}` : 'none',
+                background: isDragOver ? tokens.accentDim : 'transparent',
+                borderRadius: isDragOver ? '6px' : 0,
+                opacity: isDragging ? 0.35 : 1,
+                transition: 'opacity 0.12s, background 0.1s',
+              }}
+            >
+              {/* Drag handle */}
+              <div style={{ color: tokens.textMuted, fontSize: '13px', cursor: 'grab', paddingTop: '2px', flexShrink: 0, opacity: 0.35, userSelect: 'none' }}>⠿</div>
+              {/* Checkbox */}
               <div
                 onClick={() => handleToggleTask(task)}
                 style={{ width: 18, height: 18, borderRadius: '4px', flexShrink: 0, marginTop: '2px', border: `1.5px solid ${tokens.border}`, background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.12s' }}
@@ -807,9 +870,7 @@ export default function ProjectDetailScreen() {
                   {task.estimatedMinutes && <span>⏱ {task.estimatedMinutes}m</span>}
                   {due && <span style={{ color: due.color, fontWeight: 600 }}>{due.label}</span>}
                   {isTaskBlocked(task, tasks) && (
-                    <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.amber, background: 'rgba(200,160,50,0.15)', padding: '1px 6px', borderRadius: '4px' }}>
-                      ⊘ Blocked
-                    </span>
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: tokens.amber, background: 'rgba(200,160,50,0.15)', padding: '1px 6px', borderRadius: '4px' }}>⊘ Blocked</span>
                   )}
                 </div>
               </div>

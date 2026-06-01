@@ -108,10 +108,10 @@ PRIORITY-FIRST ORDERING:
 - Never schedule a medium or low task into a prime morning deep-work slot if any critical or high task is unscheduled
 
 PROJECT TASK ORDERING:
-- For tasks belonging to the same project, infer the logical sequence from their titles and notes — tasks that must physically or logically precede others should be scheduled first
-- Example: "Demo tile" → "Install cement board" → "Lay tile" → "Grout" → "Seal" must happen in that order, never reversed
-- If ordering within a project is ambiguous, use priority and due date as a tiebreaker
-- Never schedule a task that clearly depends on an unscheduled prerequisite on the same day as or before that prerequisite
+- Tasks have a "projectSortOrder" field (0 = first, 1 = second, etc.) representing the user's explicit drag-and-drop sequence within their project. When this field is present, it is the authoritative order — always schedule lower-numbered tasks before higher-numbered ones within the same project
+- When "projectSortOrder" is null, infer logical sequence from task titles and notes (e.g. "Demo tile" before "Lay tile" before "Grout")
+- Never schedule a later-sequence task before an earlier one from the same project within the same planning window
+- If two project tasks land on different days, always put the lower-order task on the earlier day
 
 CONTEXT RUNS (consecutive focus blocks):
 - If 3 or more tasks belong to the same project AND are all high or critical priority, schedule them back-to-back as a "context run" — group them in the same morning or afternoon window
