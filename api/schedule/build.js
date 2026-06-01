@@ -107,6 +107,12 @@ PRIORITY-FIRST ORDERING:
 - Within the same priority tier, sort by: OVERDUE first, then due soonest, then by focusType fit for the time window
 - Never schedule a medium or low task into a prime morning deep-work slot if any critical or high task is unscheduled
 
+PROJECT TASK ORDERING:
+- For tasks belonging to the same project, infer the logical sequence from their titles and notes — tasks that must physically or logically precede others should be scheduled first
+- Example: "Demo tile" → "Install cement board" → "Lay tile" → "Grout" → "Seal" must happen in that order, never reversed
+- If ordering within a project is ambiguous, use priority and due date as a tiebreaker
+- Never schedule a task that clearly depends on an unscheduled prerequisite on the same day as or before that prerequisite
+
 CONTEXT RUNS (consecutive focus blocks):
 - If 3 or more tasks belong to the same project AND are all high or critical priority, schedule them back-to-back as a "context run" — group them in the same morning or afternoon window
 - Context runs minimize context-switching and preserve focus

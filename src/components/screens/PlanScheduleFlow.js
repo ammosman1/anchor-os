@@ -132,6 +132,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
         pushCount:        t.pushCount || 0,
         outdoor:          isOutdoorTask(t),
         context:          t.context || null,
+        notes:            t.notes || null,
         tags:             t.tags || [],
         availableDays:    t.availableDays || [],
         goalDeadlineUrgent: t.goalId ? atRiskGoalIds.has(t.goalId) : false,
