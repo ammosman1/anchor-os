@@ -77,10 +77,11 @@ ${JSON.stringify(tasksWithUrgency, null, 2)}
 FREE TIME SLOTS PER DAY:
 ${JSON.stringify(daysJson, null, 2)}
 
-FOCUS WINDOWS:
-- Morning 8am–12pm → deep work (financial review, planning, drafting, strategic decisions)
-- Early afternoon 1pm–3pm → medium tasks (calls, research, follow-ups)
-- Late afternoon 3pm–6pm → quick tasks (emails, admin, short actions)
+FOCUS WINDOWS (apply to work-context tasks only — personal/home/health/financial tasks are exempt and should be scheduled in personal hours regardless of focus type):
+- Morning → deep work (financial review, planning, drafting, strategic decisions)
+- Early afternoon → medium tasks (calls, research, follow-ups)
+- Late afternoon → quick tasks (emails, admin, short actions)
+NOTE: These focus windows are soft guidelines for work tasks. Do NOT use them to block personal/home/health/financial tasks from their personal-hours window. A home task in a 4pm–6pm personal slot is always valid regardless of its estimated duration or focus level.
 ${weatherNote}
 
 ENERGY CONTEXT: ${energyNote}
@@ -122,7 +123,8 @@ CONTEXT RUNS (consecutive focus blocks):
 
 GENERAL:
 - OUTDOOR tasks must only be placed on weather-suitable days
-- Never schedule deep work in an afternoon low-focus slot if a morning slot is available
+- For WORK-context tasks: prefer morning slots for deep work; avoid deep work in late-afternoon if a morning slot is available
+- For PERSONAL/HOME/HEALTH/FINANCIAL tasks: always use personal-hours slots — schedule them there regardless of time of day, focus level, or task duration
 - Add 10-minute buffers between standalone consecutive blocks — don't stack them back-to-back
 - Do not schedule more than 5 hours of focused work per day
 - If a task won't fit one day, roll it to the next available day
@@ -160,7 +162,7 @@ Allowed: focusType = "deep" | "medium" | "quick"`;
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 3000,
+        max_tokens: 4000,
         system: 'You are a precise scheduling engine. Return only valid JSON. No preamble, no explanation, no markdown fences.',
         messages: [{ role: 'user', content: prompt }],
       }),
