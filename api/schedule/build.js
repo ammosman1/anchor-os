@@ -5,9 +5,27 @@
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { tasks, slotsMap, days, focusProfile, weatherForecast, currentTime, intent, habits, healthLogs } = req.body;
+  const { tasks, slotsMap, days, focusProfile, weatherForecast, currentTime, intent, habits, healthLogs, workHours, personalHours } = req.body;
   if (!tasks?.length) return res.status(400).json({ error: 'tasks required' });
   if (!slotsMap || !days?.length) return res.status(400).json({ error: 'slotsMap and days required' });
+
+  // Format hour configs into readable schedule strings for the AI prompt
+  function fmtHours(cfg) {
+    if (!cfg) return null;
+    const ORDER = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+    const SHORT = { monday:'Mon',tuesday:'Tue',wednesday:'Wed',thursday:'Thu',friday:'Fri',saturday:'Sat',sunday:'Sun' };
+    const fmt12 = t => {
+      if (!t) return '';
+      const [h, m] = t.split(':').map(Number);
+      const suffix = h >= 12 ? 'pm' : 'am';
+      const h12 = h % 12 || 12;
+      return m === 0 ? `${h12}${suffix}` : `${h12}:${String(m).padStart(2,'0')}${suffix}`;
+    };
+    const parts = ORDER.filter(d => cfg[d]?.enabled).map(d => `${SHORT[d]} ${fmt12(cfg[d].start)}–${fmt12(cfg[d].end)}`);
+    return parts.length > 0 ? parts.join(', ') : null;
+  }
+  const workHoursStr     = fmtHours(workHours);
+  const personalHoursStr = fmtHours(personalHours);
 
   const energyLevel = focusProfile?.recentEnergy ?? 70;
   const energyNote =
@@ -30,7 +48,11 @@ export default async function handler(req, res) {
     }
     if (t.pushCount >= 2) notes.push(`pushed ${t.pushCount}x — must be scheduled`);
     if (t.outdoor) notes.push('OUTDOOR TASK');
-    if (t.context === 'work') notes.push('WORK TASK — schedule Mon–Fri business hours only');
+    if (t.context === 'work') {
+      notes.push(workHoursStr ? `WORK TASK — schedule only within work hours: ${workHoursStr}` : 'WORK TASK — schedule Mon–Fri business hours only');
+    } else if (t.context && personalHoursStr) {
+      notes.push(`${t.context.toUpperCase()} TASK — schedule only within personal hours: ${personalHoursStr}`);
+    }
     return { ...t, urgencyNotes: notes.join(' | ') };
   });
 
@@ -73,7 +95,8 @@ ANDREW'S STATED PRIORITIES FOR TODAY:${intent.topPriority ? `\n- Most important:
 RULES:
 - Always honor Andrew's stated priorities — if he named something as most important, schedule it first in the best slot
 ${currentTime ? `- CURRENT TIME: ${currentTime}. Never schedule any block starting before this time — even if a slot begins earlier, your block must start at or after this timestamp.` : ''}
-- Tasks marked WORK TASK must only be scheduled Monday–Friday during typical business hours (8am–5pm)
+- Tasks marked WORK TASK must ONLY be scheduled within work hours: ${workHoursStr || 'Mon–Fri 8am–6pm (default)'}
+- Tasks marked PERSONAL/HOME/HEALTH/FINANCIAL TASK must ONLY be scheduled within personal hours: ${personalHoursStr || 'evenings and weekends (default)'} — never during work hours
 - Tasks marked OVERDUE or pushed 2+ times must be scheduled first, today if possible
 - Tasks with due dates within 2 days get top priority in the schedule
 - If a task has an "availableDays" array (e.g. ["sat","sun"]), it MUST only be scheduled on matching days of the week — never on other days. Day codes: mon=Monday, tue=Tuesday, wed=Wednesday, thu=Thursday, fri=Friday, sat=Saturday, sun=Sunday. An empty array means any day is fine.

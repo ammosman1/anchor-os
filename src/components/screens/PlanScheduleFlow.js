@@ -131,6 +131,7 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
         dueDate:          t.dueDate || null,
         pushCount:        t.pushCount || 0,
         outdoor:          isOutdoorTask(t),
+        context:          t.context || null,
         tags:             t.tags || [],
         availableDays:    t.availableDays || [],
         goalDeadlineUrgent: t.goalId ? atRiskGoalIds.has(t.goalId) : false,
@@ -198,6 +199,8 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
         intent,
         habits: habits.filter(h => h.active !== false),
         healthLogs: healthLogs.slice(0, 7),
+        workHours: userProfile?.workHours || null,
+        personalHours: userProfile?.personalHours || null,
       });
 
       const scheduledIds = new Set((result?.schedule || []).map(s => s.taskId).filter(Boolean));

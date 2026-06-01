@@ -23,6 +23,16 @@ const DEFAULT_WORK_HOURS = {
   sunday:    { enabled: false, start: '09:00', end: '14:00' },
 };
 
+const DEFAULT_PERSONAL_HOURS = {
+  monday:    { enabled: true,  start: '18:00', end: '22:00' },
+  tuesday:   { enabled: true,  start: '18:00', end: '22:00' },
+  wednesday: { enabled: true,  start: '18:00', end: '22:00' },
+  thursday:  { enabled: true,  start: '18:00', end: '22:00' },
+  friday:    { enabled: true,  start: '18:00', end: '22:00' },
+  saturday:  { enabled: true,  start: '09:00', end: '21:00' },
+  sunday:    { enabled: true,  start: '09:00', end: '21:00' },
+};
+
 function Toggle({ enabled, onChange }) {
   return (
     <div onClick={onChange} style={{ width: 38, height: 22, borderRadius: '11px', background: enabled ? tokens.accent : tokens.bgInput, border: `1px solid ${enabled ? 'transparent' : tokens.border}`, position: 'relative', cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0 }}>
@@ -41,6 +51,7 @@ export default function ProfileScreen() {
   const [zip,            setZip]            = useState('');
   const [persona,        setPersona]        = useState('');
   const [workHours,      setWorkHours]      = useState(DEFAULT_WORK_HOURS);
+  const [personalHours,  setPersonalHours]  = useState(DEFAULT_PERSONAL_HOURS);
   const [currentTheme]                      = useState(() => { try { return localStorage.getItem('anchorTheme') || 'warmCream'; } catch { return 'warmCream'; } });
 
   const [notifStatus,    setNotifStatus]    = useState(() => {
@@ -56,8 +67,9 @@ export default function ProfileScreen() {
   const [calGridEnd,     setCalGridEnd]     = useState(22);
   const [savingCalGrid,  setSavingCalGrid]  = useState(false);
 
-  const [savingProfile,  setSavingProfile]  = useState(false);
-  const [savingHours,    setSavingHours]    = useState(false);
+  const [savingProfile,       setSavingProfile]       = useState(false);
+  const [savingHours,         setSavingHours]         = useState(false);
+  const [savingPersonalHours, setSavingPersonalHours] = useState(false);
   const [savingPersona,  setSavingPersona]  = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [resetSent,      setResetSent]      = useState(false);
@@ -76,7 +88,8 @@ export default function ProfileScreen() {
     if (userProfile) {
       setPersona(userProfile.persona || '');
       setZip(userProfile.zip || '');
-      if (userProfile.workHours) setWorkHours(userProfile.workHours);
+      if (userProfile.workHours)     setWorkHours(userProfile.workHours);
+      if (userProfile.personalHours) setPersonalHours(userProfile.personalHours);
       if (userProfile.calGridStart != null) setCalGridStart(userProfile.calGridStart);
       if (userProfile.calGridEnd   != null) setCalGridEnd(userProfile.calGridEnd);
 
@@ -136,6 +149,13 @@ export default function ProfileScreen() {
     await saveProfile(user.uid, { workHours });
     setSavingHours(false);
     showSaved('hours');
+  };
+
+  const handleSavePersonalHours = async () => {
+    setSavingPersonalHours(true);
+    await saveProfile(user.uid, { personalHours });
+    setSavingPersonalHours(false);
+    showSaved('personalHours');
   };
 
   const handleSaveCalGrid = async () => {
@@ -203,6 +223,9 @@ export default function ProfileScreen() {
 
   const updateDayHours = (day, field, value) =>
     setWorkHours(prev => ({ ...prev, [day]: { ...prev[day], [field]: value } }));
+
+  const updateDayPersonalHours = (day, field, value) =>
+    setPersonalHours(prev => ({ ...prev, [day]: { ...prev[day], [field]: value } }));
 
   const inputStyle = {
     width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`,
@@ -310,6 +333,40 @@ export default function ProfileScreen() {
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '16px' }}>
             <Button onClick={handleSaveHours} loading={savingHours} size="sm">Save Work Hours</Button>
             {savedSection === 'hours' && <span style={{ fontSize: '12px', color: tokens.green }}>✓ Saved</span>}
+          </div>
+        </Card>
+      </div>
+
+      {/* ── Personal Hours ── */}
+      <div className="fade-up stagger-2" style={{ marginBottom: '12px' }}>
+        <Card>
+          <SectionLabel>Personal Hours</SectionLabel>
+          <p style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '-4px', marginBottom: '14px' }}>
+            When you're available for personal, home, health, and financial tasks. The scheduler keeps these out of your work day.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {DAYS.map(day => {
+              const cfg = personalHours[day] || DEFAULT_PERSONAL_HOURS[day];
+              return (
+                <div key={day} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Toggle enabled={cfg.enabled} onChange={() => updateDayPersonalHours(day, 'enabled', !cfg.enabled)} />
+                  <span style={{ width: '36px', fontSize: '13px', fontWeight: 600, color: cfg.enabled ? tokens.textPrimary : tokens.textMuted, flexShrink: 0 }}>{DAY_LABELS[day]}</span>
+                  {cfg.enabled ? (
+                    <>
+                      <input type="time" value={cfg.start} onChange={e => updateDayPersonalHours(day, 'start', e.target.value)} style={timeInputStyle} />
+                      <span style={{ fontSize: '11px', color: tokens.textMuted, flexShrink: 0 }}>to</span>
+                      <input type="time" value={cfg.end}   onChange={e => updateDayPersonalHours(day, 'end',   e.target.value)} style={timeInputStyle} />
+                    </>
+                  ) : (
+                    <span style={{ fontSize: '12px', color: tokens.textMuted, fontStyle: 'italic' }}>Off</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '16px' }}>
+            <Button onClick={handleSavePersonalHours} loading={savingPersonalHours} size="sm">Save Personal Hours</Button>
+            {savedSection === 'personalHours' && <span style={{ fontSize: '12px', color: tokens.green }}>✓ Saved</span>}
           </div>
         </Card>
       </div>

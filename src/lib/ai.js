@@ -455,13 +455,13 @@ Return ONLY valid JSON:
   }
 }
 
-export async function buildScheduleForDays({ tasks, slotsMap, days, focusProfile, currentTime, intent, habits, healthLogs }) {
+export async function buildScheduleForDays({ tasks, slotsMap, days, focusProfile, currentTime, intent, habits, healthLogs, workHours, personalHours }) {
   if (process.env.NODE_ENV === 'production') {
     try {
       const res = await fetch('/api/schedule/build', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tasks, slotsMap, days, focusProfile, currentTime, intent, habits, healthLogs }),
+        body: JSON.stringify({ tasks, slotsMap, days, focusProfile, currentTime, intent, habits, healthLogs, workHours, personalHours }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
