@@ -289,7 +289,7 @@ export default function TasksScreen() {
   return (
     <div style={{ maxWidth: 760, margin: '0 auto' }}>
       {/* Header */}
-      <div className="fade-up" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+      <div className="fade-up" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '14px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <div style={{ fontSize: '11px', color: tokens.textMuted, letterSpacing: '0.1em', marginBottom: '6px', textTransform: 'uppercase' }}>Task Inbox</div>
           <h1 style={{ fontFamily: fonts.display, fontSize: '26px', fontWeight: 700, color: tokens.textPrimary, letterSpacing: '-0.02em', margin: 0 }}>All Tasks</h1>
@@ -301,22 +301,22 @@ export default function TasksScreen() {
       </div>
 
       {/* Stats */}
-      <div className="fade-up stagger-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginBottom: '14px' }}>
+      <div className="fade-up stagger-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', marginBottom: '10px' }}>
         {[
           { label: 'Pending',    val: pendingCount, color: tokens.accent  },
           { label: 'Inbox',      val: inboxCount,   color: tokens.blue    },
           { label: 'Brain Dump', val: brainCount,   color: tokens.purple  },
           { label: 'Done',       val: doneCount,    color: tokens.green   },
         ].map(item => (
-          <div key={item.label} style={{ padding: '12px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '10px', textAlign: 'center' }}>
-            <div style={{ fontFamily: fonts.display, fontSize: '24px', fontWeight: 700, color: item.color }}>{item.val}</div>
-            <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '2px' }}>{item.label}</div>
+          <div key={item.label} style={{ padding: '8px 6px', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '10px', textAlign: 'center' }}>
+            <div style={{ fontFamily: fonts.display, fontSize: '20px', fontWeight: 700, color: item.color }}>{item.val}</div>
+            <div style={{ fontSize: '10px', color: tokens.textMuted, marginTop: '1px' }}>{item.label}</div>
           </div>
         ))}
       </div>
 
       {/* Mode Toggle */}
-      <div className="fade-up stagger-1" style={{ marginBottom: '10px' }}>
+      <div className="fade-up stagger-1" style={{ marginBottom: '8px' }}>
         <div style={{ display: 'flex', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '99px', padding: '3px', gap: '2px', width: 'fit-content' }}>
           {[['all', 'All'], ['work', 'Work'], ['personal', 'Personal']].map(([m, label]) => (
             <button key={m} onClick={() => setAppMode(m)}
@@ -328,7 +328,7 @@ export default function TasksScreen() {
       </div>
 
       {/* Search */}
-      <div className="fade-up stagger-1" style={{ marginBottom: '10px' }}>
+      <div className="fade-up stagger-1" style={{ marginBottom: '8px' }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tasks..."
           style={{ width: '100%', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '10px 14px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }}
           onFocus={e => e.target.style.borderColor = tokens.borderFocus}
@@ -337,7 +337,7 @@ export default function TasksScreen() {
       </div>
 
       {/* Status Filters */}
-      <div className="fade-up stagger-1" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+      <div className="fade-up stagger-1" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
         {STATUS_FILTERS.map(f => (
           <button key={f} onClick={() => setFilter(f)}
             style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '4px 12px', borderRadius: '99px', background: filter === f ? tokens.accentDim : 'transparent', color: filter === f ? tokens.accent : tokens.textMuted, border: `1px solid ${filter === f ? tokens.accentDim : tokens.border}`, cursor: 'pointer', transition: 'all 0.15s', fontFamily: fonts.body }}>
@@ -347,7 +347,7 @@ export default function TasksScreen() {
       </div>
 
       {/* Context filters */}
-      <div className="fade-up stagger-1" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+      <div className="fade-up stagger-1" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '6px' }}>
         {CONTEXT_OPTIONS.map(opt => {
           const cc = CONTEXT_COLORS[opt.value];
           const active = filterContext === opt.value;
@@ -361,7 +361,7 @@ export default function TasksScreen() {
       </div>
 
       {/* Project + Tag filters */}
-      <div className="fade-up stagger-1" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px', alignItems: 'center' }}>
+      <div className="fade-up stagger-1" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px', alignItems: 'center' }}>
         {projects.length > 0 && (
           <select value={filterProject} onChange={e => setFilterProject(e.target.value)}
             style={{ fontSize: '11px', background: filterProject ? tokens.accentDim : tokens.bgCard, border: `1px solid ${filterProject ? tokens.accentDim : tokens.border}`, borderRadius: '99px', padding: '4px 10px', color: filterProject ? tokens.accent : tokens.textMuted, outline: 'none', cursor: 'pointer', fontFamily: fonts.body }}>
@@ -616,42 +616,61 @@ export default function TasksScreen() {
             />
             Also save to Notes for future reference
           </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: tokens.textSecondary }}>
-            <input
-              type="checkbox"
-              checked={completionNote.createFollowUp}
-              onChange={e => setCompletionNote(n => ({ ...n, createFollowUp: e.target.checked }))}
-              style={{ accentColor: tokens.accent, width: 14, height: 14, cursor: 'pointer' }}
-            />
-            Create a follow-up task
-          </label>
-          {completionNote.createFollowUp && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingLeft: '22px' }}>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {[['1w','1 week'],['2w','2 weeks'],['1m','1 month']].map(([val, label]) => (
-                  <button
-                    key={val}
-                    onClick={() => setCompletionNote(n => ({ ...n, followUpOffset: val }))}
-                    style={{
-                      padding: '4px 10px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer',
-                      border: `1.5px solid ${completionNote.followUpOffset === val ? tokens.accent : tokens.border}`,
-                      background: completionNote.followUpOffset === val ? tokens.accentDim : 'transparent',
-                      color: completionNote.followUpOffset === val ? tokens.accent : tokens.textSecondary,
-                      fontFamily: fonts.body, transition: 'all 0.12s',
-                    }}
-                  >{label}</button>
-                ))}
+
+          {/* Follow-up task toggle — prominent card */}
+          <div
+            onClick={() => setCompletionNote(n => ({ ...n, createFollowUp: !n.createFollowUp }))}
+            style={{
+              padding: '10px 14px', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.15s',
+              border: `1.5px solid ${completionNote.createFollowUp ? tokens.accent : tokens.border}`,
+              background: completionNote.createFollowUp ? tokens.accentDim : tokens.bgInput,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{
+                width: 18, height: 18, borderRadius: '5px', flexShrink: 0,
+                border: `1.5px solid ${completionNote.createFollowUp ? tokens.accent : tokens.border}`,
+                background: completionNote.createFollowUp ? tokens.accent : 'transparent',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '11px', color: tokens.bgCard, fontWeight: 800,
+              }}>{completionNote.createFollowUp ? '✓' : ''}</div>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: completionNote.createFollowUp ? tokens.accent : tokens.textPrimary }}>
+                  Schedule a follow-up task
+                </div>
+                <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '1px' }}>
+                  Creates a new task linked to this one on a delay
+                </div>
               </div>
-              <input
-                value={completionNote.followUpTitle}
-                onChange={e => setCompletionNote(n => ({ ...n, followUpTitle: e.target.value }))}
-                placeholder={`Follow-up: ${completionNote.task?.title || ''}`}
-                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '8px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }}
-                onFocus={e => e.target.style.borderColor = tokens.borderFocus}
-                onBlur={e => e.target.style.borderColor = tokens.border}
-              />
             </div>
-          )}
+            {completionNote.createFollowUp && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }} onClick={e => e.stopPropagation()}>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {[['1w','1 week'],['2w','2 weeks'],['1m','1 month']].map(([val, label]) => (
+                    <button
+                      key={val}
+                      onClick={() => setCompletionNote(n => ({ ...n, followUpOffset: val }))}
+                      style={{
+                        padding: '4px 10px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer',
+                        border: `1.5px solid ${completionNote.followUpOffset === val ? tokens.accent : tokens.border}`,
+                        background: completionNote.followUpOffset === val ? tokens.accentDim : 'transparent',
+                        color: completionNote.followUpOffset === val ? tokens.accent : tokens.textSecondary,
+                        fontFamily: fonts.body, transition: 'all 0.12s',
+                      }}
+                    >{label}</button>
+                  ))}
+                </div>
+                <input
+                  value={completionNote.followUpTitle}
+                  onChange={e => setCompletionNote(n => ({ ...n, followUpTitle: e.target.value }))}
+                  placeholder={`Follow-up: ${completionNote.task?.title || ''}`}
+                  style={{ width: '100%', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '8px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }}
+                  onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+                  onBlur={e => e.target.style.borderColor = tokens.border}
+                />
+              </div>
+            )}
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
             <Button variant="ghost" onClick={() => setCompletionNote({ open: false, task: null, text: '', saveToNotes: false, createFollowUp: false, followUpOffset: '1w', followUpTitle: '' })}>Skip</Button>
             <Button onClick={handleSaveCompletionNote}>{completionNote.createFollowUp ? 'Save & Schedule Follow-up' : 'Save Note'}</Button>

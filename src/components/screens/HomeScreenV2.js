@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
 import { getTodaysPulse, getWeeklyFocusStatement } from '../../lib/ai';
 import { buildHolisticContext } from '../../lib/aiContext';
-import { updateTask, getPulseCache, savePulseCache, saveHealthLog } from '../../lib/db';
+import { updateTask, addTask, addNote, getPulseCache, savePulseCache, saveHealthLog } from '../../lib/db';
 import { getValidAccessToken, getEvents } from '../../lib/calendar';
 import { calculateUrgency, isTaskBlocked } from '../../lib/tasks';
 import { fetchMonthlyCashFlow } from '../../lib/teller';
@@ -65,7 +65,7 @@ export default function HomeScreenV2() {
   const [planOpen,      setPlanOpen]      = useState(false);
   const [editingTask,   setEditingTask]   = useState(null);
   const [editSaving,    setEditSaving]    = useState(false);
-  const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '' });
+  const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '', saveToNotes: false, createFollowUp: false, followUpOffset: '1w', followUpTitle: '' });
   const [actionCenterOpen, setActionCenterOpen] = useState(true);
   const [weekExpanded,  setWeekExpanded]  = useState(false);
 
@@ -387,16 +387,47 @@ export default function HomeScreenV2() {
   const handleToggleTask = async (task) => {
     if (!task.done) {
       await updateTask(user.uid, task.id, { done: true, status: 'completed', completedAt: new Date().toISOString() });
-      setCompletionNote({ open: true, task, text: '' });
+      setCompletionNote({ open: true, task, text: '', saveToNotes: false, createFollowUp: false, followUpOffset: '1w', followUpTitle: '' });
     } else {
       await updateTask(user.uid, task.id, { done: false, status: 'pending', completedAt: null, completionNote: null });
     }
   };
 
   const handleSaveCompletionNote = async () => {
-    if (!completionNote.task) return;
-    if (completionNote.text.trim()) await updateTask(user.uid, completionNote.task.id, { completionNote: completionNote.text.trim() });
-    setCompletionNote({ open: false, task: null, text: '' });
+    const task = completionNote.task;
+    if (!task) return;
+    const noteText = completionNote.text.trim();
+    if (noteText) {
+      const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const appended = task.notes
+        ? `${task.notes}\n\n✓ Completed ${dateStr}: ${noteText}`
+        : `✓ Completed ${dateStr}: ${noteText}`;
+      await updateTask(user.uid, task.id, { completionNote: noteText, notes: appended });
+      if (completionNote.saveToNotes) {
+        await addNote(user.uid, {
+          title: task.title,
+          body:  `Completed ${dateStr}\n\n${noteText}`,
+          tags:  ['task-completion'],
+          pinned: false,
+        });
+      }
+    }
+    if (completionNote.createFollowUp) {
+      const offsetDays = completionNote.followUpOffset === '2w' ? 14 : completionNote.followUpOffset === '1m' ? 30 : 7;
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() + offsetDays);
+      await addTask(user.uid, {
+        title:              (completionNote.followUpTitle.trim() || task.title),
+        priority:           task.priority || 'medium',
+        project:            task.project  || 'Inbox',
+        projectId:          task.projectId || null,
+        context:            task.context  || null,
+        followUpFromTaskId: task.id,
+        startDate:          startDate.toISOString().split('T')[0],
+        source:             'follow-up',
+      });
+    }
+    setCompletionNote({ open: false, task: null, text: '', saveToNotes: false, createFollowUp: false, followUpOffset: '1w', followUpTitle: '' });
   };
 
   const handleEditSave = async (formData) => {
@@ -726,17 +757,82 @@ export default function HomeScreenV2() {
       <PlanScheduleFlow open={planOpen} onClose={() => setPlanOpen(false)} calendarIntegration={calendarIntegration} weatherForecast={weatherForecast} />
 
       {/* ── Completion Note Modal ─────────────────────────────────────────── */}
-      <Modal open={completionNote.open} onClose={handleSaveCompletionNote} title="Task Done ✓">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div style={{ fontSize: '13px', fontWeight: 600, color: tokens.textPrimary }}>{completionNote.task?.title}</div>
-          <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.5 }}>What did you find, learn, or decide? <span style={{ color: tokens.textMuted }}>(optional)</span></div>
-          <textarea value={completionNote.text} onChange={e => setCompletionNote(n => ({ ...n, text: e.target.value }))} placeholder="e.g. CPA confirmed filing..." autoFocus rows={3}
+      <Modal open={completionNote.open} onClose={() => setCompletionNote({ open: false, task: null, text: '', saveToNotes: false, createFollowUp: false, followUpOffset: '1w', followUpTitle: '' })} title="Task Done ✓">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6 }}>
+            Optional: capture what you found, decided, or learned while doing this.
+          </div>
+          <textarea
+            value={completionNote.text}
+            onChange={e => setCompletionNote(n => ({ ...n, text: e.target.value }))}
+            placeholder="e.g. Called vendor — price is $420, need approval from Mike..."
+            autoFocus rows={4}
+            onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') handleSaveCompletionNote(); }}
             style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '10px 12px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, resize: 'vertical', boxSizing: 'border-box' }}
-            onFocus={e => e.target.style.borderColor = tokens.borderFocus} onBlur={e => e.target.style.borderColor = tokens.border}
-            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSaveCompletionNote(); }} />
+            onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+            onBlur={e => e.target.style.borderColor = tokens.border}
+          />
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: tokens.textSecondary }}>
+            <input type="checkbox" checked={completionNote.saveToNotes}
+              onChange={e => setCompletionNote(n => ({ ...n, saveToNotes: e.target.checked }))}
+              style={{ accentColor: tokens.accent, width: 14, height: 14, cursor: 'pointer' }} />
+            Also save to Notes for future reference
+          </label>
+          <div
+            onClick={() => setCompletionNote(n => ({ ...n, createFollowUp: !n.createFollowUp }))}
+            style={{
+              padding: '10px 14px', borderRadius: '10px', cursor: 'pointer', transition: 'all 0.15s',
+              border: `1.5px solid ${completionNote.createFollowUp ? tokens.accent : tokens.border}`,
+              background: completionNote.createFollowUp ? tokens.accentDim : tokens.bgInput,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{
+                width: 18, height: 18, borderRadius: '5px', flexShrink: 0,
+                border: `1.5px solid ${completionNote.createFollowUp ? tokens.accent : tokens.border}`,
+                background: completionNote.createFollowUp ? tokens.accent : 'transparent',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '11px', color: tokens.bgCard, fontWeight: 800,
+              }}>{completionNote.createFollowUp ? '✓' : ''}</div>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: completionNote.createFollowUp ? tokens.accent : tokens.textPrimary }}>
+                  Schedule a follow-up task
+                </div>
+                <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '1px' }}>
+                  Creates a new task linked to this one on a delay
+                </div>
+              </div>
+            </div>
+            {completionNote.createFollowUp && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }} onClick={e => e.stopPropagation()}>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {[['1w','1 week'],['2w','2 weeks'],['1m','1 month']].map(([val, label]) => (
+                    <button key={val}
+                      onClick={() => setCompletionNote(n => ({ ...n, followUpOffset: val }))}
+                      style={{
+                        padding: '4px 10px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer',
+                        border: `1.5px solid ${completionNote.followUpOffset === val ? tokens.accent : tokens.border}`,
+                        background: completionNote.followUpOffset === val ? tokens.accentDim : 'transparent',
+                        color: completionNote.followUpOffset === val ? tokens.accent : tokens.textSecondary,
+                        fontFamily: fonts.body, transition: 'all 0.12s',
+                      }}
+                    >{label}</button>
+                  ))}
+                </div>
+                <input
+                  value={completionNote.followUpTitle}
+                  onChange={e => setCompletionNote(n => ({ ...n, followUpTitle: e.target.value }))}
+                  placeholder={`Follow-up: ${completionNote.task?.title || ''}`}
+                  style={{ width: '100%', background: tokens.bgCard, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '8px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }}
+                  onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+                  onBlur={e => e.target.style.borderColor = tokens.border}
+                />
+              </div>
+            )}
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <Button variant="ghost" onClick={() => setCompletionNote({ open: false, task: null, text: '' })}>Skip</Button>
-            <Button onClick={handleSaveCompletionNote}>Save Note</Button>
+            <Button variant="ghost" onClick={() => setCompletionNote({ open: false, task: null, text: '', saveToNotes: false, createFollowUp: false, followUpOffset: '1w', followUpTitle: '' })}>Skip</Button>
+            <Button onClick={handleSaveCompletionNote}>{completionNote.createFollowUp ? 'Save & Schedule Follow-up' : 'Save Note'}</Button>
           </div>
         </div>
       </Modal>
