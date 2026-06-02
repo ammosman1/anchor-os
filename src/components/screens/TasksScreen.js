@@ -425,8 +425,8 @@ export default function TasksScreen() {
         {filtered.length === 0 ? (
           <EmptyState icon="✓" title={filter === 'done' ? 'Nothing completed yet' : 'No tasks here'} subtitle={filter === 'all' ? 'Add a task or do a brain dump to get started.' : `No ${filter} tasks right now.`} action={filter !== 'done' && <Button onClick={openNew} size="sm">+ Add Task</Button>} />
         ) : (() => {
-          // Signal/Noise split only on the default "all" view
-          const useGrouping = filter === 'all';
+          // Signal/Noise split only on the default "all" view; bypass when searching so all matches are visible
+          const useGrouping = filter === 'all' && !search.trim();
           const signalTasks = useGrouping ? filtered.filter(t => isSignal(t)) : filtered;
           const noiseTasks  = useGrouping ? filtered.filter(t => !isSignal(t)) : [];
 
