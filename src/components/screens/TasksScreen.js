@@ -565,7 +565,7 @@ export default function TasksScreen() {
 
           return (
             <>
-              {signalTasks.map(renderTask)}
+              {signalTasks.map(task => renderTask(task))}
               {useGrouping && noiseTasks.length > 0 && (
                 <>
                   <button
