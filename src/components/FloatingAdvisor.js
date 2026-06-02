@@ -450,7 +450,7 @@ Focus your advice on this specific project unless the user steers elsewhere.`;
 
 CAPABILITIES: You can create projects and tasks directly. When asked, include these markers in your response (auto-processed, NOT shown to user):
 CREATE_PROJECT: {"title":"Project Name","category":"work|home|finance|health|creative|personal|business","nextAction":"first step","notes":"brief context"}
-CREATE_TASK: {"title":"Task name","priority":"critical|high|medium|low","project":"Project name or Inbox","goalId":"optional-goal-id","projectId":"optional-project-id"}
+CREATE_TASK: {"title":"Task name","priority":"critical|high|medium|low","project":"Project name or Inbox","goalId":"optional-goal-id","projectId":"optional-project-id","context":"work|personal|home|health|financial|null"}
 
 Always confirm in plain language what you created. Multiple CREATE_TASK markers are allowed.`.trim();
   };
@@ -476,6 +476,7 @@ Always confirm in plain language what you created. Multiple CREATE_TASK markers 
             projectId: action.projectId || linkedProject?.id || null,
             goalId:    action.goalId    || (pageContext?.type === 'goal'    ? pageContext.id : null),
             source:    'advisor',
+            context:   action.context  || null,
           });
           results.push(`✓ Task created: "${action.title}"`);
         }
@@ -547,9 +548,10 @@ Return ONLY valid JSON, no markdown:
   "emotionalThemes": ["theme1"],
   "urgentFlags": ["item1"],
   "newProjects": [{"title":"name","category":"work|home|finance|health|creative|personal|business","nextAction":"first action","notes":"brief context"}],
-  "tasksToCreate": [{"title":"task","priority":"critical|high|medium|low","projectName":"project name or null","estimatedMinutes":30}]
+  "tasksToCreate": [{"title":"task","priority":"critical|high|medium|low","projectName":"project name or null","estimatedMinutes":30,"context":"work|personal|home|health|financial|null"}]
 }
 Only include newProjects if explicitly mentioned. estimatedMinutes: realistic (15=quick, 30=short, 60=focused, 90-120=deep).
+context detection: company names or 'work'/'client'/'boss'/'office' → 'work'; 'house'/'home'/'fix'/'repair'/'yard' → 'home'; 'doctor'/'dentist'/'workout'/'health'/'gym' → 'health'; 'bank'/'bills'/'budget'/'taxes'/'finance' → 'financial'; explicit 'personal' → 'personal'; null if unclear.
 BRAIN DUMP:\n${dumpText}` }],
       maxTokens: 1000,
       systemExtra: 'Return ONLY valid JSON. No markdown fences.',
@@ -596,7 +598,7 @@ BRAIN DUMP:\n${dumpText}` }],
     for (const task of pendingTasks) {
       if (!task.title?.trim()) continue;
       const matched = task.projectName ? allProj.find(p => p.title.toLowerCase().includes(task.projectName.toLowerCase())) : null;
-      const ref = await addTask(user.uid, { title: task.title.trim(), priority: task.priority || 'medium', project: matched?.title || 'Inbox', projectId: matched?.id || null, source: 'brain-dump', energy: 'medium' });
+      const ref = await addTask(user.uid, { title: task.title.trim(), priority: task.priority || 'medium', project: matched?.title || 'Inbox', projectId: matched?.id || null, source: 'brain-dump', energy: 'medium', context: task.context || null });
       titles.push(task.title.trim());
       refs.push({ title: task.title.trim(), id: ref?.id || null, priority: task.priority || 'medium', estimatedMinutes: task.estimatedMinutes || 30 });
     }

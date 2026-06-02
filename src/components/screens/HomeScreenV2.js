@@ -234,11 +234,6 @@ export default function HomeScreenV2() {
     });
   }, [goals, tasks]);
 
-  const reviewReminderDue = useMemo(() => {
-    if (!weeklyReviews?.length) return true;
-    const lastMs = weeklyReviews[0].savedAt?.toMillis?.() || (weeklyReviews[0].savedAt ? new Date(weeklyReviews[0].savedAt).getTime() : 0);
-    return (Date.now() - lastMs) > 7*24*60*60*1000;
-  }, [weeklyReviews]);
 
   const eodDoneToday     = useMemo(() => (dailyReviews || []).some(r => r.type === 'eod'     && r.date === new Date().toDateString()), [dailyReviews]);
   const morningDoneToday = useMemo(() => (dailyReviews || []).some(r => r.type === 'morning' && r.date === new Date().toDateString()), [dailyReviews]);
@@ -288,7 +283,6 @@ export default function HomeScreenV2() {
       items.push({ id: `sprint-${g.id}`, icon: '🏃', urgency: 'medium', label: `"${g.title}" sprint is nearly done — ready for next batch?`, detail: 'Run Rolling Plan to generate next set of tasks', actionLabel: 'Next Sprint →', actionFn: () => navigate(`/goals/${g.id}`) });
     });
     if (agedTasks.length > 0) items.push({ id: 'aged-tasks', icon: '⏳', urgency: 'low', label: `${agedTasks.length} task${agedTasks.length>1?'s':''} untouched for 30+ days`, detail: agedTasks.slice(0,3).map(t=>t.title).join(' · ') + (agedTasks.length>3 ? ` +${agedTasks.length-3} more` : ''), actionLabel: 'Triage →', actionFn: () => navigate('/tasks') });
-    if (reviewReminderDue) items.push({ id: 'weekly-review', icon: '📋', urgency: 'medium', label: 'Weekly review overdue', detail: weeklyReviews?.length === 0 ? 'No reviews yet' : 'Last review was over a week ago', actionLabel: 'Review →', actionFn: () => navigate('/review') });
     if (!isAfter5pm && !morningDoneToday) items.push({ id: 'morning-review', icon: '☀', urgency: 'medium', label: 'Morning review not done', detail: 'Set your priorities and must-win for today', actionLabel: 'Start →', actionFn: () => navigate('/review') });
     if (isAfter5pm && !eodDoneToday) items.push({ id: 'eod', icon: '🌙', urgency: 'low', label: 'End-of-Day check-in', detail: "Reflect on today, set tomorrow's intentions", actionLabel: 'Check in →', actionFn: () => navigate('/review?tab=eod') });
     const isSunday = new Date().getDay() === 0;
@@ -297,7 +291,7 @@ export default function HomeScreenV2() {
       if (lastWeeklyReset?.weekKey !== sundayKey) items.unshift({ id: 'weekly-reset', icon: '🔄', urgency: 'high', label: 'Sunday Weekly Reset', detail: 'Review goals, triage tasks, check finances, and set your weekly intention', actionLabel: 'Start Reset →', actionFn: () => navigate('/weekly-reset') });
     }
     return items;
-  }, [carryForwardTasks, atRiskThisWeek, deadlineRiskTasks, driftingGoals, sprintReadyGoals, agedTasks, reviewReminderDue, morningDoneToday, eodDoneToday, isAfter5pm, weeklyReviews, lastWeeklyReset, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [carryForwardTasks, atRiskThisWeek, deadlineRiskTasks, driftingGoals, sprintReadyGoals, agedTasks, morningDoneToday, eodDoneToday, isAfter5pm, lastWeeklyReset, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Holistic context ──────────────────────────────────────────────────────
   const getHolisticContext = () => buildHolisticContext({

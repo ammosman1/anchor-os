@@ -80,6 +80,13 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
     .sort((a, b) => calculateUrgency(b) - calculateUrgency(a)),
   [tasks, yesterdayStr]);
 
+  const alreadyScheduledCount = useMemo(() => tasks.filter(t => {
+    if (t.done) return false;
+    if (isDeferred(t)) return false;
+    if (isTaskDeferred(t)) return false;
+    return t.scheduledDate && t.scheduledDate > yesterdayStr;
+  }).length, [tasks, yesterdayStr]);
+
   const reset = useCallback(() => {
     setStep('scope');
     setScope('today');
@@ -444,6 +451,11 @@ export default function PlanScheduleFlow({ open, onClose, calendarIntegration, w
             <div>
               <p style={{ color: tokens.textSecondary, fontSize: '13px', marginBottom: '14px' }}>
                 {candidateTasks.length} unscheduled task{candidateTasks.length !== 1 ? 's' : ''} found. Deselect any to exclude.
+                {alreadyScheduledCount > 0 && (
+                  <span style={{ color: tokens.textMuted, marginLeft: '6px' }}>
+                    ({alreadyScheduledCount} already-scheduled task{alreadyScheduledCount !== 1 ? 's' : ''} hidden)
+                  </span>
+                )}
               </p>
               {candidateTasks.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '32px 0', color: tokens.textMuted }}>

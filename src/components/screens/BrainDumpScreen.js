@@ -349,10 +349,11 @@ Return ONLY valid JSON, no markdown:
   "emotionalThemes": ["theme1"],
   "urgentFlags": ["item1"],
   "newProjects": [{"title":"name","category":"work|home|finance|health|creative|personal|business","nextAction":"first action","notes":"brief context"}],
-  "tasksToCreate": [{"title":"task","priority":"critical|high|medium|low","projectName":"project name or null","estimatedMinutes":30}]
+  "tasksToCreate": [{"title":"task","priority":"critical|high|medium|low","projectName":"project name or null","estimatedMinutes":30,"context":"work|personal|home|health|financial|null"}]
 }
 Only include newProjects if user explicitly mentioned creating one. Only tasksToCreate for clear actionable items.
 estimatedMinutes: realistic time (15=quick call/email, 30=short task, 60=focused work, 90-120=deep/complex work).
+context detection: company names or words like 'work'/'client'/'boss'/'office' → 'work'; 'house'/'home'/'fix'/'repair'/'yard' → 'home'; 'doctor'/'dentist'/'workout'/'health'/'gym' → 'health'; 'bank'/'bills'/'budget'/'taxes'/'finance' → 'financial'; explicit 'personal' → 'personal'; null if unclear.
 BRAIN DUMP:\n${text}` }],
       maxTokens: 1000,
       systemExtra: 'Return ONLY valid JSON. No markdown fences.',
@@ -419,6 +420,7 @@ BRAIN DUMP:\n${text}` }],
         projectId: matched?.id || null,
         source:    'brain-dump',
         energy:    'medium',
+        context:   task.context || null,
       });
       createdTitles.push(task.title.trim());
       taskRefs.push({ title: task.title.trim(), id: ref?.id || null, priority: task.priority || 'medium', estimatedMinutes: task.estimatedMinutes || 30 });
@@ -724,6 +726,11 @@ BRAIN DUMP:\n${text}` }],
                     style={{ flex: 1, background: 'transparent', border: 'none', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, minWidth: 0 }}
                   />
                   <span style={{ fontSize: '11px', color: tokens.textMuted, flexShrink: 0, whiteSpace: 'nowrap' }}>{task.estimatedMinutes || 30}m</span>
+                  {task.context && (
+                    <span style={{ fontSize: '10px', padding: '1px 6px', borderRadius: '4px', background: tokens.accentDim, color: tokens.accent, fontWeight: 600, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                      {task.context}
+                    </span>
+                  )}
                   <button onClick={() => removePendingTask(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: tokens.red, fontSize: '14px', opacity: 0.6, padding: '0 2px', flexShrink: 0, fontFamily: fonts.body }}>✕</button>
                 </div>
               ))}

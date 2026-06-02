@@ -118,15 +118,35 @@ const THEME_DEFS = {
     colorScheme: 'light', selectOptionBg: '#fff', selectOptionColor: '#12103A',
     rangeTrackBg: 'rgba(0,0,0,0.10)',
   },
+  superhuman: {
+    bg: '#111112', bgCard: '#1C1C1E', bgCardHover: '#242427',
+    bgGlass: 'rgba(28,28,30,0.90)', bgInput: '#242427', bgNav: '#0D0D0E',
+    border: 'rgba(255,255,255,0.07)', borderHover: 'rgba(255,255,255,0.13)', borderFocus: 'rgba(242,87,87,0.45)',
+    accent: '#F25757', accentLight: '#F46E6E', accentDim: 'rgba(242,87,87,0.12)', accentGlow: 'rgba(242,87,87,0.08)', accentText: '#FFFFFF',
+    green: '#4CD964', greenDim: 'rgba(76,217,100,0.12)',
+    blue: '#5AC8FA', blueDim: 'rgba(90,200,250,0.12)',
+    red: '#FF3B30', redDim: 'rgba(255,59,48,0.12)',
+    amber: '#FFD60A', amberDim: 'rgba(255,214,10,0.12)',
+    purple: '#BF5AF2', purpleDim: 'rgba(191,90,242,0.12)',
+    textPrimary: '#F2F2F7', textSecondary: 'rgba(242,242,247,0.60)',
+    textMuted: 'rgba(242,242,247,0.38)', textDisabled: 'rgba(242,242,247,0.22)',
+    track: 'rgba(255,255,255,0.07)',
+    shadowCard: '0 2px 8px rgba(0,0,0,0.50), 0 0 0 0.5px rgba(255,255,255,0.05)',
+    shadowGlow: '0 0 20px rgba(242,87,87,0.12)', shadowNav: '0 -1px 0 rgba(255,255,255,0.06)',
+    scrollbar: 'rgba(255,255,255,0.14)', scrollbarH: 'rgba(255,255,255,0.24)',
+    colorScheme: 'dark', selectOptionBg: '#1C1C1E', selectOptionColor: '#F2F2F7',
+    rangeTrackBg: 'rgba(255,255,255,0.10)',
+  },
 };
 
 export const THEME_LIST = [
-  { id: 'indigo',    name: 'Indigo',      description: 'Clean white, indigo accent' },
-  { id: 'warmCream', name: 'Warm Cream',  description: 'Warm editorial' },
-  { id: 'pureLight', name: 'Pure Light',  description: 'Clean white, navy accent' },
-  { id: 'sage',      name: 'Sage',        description: 'Fresh forest green tones' },
-  { id: 'midnight',  name: 'Midnight',    description: 'Dark mode with gold' },
-  { id: 'ocean',     name: 'Ocean',       description: 'Cool blue-teal palette' },
+  { id: 'indigo',     name: 'Indigo',      description: 'Clean white, indigo accent' },
+  { id: 'warmCream',  name: 'Warm Cream',  description: 'Warm editorial' },
+  { id: 'pureLight',  name: 'Pure Light',  description: 'Clean white, navy accent' },
+  { id: 'sage',       name: 'Sage',        description: 'Fresh forest green tones' },
+  { id: 'midnight',   name: 'Midnight',    description: 'Dark mode with gold' },
+  { id: 'ocean',      name: 'Ocean',       description: 'Cool blue-teal palette' },
+  { id: 'superhuman', name: 'Superhuman',  description: 'Near-black, coral accent' },
 ];
 
 export function setTheme(id) {

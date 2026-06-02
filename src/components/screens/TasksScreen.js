@@ -85,7 +85,7 @@ export default function TasksScreen() {
   const [schedulingTask, setSchedulingTask] = useState(null);
   const [focusTask,    setFocusTask]     = useState(null); // { task, duration, startTime }
   const [timeLeft,     setTimeLeft]      = useState(null); // seconds
-  const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '', saveToNotes: false });
+  const [completionNote, setCompletionNote] = useState({ open: false, task: null, text: '', saveToNotes: false, createFollowUp: false, followUpOffset: '1w', followUpTitle: '' });
   const [noiseExpanded,  setNoiseExpanded]  = useState(() => {
     try { return localStorage.getItem('tasks-noise-expanded') === 'true'; } catch { return false; }
   });
@@ -156,8 +156,8 @@ export default function TasksScreen() {
 
   const handleSaveCompletionNote = async () => {
     const noteText = completionNote.text.trim();
+    const task = completionNote.task;
     if (noteText) {
-      const task = completionNote.task;
       const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
       const appended = task.notes
         ? `${task.notes}\n\n✓ Completed ${dateStr}: ${noteText}`
@@ -172,7 +172,23 @@ export default function TasksScreen() {
         });
       }
     }
-    setCompletionNote({ open: false, task: null, text: '', saveToNotes: false });
+    if (completionNote.createFollowUp && task) {
+      const offsetDays = completionNote.followUpOffset === '2w' ? 14 : completionNote.followUpOffset === '1m' ? 30 : 7;
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() + offsetDays);
+      const startDateStr = startDate.toISOString().split('T')[0];
+      await addTask(user.uid, {
+        title:              (completionNote.followUpTitle.trim() || task.title),
+        priority:           task.priority || 'medium',
+        project:            task.project  || 'Inbox',
+        projectId:          task.projectId || null,
+        context:            task.context  || null,
+        followUpFromTaskId: task.id,
+        startDate:          startDateStr,
+        source:             'follow-up',
+      });
+    }
+    setCompletionNote({ open: false, task: null, text: '', saveToNotes: false, createFollowUp: false, followUpOffset: '1w', followUpTitle: '' });
   };
 
   const handleDefer = async (task) => {
@@ -210,7 +226,7 @@ export default function TasksScreen() {
         completedAt: new Date().toISOString(),
       });
       await scheduleNextRecurrence(user.uid, task);
-      setCompletionNote({ open: true, task, text: '' });
+      setCompletionNote({ open: true, task, text: '', saveToNotes: false, createFollowUp: false, followUpOffset: '1w', followUpTitle: '' });
     } else {
       await updateTask(user.uid, task.id, { done: false, status: 'pending', completedAt: null });
     }
@@ -575,7 +591,7 @@ export default function TasksScreen() {
       </div>
 
       {/* Completion Note Modal */}
-      <Modal open={completionNote.open} onClose={() => setCompletionNote({ open: false, task: null, text: '', saveToNotes: false })} title="Task Done ✓">
+      <Modal open={completionNote.open} onClose={() => setCompletionNote({ open: false, task: null, text: '', saveToNotes: false, createFollowUp: false, followUpOffset: '1w', followUpTitle: '' })} title="Task Done ✓">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ fontSize: '13px', color: tokens.textSecondary, lineHeight: 1.6 }}>
             Optional: capture what you found, decided, or learned while doing this.
@@ -600,9 +616,45 @@ export default function TasksScreen() {
             />
             Also save to Notes for future reference
           </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', color: tokens.textSecondary }}>
+            <input
+              type="checkbox"
+              checked={completionNote.createFollowUp}
+              onChange={e => setCompletionNote(n => ({ ...n, createFollowUp: e.target.checked }))}
+              style={{ accentColor: tokens.accent, width: 14, height: 14, cursor: 'pointer' }}
+            />
+            Create a follow-up task
+          </label>
+          {completionNote.createFollowUp && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', paddingLeft: '22px' }}>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {[['1w','1 week'],['2w','2 weeks'],['1m','1 month']].map(([val, label]) => (
+                  <button
+                    key={val}
+                    onClick={() => setCompletionNote(n => ({ ...n, followUpOffset: val }))}
+                    style={{
+                      padding: '4px 10px', borderRadius: '6px', fontSize: '12px', cursor: 'pointer',
+                      border: `1.5px solid ${completionNote.followUpOffset === val ? tokens.accent : tokens.border}`,
+                      background: completionNote.followUpOffset === val ? tokens.accentDim : 'transparent',
+                      color: completionNote.followUpOffset === val ? tokens.accent : tokens.textSecondary,
+                      fontFamily: fonts.body, transition: 'all 0.12s',
+                    }}
+                  >{label}</button>
+                ))}
+              </div>
+              <input
+                value={completionNote.followUpTitle}
+                onChange={e => setCompletionNote(n => ({ ...n, followUpTitle: e.target.value }))}
+                placeholder={`Follow-up: ${completionNote.task?.title || ''}`}
+                style={{ width: '100%', background: tokens.bgInput, border: `1px solid ${tokens.border}`, borderRadius: '8px', padding: '8px 10px', color: tokens.textPrimary, fontSize: '13px', outline: 'none', fontFamily: fonts.body, boxSizing: 'border-box' }}
+                onFocus={e => e.target.style.borderColor = tokens.borderFocus}
+                onBlur={e => e.target.style.borderColor = tokens.border}
+              />
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <Button variant="ghost" onClick={() => setCompletionNote({ open: false, task: null, text: '', saveToNotes: false })}>Skip</Button>
-            <Button onClick={handleSaveCompletionNote}>Save Note</Button>
+            <Button variant="ghost" onClick={() => setCompletionNote({ open: false, task: null, text: '', saveToNotes: false, createFollowUp: false, followUpOffset: '1w', followUpTitle: '' })}>Skip</Button>
+            <Button onClick={handleSaveCompletionNote}>{completionNote.createFollowUp ? 'Save & Schedule Follow-up' : 'Save Note'}</Button>
           </div>
         </div>
       </Modal>
