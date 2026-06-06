@@ -162,6 +162,8 @@ export default function CalendarScreen() {
   const [splitSpent,    setSplitSpent]    = useState('');
   const [splitRemaining,setSplitRemaining]= useState('');
   const [splitSaving,   setSplitSaving]   = useState(false);
+  // Optimistic reschedule: taskId → new calendarEventId — suppresses ghost task blocks during GCal+Firestore round-trip
+  const [optimisticCalEventIds, setOptimisticCalEventIds] = useState(() => new Map());
 
   const scrollRef               = useRef(null);
   const fetched                 = useRef(new Set());
@@ -211,6 +213,20 @@ export default function CalendarScreen() {
         const task = tasks.find(t => t.id === taskId);
         if (task?.scheduledEnd === end) { delete next[taskId]; changed = true; }
       }
+      return changed ? next : prev;
+    });
+  }, [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear optimistic reschedule suppression once Firestore confirms the new calendarEventId
+  useEffect(() => {
+    if (optimisticCalEventIds.size === 0) return;
+    setOptimisticCalEventIds(prev => {
+      if (prev.size === 0) return prev;
+      const next = new Map(prev);
+      let changed = false;
+      tasks.forEach(t => {
+        if (next.has(t.id) && t.calendarEventId === next.get(t.id)) { next.delete(t.id); changed = true; }
+      });
       return changed ? next : prev;
     });
   }, [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -281,7 +297,7 @@ export default function CalendarScreen() {
     const gcalIds = new Set(events.map(e => e.id));
     return tasks
       .filter(t => t.scheduledStart)
-      .filter(t => t.done || !t.calendarEventId || !gcalIds.has(t.calendarEventId))
+      .filter(t => (t.done || !t.calendarEventId || !gcalIds.has(t.calendarEventId)) && !optimisticCalEventIds.has(t.id))
       .filter(t => {
         const s = new Date(t.scheduledStart);
         return s >= rangeStart && s < rangeEnd;
@@ -302,7 +318,7 @@ export default function CalendarScreen() {
           end:   { dateTime: endIso },
         };
       });
-  }, [tasks, ws, calView, events, optimisticTaskEnds]);
+  }, [tasks, ws, calView, events, optimisticTaskEnds, optimisticCalEventIds]);
 
   // GCal event IDs for done tasks — used to hide the GCal block so only the green Anchor block shows
   const doneTaskCalEventIds = useMemo(() =>
@@ -941,6 +957,16 @@ export default function CalendarScreen() {
             colorId: '5',
           });
           updates.calendarEventId = created.id;
+          // Optimistically suppress the old ghost task block and show the new event immediately
+          setOptimisticCalEventIds(prev => new Map(prev).set(task.id, created.id));
+          setEvents(prev => {
+            const withoutOld = task.calendarEventId ? prev.filter(e => e.id !== task.calendarEventId) : prev;
+            return [...withoutOld, {
+              id: created.id, summary: task.title,
+              start: { dateTime: start.toISOString() }, end: { dateTime: end.toISOString() },
+              colorId: '5', _isTask: true, _anchor: true, _taskId: task.id, _done: false,
+            }];
+          });
           await updateTask(user.uid, task.id, updates);
           fetched.current.delete(weekStart(ws).toISOString());
           fetchWeek(ws);
@@ -958,10 +984,7 @@ export default function CalendarScreen() {
     if (realTask.calendarEventId && calendarIntegration?.connected) {
       try {
         const token = await getValidAccessToken(user.uid, calendarIntegration);
-        if (token) {
-          await deleteEvent(token, realTask.calendarEventId);
-          setEvents(prev => prev.filter(e => e.id !== realTask.calendarEventId));
-        }
+        if (token) await deleteEvent(token, realTask.calendarEventId);
       } catch (err) { if (isDev) console.warn('Delete old GCal event failed on reschedule:', err); }
     }
     await scheduleTaskAtSlot(realTask, day, mins);
