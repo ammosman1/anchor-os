@@ -3,15 +3,18 @@ import React, { useState, useEffect } from 'react';
 import { tokens, fonts } from '../../lib/tokens';
 import { useAuth } from '../../context/AuthContext';
 import { useData } from '../../context/DataContext';
-import { disconnectCalendar } from '../../lib/db';
+import { disconnectCalendar, getAICache, saveAICache } from '../../lib/db';
 import { initiateCalendarAuth, getValidAccessToken, getEvents, formatEventTime, formatEventDuration, deleteEvent } from '../../lib/calendar';
+import { callAI } from '../../lib/ai';
 import { Card, SectionLabel, MomentumBar, Button } from '../ui';
 
 function LifeScreen() {
   const { user }                                                                    = useAuth();
-  const { projects, tasks, totalDebt, debtAccounts, weeklyReviews, dailyReviews, calendarIntegration, habits, habitLogs } = useData();
-  const [todayEvents,   setTodayEvents]   = useState([]);
-  const [loadingEvents, setLoadingEvents] = useState(false);
+  const { projects, tasks, totalDebt, debtAccounts, weeklyReviews, dailyReviews, calendarIntegration, habits, habitLogs, healthLogs = [] } = useData();
+  const [todayEvents,      setTodayEvents]      = useState([]);
+  const [loadingEvents,    setLoadingEvents]    = useState(false);
+  const [insights,         setInsights]         = useState(null);
+  const [loadingInsights,  setLoadingInsights]  = useState(false);
 
   const handleDeleteEvent = async (eventId) => {
     try {
@@ -22,6 +25,68 @@ function LifeScreen() {
     } catch (err) {
       console.error('Delete event error:', err);
     }
+  };
+
+  const runInsights = async () => {
+    setLoadingInsights(true);
+    const todayKey = `insights-${new Date().toISOString().split('T')[0]}`;
+    const cached = await getAICache(user.uid, todayKey);
+    if (cached) {
+      try { setInsights(JSON.parse(cached)); } catch { setInsights(null); }
+      setLoadingInsights(false);
+      return;
+    }
+
+    // Task completions by date
+    const tasksByDay = {};
+    tasks.forEach(t => {
+      if (!t.done || !t.completedAt) return;
+      const raw = t.completedAt?.toDate?.() || new Date(t.completedAt);
+      const d = raw.toISOString().split('T')[0];
+      if (d) tasksByDay[d] = (tasksByDay[d] || 0) + 1;
+    });
+
+    // Habit completions by date
+    const habitsByDay = {};
+    (habitLogs || []).forEach(l => {
+      if (l.done) habitsByDay[l.date] = (habitsByDay[l.date] || 0) + 1;
+    });
+
+    // Merge into health log rows
+    const data = (healthLogs || []).slice(0, 30).map(l => ({
+      date: l.date,
+      energy: l.energy ?? null,
+      sleep: l.sleep ?? null,
+      exercise: l.exercise === true ? 'yes' : l.exercise === false ? 'no' : null,
+      tasksCompleted: tasksByDay[l.date] || 0,
+      habitsCompleted: habitsByDay[l.date] || 0,
+    })).filter(l => l.energy !== null || l.sleep !== null);
+
+    if (data.length < 5) {
+      setInsights([{ text: 'Log at least 5 days of health data to see pattern insights.', type: 'info' }]);
+      setLoadingInsights(false);
+      return;
+    }
+
+    const dataStr = data.map(d =>
+      `${d.date}: energy=${d.energy ?? '?'}/5, sleep=${d.sleep ?? '?'}h, exercise=${d.exercise ?? '?'}, tasks_done=${d.tasksCompleted}, habits_done=${d.habitsCompleted}`
+    ).join('\n');
+
+    try {
+      const result = await callAI({
+        messages: [{ role: 'user', content: `Analyze this ${data.length}-day personal data and find 3-4 concrete patterns. Prioritize correlations between health metrics and task/habit completion. Be specific with numbers. Return ONLY a JSON array:\n[{"insight":"...","type":"positive|warning|neutral"}]\n\nData:\n${dataStr}` }],
+        systemExtra: 'You are analyzing personal productivity and health data to surface non-obvious patterns. Output ONLY valid JSON array, no markdown, no explanation outside the JSON.',
+        maxTokens: 450,
+      });
+      // Strip markdown code fences if present
+      const clean = result.replace(/```json?\n?/g, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(clean);
+      setInsights(parsed);
+      saveAICache(user.uid, todayKey, JSON.stringify(parsed));
+    } catch {
+      setInsights([{ text: 'Could not analyze patterns — try again later.', type: 'info' }]);
+    }
+    setLoadingInsights(false);
   };
 
   // Load today's calendar events when integration is connected
@@ -298,6 +363,40 @@ function LifeScreen() {
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '10px', color: tokens.textMuted }}>
             <span>14 days ago</span><span>Today</span>
           </div>
+        </Card>
+      </div>
+
+      {/* Pattern Insights */}
+      <div className="fade-up stagger-4" style={{ marginBottom: '14px' }}>
+        <Card>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: insights ? '14px' : 0 }}>
+            <div>
+              <SectionLabel style={{ marginBottom: 0 }}>Pattern Insights</SectionLabel>
+              <div style={{ fontSize: '11px', color: tokens.textMuted, marginTop: '3px' }}>AI-detected correlations across health, habits &amp; tasks</div>
+            </div>
+            <Button size="sm" variant={insights ? 'ghost' : 'primary'} onClick={runInsights} disabled={loadingInsights}>
+              {loadingInsights ? 'Analyzing…' : insights ? 'Refresh' : 'Run Analysis'}
+            </Button>
+          </div>
+          {insights && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {insights.map((item, i) => {
+                const color = item.type === 'positive' ? tokens.green : item.type === 'warning' ? tokens.amber : tokens.textSecondary;
+                const icon  = item.type === 'positive' ? '↑' : item.type === 'warning' ? '⚑' : '→';
+                return (
+                  <div key={i} style={{ display: 'flex', gap: '10px', padding: '10px 12px', background: tokens.bgInput, borderRadius: '8px', border: `1px solid ${tokens.border}` }}>
+                    <span style={{ color, flexShrink: 0, fontWeight: 700, fontSize: '13px', marginTop: '1px' }}>{icon}</span>
+                    <span style={{ fontSize: '13px', color: tokens.textPrimary, lineHeight: 1.5 }}>{item.insight || item.text}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {!insights && !loadingInsights && (
+            <div style={{ fontSize: '12px', color: tokens.textMuted, marginTop: '8px' }}>
+              Analyzes 30 days of energy, sleep, exercise, task completion, and habits to find non-obvious patterns.
+            </div>
+          )}
         </Card>
       </div>
 

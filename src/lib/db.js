@@ -241,6 +241,42 @@ export const subscribeAdvisorChats = (uid, cb) => {
   );
 };
 
+// ─── Advisor Memory ────────────────────────────────────────────────────────────
+// Stores per-session summaries + a consolidated core memory document
+
+export const saveAdvisorMemory = (uid, sessionId, summary) =>
+  setDoc(doc(db, 'users', uid, 'advisorMemory', sessionId), {
+    summary,
+    date: new Date().toISOString().split('T')[0],
+    savedAt: serverTimestamp(),
+  });
+
+export const saveAdvisorCoreMemory = (uid, text) =>
+  setDoc(doc(db, 'users', uid, 'advisorMemory', '_core'), {
+    text,
+    updatedAt: serverTimestamp(),
+  });
+
+export const getAdvisorMemory = async (uid) => {
+  try {
+    const [coreSnap, recentSnap] = await Promise.all([
+      getDoc(doc(db, 'users', uid, 'advisorMemory', '_core')),
+      getDocs(query(
+        collection(db, 'users', uid, 'advisorMemory'),
+        orderBy('savedAt', 'desc'),
+        limit(15)
+      )),
+    ]);
+    const core = coreSnap.exists() ? coreSnap.data().text : null;
+    const sessions = recentSnap.docs
+      .filter(d => d.id !== '_core')
+      .map(d => ({ id: d.id, ...d.data() }));
+    return { core, sessions };
+  } catch {
+    return { core: null, sessions: [] };
+  }
+};
+
 // ─── Plaid Items ──────────────────────────────────────────────────────────────
 export const savePlaidItem = (uid, itemId, data) =>
   setDoc(doc(db, 'users', uid, 'plaidItems', itemId), {

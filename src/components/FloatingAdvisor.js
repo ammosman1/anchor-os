@@ -12,6 +12,7 @@ import { callAI, buildSchedule } from '../lib/ai';
 import { buildHolisticContext } from '../lib/aiContext';
 import {
   saveAdvisorChat, getAdvisorChat,
+  saveAdvisorMemory, getAdvisorMemory,
   addTask, addProject, saveBrainDump, updateTask, updateBrainDump,
 } from '../lib/db';
 import {
@@ -237,8 +238,11 @@ export default function FloatingAdvisor({ open, onClose }) {
   const [chatInput,       setChatInput]       = useState('');
   const [chatLoading,     setChatLoading]     = useState(false);
   const [loadingSession,  setLoadingSession]  = useState(true);
-  const bottomRef  = useRef(null);
-  const chatInputRef = useRef(null);
+  const [advisorMemory,   setAdvisorMemory]   = useState({ core: null, sessions: [] });
+  const bottomRef       = useRef(null);
+  const chatInputRef    = useRef(null);
+  const prevOpenRef     = useRef(false);
+  const summarizedRef   = useRef(false);
 
   // ── dump state ────────────────────────────────────────────────────────────
   const [dumpTab,           setDumpTab]           = useState('new');   // 'new' | 'history'
@@ -287,6 +291,28 @@ export default function FloatingAdvisor({ open, onClose }) {
       setLoadingSession(false);
     });
   }, [user]);
+
+  // ── load advisor memory ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user) return;
+    getAdvisorMemory(user.uid).then(setAdvisorMemory);
+  }, [user]);
+
+  // ── summarize session when advisor closes ─────────────────────────────────
+  useEffect(() => {
+    if (!open && prevOpenRef.current && messages.length >= 2 && user && !summarizedRef.current) {
+      summarizedRef.current = true;
+      const sessionStr = messages.map(m => `${m.role === 'ai' ? 'Anchor' : 'Andrew'}: ${m.content}`).join('\n\n');
+      callAI({
+        messages: [{ role: 'user', content: `Summarize this advisor session in 100-150 words. Extract: key decisions made, topics discussed, any tasks/projects created, and any preferences or patterns the user revealed. Plain paragraph only:\n\n${sessionStr}` }],
+        systemExtra: 'You are extracting session memory for future context. Output a compact plain-text paragraph only. No bullet points, no headers, no preamble.',
+        maxTokens: 220,
+      }).then(summary => {
+        if (summary?.trim() && user) saveAdvisorMemory(user.uid, SESSION_KEY, summary.trim());
+      }).catch(() => {});
+    }
+    prevOpenRef.current = open;
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── scroll to bottom on new messages ──────────────────────────────────────
   useEffect(() => {
@@ -446,7 +472,21 @@ Focus your advice on this specific project unless the user steers elsewhere.`;
       }
     }
 
-    return `${base}${pageStr}
+    const memoryStr = (() => {
+      const parts = [];
+      if (advisorMemory.core) parts.push(`Long-term context:\n${advisorMemory.core}`);
+      const recentSessions = advisorMemory.sessions
+        .filter(s => s.id !== SESSION_KEY)
+        .slice(0, 7)
+        .map(s => `[${s.date}] ${s.summary}`)
+        .join('\n');
+      if (recentSessions) parts.push(`Recent session notes:\n${recentSessions}`);
+      return parts.length > 0
+        ? `\n\n=== ADVISOR MEMORY ===\nContext from past conversations — use for continuity:\n${parts.join('\n\n')}`
+        : '';
+    })();
+
+    return `${base}${memoryStr}${pageStr}
 
 CAPABILITIES: You can create projects and tasks directly. When asked, include these markers in your response (auto-processed, NOT shown to user):
 CREATE_PROJECT: {"title":"Project Name","category":"work|home|finance|health|creative|personal|business","nextAction":"first step","notes":"brief context"}
