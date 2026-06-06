@@ -265,8 +265,17 @@ export default function CalendarScreen() {
 
   // ── Task-derived calendar blocks (tasks with a scheduled time slot) ────────
   const taskCalEvents = useMemo(() => {
-    const wsBase = weekStart(ws);
-    const wsEnd  = new Date(wsBase); wsEnd.setDate(wsEnd.getDate() + 7);
+    // Compute the visible date range based on current view so tasks on week-boundary
+    // days (e.g. Sunday in 3-day view starting on Saturday) are not clipped.
+    let rangeStart, rangeEnd;
+    if (calView === 'week') {
+      rangeStart = weekStart(ws);
+      rangeEnd   = new Date(rangeStart); rangeEnd.setDate(rangeEnd.getDate() + 7);
+    } else {
+      rangeStart = new Date(ws); rangeStart.setHours(0, 0, 0, 0);
+      const rangeDays = calView === '3day' ? 3 : 1;
+      rangeEnd = new Date(rangeStart); rangeEnd.setDate(rangeEnd.getDate() + rangeDays);
+    }
     // Active tasks: show Anchor block only if no fetched GCal event (dedup).
     // Done tasks: always show the green Anchor block (GCal event hidden separately).
     const gcalIds = new Set(events.map(e => e.id));
@@ -275,7 +284,7 @@ export default function CalendarScreen() {
       .filter(t => t.done || !t.calendarEventId || !gcalIds.has(t.calendarEventId))
       .filter(t => {
         const s = new Date(t.scheduledStart);
-        return s >= wsBase && s < wsEnd;
+        return s >= rangeStart && s < rangeEnd;
       })
       .map(t => {
         const startMs = new Date(t.scheduledStart).getTime();
@@ -293,7 +302,7 @@ export default function CalendarScreen() {
           end:   { dateTime: endIso },
         };
       });
-  }, [tasks, ws, events, optimisticTaskEnds]);
+  }, [tasks, ws, calView, events, optimisticTaskEnds]);
 
   // GCal event IDs for done tasks — used to hide the GCal block so only the green Anchor block shows
   const doneTaskCalEventIds = useMemo(() =>
@@ -598,7 +607,20 @@ export default function CalendarScreen() {
     }
   }, [user, calendarIntegration, syncTasksWithEvents]);
 
-  useEffect(() => { fetchWeek(weekStart(ws)); }, [ws, fetchWeek]);
+  useEffect(() => {
+    fetchWeek(weekStart(ws));
+    // In day/3-day view ws is today; if the visible window crosses into a new
+    // week (e.g. 3-day starting Saturday spans into Sunday = next week), also
+    // fetch that week so GCal events and task blocks on those days load correctly.
+    if (calView !== 'week') {
+      const lastVisible = new Date(ws);
+      lastVisible.setDate(lastVisible.getDate() + (calView === '3day' ? 2 : 0));
+      const nextWs = weekStart(lastVisible);
+      if (nextWs.toDateString() !== weekStart(ws).toDateString()) {
+        fetchWeek(nextWs);
+      }
+    }
+  }, [ws, calView, fetchWeek]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Task edit/create (unified) ────────────────────────────────────────────
   const openEdit     = (task) => setEditingTask(task);
