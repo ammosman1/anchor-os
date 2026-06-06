@@ -935,38 +935,30 @@ export default function CalendarScreen() {
       ? new Date(task.scheduledEnd).getTime() - new Date(task.scheduledStart).getTime()
       : (task.estimatedMinutes || 45) * 60000;
     const end = new Date(start.getTime() + duration);
-    const tz    = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     const updates = {
-      status:         'scheduled',
-      scheduledDate:  ymd(start),
-      scheduledStart: start.toISOString(),
-      scheduledEnd:   end.toISOString(),
+      status: 'scheduled', scheduledDate: ymd(start),
+      scheduledStart: start.toISOString(), scheduledEnd: end.toISOString(),
     };
 
-    // Auto-create Google Calendar event if connected
     if (calendarIntegration?.connected) {
       try {
         const token = await getValidAccessToken(user.uid, calendarIntegration);
         if (token) {
           const created = await createEvent(token, {
-            summary:     task.title,
-            description: task.notes || '',
+            summary: task.title, description: task.notes || '',
             start: { dateTime: start.toISOString(), timeZone: tz },
             end:   { dateTime: end.toISOString(),   timeZone: tz },
             colorId: '5',
           });
           updates.calendarEventId = created.id;
-          // Optimistically suppress the old ghost task block and show the new event immediately
           setOptimisticCalEventIds(prev => new Map(prev).set(task.id, created.id));
-          setEvents(prev => {
-            const withoutOld = task.calendarEventId ? prev.filter(e => e.id !== task.calendarEventId) : prev;
-            return [...withoutOld, {
-              id: created.id, summary: task.title,
-              start: { dateTime: start.toISOString() }, end: { dateTime: end.toISOString() },
-              colorId: '5', _isTask: true, _anchor: true, _taskId: task.id, _done: false,
-            }];
-          });
+          setEvents(prev => [...prev, {
+            id: created.id, summary: task.title,
+            start: { dateTime: start.toISOString() }, end: { dateTime: end.toISOString() },
+            colorId: '5', _isTask: true, _anchor: true, _taskId: task.id, _done: false,
+          }]);
           await updateTask(user.uid, task.id, updates);
           fetched.current.delete(weekStart(ws).toISOString());
           fetchWeek(ws);
@@ -981,12 +973,56 @@ export default function CalendarScreen() {
   const rescheduleCalendarTask = async (calEv, day, mins) => {
     const realTask = tasks.find(t => t.id === calEv._taskId);
     if (!realTask) return;
+
+    const start = new Date(day);
+    start.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
+    const duration = (realTask.scheduledStart && realTask.scheduledEnd)
+      ? new Date(realTask.scheduledEnd).getTime() - new Date(realTask.scheduledStart).getTime()
+      : (realTask.estimatedMinutes || 45) * 60000;
+    const end = new Date(start.getTime() + duration);
+    const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    const updates = {
+      status: 'scheduled', scheduledDate: ymd(start),
+      scheduledStart: start.toISOString(), scheduledEnd: end.toISOString(),
+    };
+
     if (realTask.calendarEventId && calendarIntegration?.connected) {
       try {
         const token = await getValidAccessToken(user.uid, calendarIntegration);
-        if (token) await deleteEvent(token, realTask.calendarEventId);
-      } catch (err) { if (isDev) console.warn('Delete old GCal event failed on reschedule:', err); }
+        if (token) {
+          // PATCH the existing event in place — same event ID, no race condition
+          await updateEvent(token, realTask.calendarEventId, {
+            start: { dateTime: start.toISOString(), timeZone: tz },
+            end:   { dateTime: end.toISOString(),   timeZone: tz },
+          });
+          // Immediately move the block in local state
+          const existsInState = events.some(e => e.id === realTask.calendarEventId);
+          setEvents(prev => {
+            if (existsInState) {
+              return prev.map(e => e.id === realTask.calendarEventId
+                ? { ...e, start: { dateTime: start.toISOString() }, end: { dateTime: end.toISOString() } }
+                : e);
+            }
+            // Event wasn't fetched yet — add it and suppress the old task block
+            return [...prev, {
+              id: realTask.calendarEventId, summary: realTask.title,
+              start: { dateTime: start.toISOString() }, end: { dateTime: end.toISOString() },
+              colorId: '5', _isTask: true, _anchor: true, _taskId: realTask.id, _done: false,
+            }];
+          });
+          if (!existsInState) {
+            setOptimisticCalEventIds(prev => new Map(prev).set(realTask.id, realTask.calendarEventId));
+          }
+          await updateTask(user.uid, realTask.id, updates);
+          return;
+        }
+      } catch (err) {
+        if (isDev) console.warn('GCal event update failed, falling back to create:', err);
+        // Event may have been deleted from GCal — fall through to create a fresh one
+      }
     }
+
     await scheduleTaskAtSlot(realTask, day, mins);
   };
 
