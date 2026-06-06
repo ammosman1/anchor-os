@@ -976,9 +976,12 @@ export default function CalendarScreen() {
 
     const start = new Date(day);
     start.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
-    const duration = (realTask.scheduledStart && realTask.scheduledEnd)
-      ? new Date(realTask.scheduledEnd).getTime() - new Date(realTask.scheduledStart).getTime()
-      : (realTask.estimatedMinutes || 45) * 60000;
+    // Use the visual duration from the dragged block (calEv has the correct displayed end time)
+    const duration = (calEv.start?.dateTime && calEv.end?.dateTime)
+      ? new Date(calEv.end.dateTime).getTime() - new Date(calEv.start.dateTime).getTime()
+      : (realTask.scheduledEnd && realTask.scheduledStart)
+        ? new Date(realTask.scheduledEnd).getTime() - new Date(realTask.scheduledStart).getTime()
+        : (realTask.estimatedMinutes || 45) * 60000;
     const end = new Date(start.getTime() + duration);
     const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -1004,7 +1007,6 @@ export default function CalendarScreen() {
                 ? { ...e, start: { dateTime: start.toISOString() }, end: { dateTime: end.toISOString() } }
                 : e);
             }
-            // Event wasn't fetched yet — add it and suppress the old task block
             return [...prev, {
               id: realTask.calendarEventId, summary: realTask.title,
               start: { dateTime: start.toISOString() }, end: { dateTime: end.toISOString() },
@@ -1019,11 +1021,36 @@ export default function CalendarScreen() {
         }
       } catch (err) {
         if (isDev) console.warn('GCal event update failed, falling back to create:', err);
-        // Event may have been deleted from GCal — fall through to create a fresh one
       }
     }
 
-    await scheduleTaskAtSlot(realTask, day, mins);
+    // No calendarEventId or PATCH failed — create a fresh GCal event with the correct duration
+    if (calendarIntegration?.connected) {
+      try {
+        const token = await getValidAccessToken(user.uid, calendarIntegration);
+        if (token) {
+          const created = await createEvent(token, {
+            summary: realTask.title, description: realTask.notes || '',
+            start: { dateTime: start.toISOString(), timeZone: tz },
+            end:   { dateTime: end.toISOString(),   timeZone: tz },
+            colorId: '5',
+          });
+          updates.calendarEventId = created.id;
+          setOptimisticCalEventIds(prev => new Map(prev).set(realTask.id, created.id));
+          setEvents(prev => [...prev, {
+            id: created.id, summary: realTask.title,
+            start: { dateTime: start.toISOString() }, end: { dateTime: end.toISOString() },
+            colorId: '5', _isTask: true, _anchor: true, _taskId: realTask.id, _done: false,
+          }]);
+          await updateTask(user.uid, realTask.id, updates);
+          fetched.current.delete(weekStart(ws).toISOString());
+          fetchWeek(ws);
+          return;
+        }
+      } catch (err) { if (isDev) console.warn('GCal event create failed on reschedule:', err); }
+    }
+
+    await updateTask(user.uid, realTask.id, updates);
   };
 
   const handleSplitTask = async () => {
