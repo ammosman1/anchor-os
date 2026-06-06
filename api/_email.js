@@ -85,10 +85,10 @@ export function buildMorningEmail({ date, briefing, scheduledToday, highPriority
   </div>`;
 
   const schedRows   = (scheduledToday || []).map(t =>
-    `${t.title}${t.scheduledStart ? ` <span style="color:#8b8b8b;font-size:11px;">· ${new Date(t.scheduledStart).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>` : ''}`
+    `${appUrl && t.id ? `<a href="${appUrl}/tasks?complete=${t.id}" style="float:right;font-size:11px;color:#5a8f5a;text-decoration:none;font-weight:600;margin-top:1px;">✓ Done</a>` : ''}${t.title}${t.scheduledStart ? ` <span style="color:#8b8b8b;font-size:11px;">· ${new Date(t.scheduledStart).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>` : ''}`
   );
   const prioRows    = (highPriority || []).map(t =>
-    `${t.title} <span style="float:right;font-size:10px;font-weight:700;text-transform:uppercase;color:${t.priority === 'critical' ? '#c0392b' : '#c8a96e'};">${t.priority}</span>`
+    `<span style="float:right;font-size:10px;font-weight:700;text-transform:uppercase;color:${t.priority === 'critical' ? '#c0392b' : '#c8a96e'};">${t.priority}</span>${appUrl && t.id ? `<a href="${appUrl}/tasks?complete=${t.id}" style="float:right;font-size:11px;color:#5a8f5a;text-decoration:none;font-weight:600;margin-right:8px;margin-top:1px;">✓ Done</a>` : ''}${t.title}`
   );
   const reworkRows  = (reworkTasks || []).map(t => `⚑ ${t.title}`);
   const deadlineRows = (deadlineRisk || []).map(d => `⏱ ${d}`);

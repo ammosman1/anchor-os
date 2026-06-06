@@ -75,7 +75,7 @@ export default async function handler(req, res) {
         .where('done', '==', false)
         .limit(40)
         .get();
-      const tasks        = tasksSnap.docs.map(d => d.data());
+      const tasks        = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       const scheduledToday = tasks.filter(t =>
         t.scheduledDate === todayStr ||
         (t.scheduledStart && t.scheduledStart.startsWith(todayStr))

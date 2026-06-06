@@ -102,6 +102,20 @@ export default function TasksScreen() {
     return () => clearInterval(iv);
   }, [focusTask]);
 
+  // Handle ?complete=taskId links from morning briefing email
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const completeId = params.get('complete');
+    if (!completeId || !tasks.length) return;
+    const task = tasks.find(t => t.id === completeId && !t.done);
+    if (task) {
+      handleToggle(task);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('complete');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const startFocus = (task) => {
     const duration = task.estimatedMinutes || 25;
     setFocusTask({ task, duration, startTime: Date.now() });

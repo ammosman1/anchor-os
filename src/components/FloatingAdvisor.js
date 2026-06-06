@@ -450,7 +450,7 @@ Focus your advice on this specific project unless the user steers elsewhere.`;
 
 CAPABILITIES: You can create projects and tasks directly. When asked, include these markers in your response (auto-processed, NOT shown to user):
 CREATE_PROJECT: {"title":"Project Name","category":"work|home|finance|health|creative|personal|business","nextAction":"first step","notes":"brief context"}
-CREATE_TASK: {"title":"Task name","priority":"critical|high|medium|low","project":"Project name or Inbox","goalId":"optional-goal-id","projectId":"optional-project-id","context":"work|personal|home|health|financial|null"}
+CREATE_TASK: {"title":"Task name","priority":"critical|high|medium|low","project":"Project name or Inbox","goalId":"optional-goal-id","projectId":"optional-project-id","context":"work|personal|home|health|financial|null","dueDate":"YYYY-MM-DD or null"}
 
 Always confirm in plain language what you created. Multiple CREATE_TASK markers are allowed.`.trim();
   };
@@ -477,6 +477,7 @@ Always confirm in plain language what you created. Multiple CREATE_TASK markers 
             goalId:    action.goalId    || (pageContext?.type === 'goal'    ? pageContext.id : null),
             source:    'advisor',
             context:   action.context  || null,
+            dueDate:   action.dueDate  || null,
           });
           results.push(`✓ Task created: "${action.title}"`);
         }
