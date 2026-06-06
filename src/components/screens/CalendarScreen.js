@@ -915,7 +915,10 @@ export default function CalendarScreen() {
   const scheduleTaskAtSlot = async (task, day, mins) => {
     const start = new Date(day);
     start.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
-    const end   = new Date(start.getTime() + (task.estimatedMinutes || 45) * 60000);
+    const duration = (task.scheduledStart && task.scheduledEnd)
+      ? new Date(task.scheduledEnd).getTime() - new Date(task.scheduledStart).getTime()
+      : (task.estimatedMinutes || 45) * 60000;
+    const end = new Date(start.getTime() + duration);
     const tz    = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     const updates = {
@@ -938,8 +941,10 @@ export default function CalendarScreen() {
             colorId: '5',
           });
           updates.calendarEventId = created.id;
+          await updateTask(user.uid, task.id, updates);
           fetched.current.delete(weekStart(ws).toISOString());
           fetchWeek(ws);
+          return;
         }
       } catch (err) { if (isDev) console.warn('GCal event create failed:', err); }
     }
@@ -953,7 +958,10 @@ export default function CalendarScreen() {
     if (realTask.calendarEventId && calendarIntegration?.connected) {
       try {
         const token = await getValidAccessToken(user.uid, calendarIntegration);
-        if (token) await deleteEvent(token, realTask.calendarEventId);
+        if (token) {
+          await deleteEvent(token, realTask.calendarEventId);
+          setEvents(prev => prev.filter(e => e.id !== realTask.calendarEventId));
+        }
       } catch (err) { if (isDev) console.warn('Delete old GCal event failed on reschedule:', err); }
     }
     await scheduleTaskAtSlot(realTask, day, mins);
