@@ -169,6 +169,9 @@ export default function CalendarScreen() {
   const fetched                 = useRef(new Set());
   const dragRef                 = useRef(null);
   const tasksRef                = useRef(tasks);
+  // Always-current refs for drag handlers — avoids stale useCallback closures
+  const rescheduleCalendarTaskRef = useRef(null);
+  const scheduleTaskAtSlotRef     = useRef(null);
   const eventsRef               = useRef([]);
   const draggedSidebarTask      = useRef(null);
   const isDraggingFromSidebar   = useRef(false);
@@ -922,11 +925,11 @@ export default function CalendarScreen() {
     }
 
     if (calendarTask) {
-      await rescheduleCalendarTask(calendarTask, day, mins);
+      await rescheduleCalendarTaskRef.current(calendarTask, day, mins);
     } else {
-      await scheduleTaskAtSlot(task, day, mins);
+      await scheduleTaskAtSlotRef.current(task, day, mins);
     }
-  }, [userProfile]); // eslint-disable-line react-hooks/exhaustive-deps -- rescheduleCalendarTask/scheduleTaskAtSlot are defined without useCallback; only userProfile (work hours) is a meaningful trigger
+  }, [userProfile]); // eslint-disable-line react-hooks/exhaustive-deps -- schedule fns accessed via refs (always current); only userProfile (work hours) is a meaningful trigger for the rest of this callback
 
   const scheduleTaskAtSlot = async (task, day, mins) => {
     const start = new Date(day);
@@ -1052,6 +1055,10 @@ export default function CalendarScreen() {
 
     await updateTask(user.uid, realTask.id, updates);
   };
+
+  // Keep refs current so the memoized handleCalendarDrop always calls the latest version
+  rescheduleCalendarTaskRef.current = rescheduleCalendarTask;
+  scheduleTaskAtSlotRef.current     = scheduleTaskAtSlot;
 
   const handleSplitTask = async () => {
     if (!splitTask || splitSaving) return;
